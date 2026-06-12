@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PaisaMap — Purchasing Power Index, Near You</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#EDEFE8;
+    --paper-2:#E3E6DC;
+    --ink:#1B2622;
+    --ink-soft:#46524C;
+    --rupee:#0E7A5C;
+    --rupee-deep:#0A5743;
+    --amber:#DFAE3A;
+    --flame:#B33A2B;
+    --magenta:#9C3357;
+    --hairline:rgba(27,38,34,.18);
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+    --sans:'Archivo',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:var(--sans);
+    background:var(--paper);
+    color:var(--ink);
+    display:flex;
+    overflow:hidden;
+  }
+
+  /* ---------- Sidebar : the ledger ---------- */
+  aside{
+    width:392px;min-width:392px;height:100vh;
+    display:flex;flex-direction:column;
+    border-right:1px solid var(--ink);
+    background:var(--paper);
+    z-index:1000;
+  }
+  .brand{
+    padding:20px 22px 16px;
+    border-bottom:1px solid var(--ink);
+  }
+  .brand .eyebrow{
+    font-family:var(--mono);font-size:10px;letter-spacing:.22em;
+    text-transform:uppercase;color:var(--rupee-deep);
+    display:flex;justify-content:space-between;
+  }
+  .brand h1{
+    font-variation-settings:'wdth' 118;
+    font-weight:760;font-size:30px;letter-spacing:-.01em;
+    margin-top:6px;line-height:1;
+  }
+  .brand h1 .tick{color:var(--rupee)}
+  .brand p{
+    margin-top:8px;font-size:12.5px;color:var(--ink-soft);line-height:1.45;
+  }
+
+  .controls{
+    padding:16px 22px;border-bottom:1px solid var(--hairline);
+    display:flex;flex-direction:column;gap:14px;
+  }
+  .row{display:flex;gap:10px;align-items:center}
+  button.primary{
+    font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    background:var(--ink);color:var(--paper);border:1px solid var(--ink);
+    padding:10px 14px;cursor:pointer;flex:1;
+  }
+  button.primary:hover{background:var(--rupee-deep);border-color:var(--rupee-deep)}
+  button.primary:focus-visible,.seg button:focus-visible,input:focus-visible,.loc-row:focus-visible{
+    outline:2px solid var(--magenta);outline-offset:2px;
+  }
+  .field-label{
+    font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--ink-soft);display:flex;justify-content:space-between;align-items:baseline;
+  }
+  .field-label output{color:var(--ink);font-weight:600}
+  input[type=range]{
+    width:100%;appearance:none;height:2px;background:var(--ink);cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    appearance:none;width:16px;height:16px;border-radius:0;
+    background:var(--rupee);border:1.5px solid var(--ink);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:14px;height:14px;border-radius:0;background:var(--rupee);border:1.5px solid var(--ink);
+  }
+  .seg{display:flex;border:1px solid var(--ink)}
+  .seg button{
+    flex:1;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+    background:transparent;border:0;border-right:1px solid var(--ink);
+    padding:9px 4px;cursor:pointer;color:var(--ink);
+  }
+  .seg button:last-child{border-right:0}
+  .seg button[aria-pressed="true"]{background:var(--rupee);color:var(--paper)}
+
+  /* search */
+  .search-wrap{display:flex;border:1px solid var(--ink);background:var(--paper)}
+  .search-wrap input{
+    flex:1;border:0;background:transparent;padding:9px 10px;
+    font-family:var(--sans);font-size:13px;color:var(--ink);min-width:0;
+  }
+  .search-wrap input::placeholder{color:var(--ink-soft)}
+  .search-wrap button{
+    font-family:var(--mono);font-size:12px;background:var(--ink);color:var(--paper);
+    border:0;padding:0 14px;cursor:pointer;
+  }
+  .search-wrap button:hover{background:var(--rupee-deep)}
+  #searchResults{display:none;border:1px solid var(--ink);border-top:0;max-height:170px;overflow-y:auto;background:var(--paper)}
+  #searchResults button{
+    display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--hairline);
+    background:transparent;padding:8px 10px;cursor:pointer;color:var(--ink);
+    font-family:var(--sans);font-size:12px;line-height:1.35;
+  }
+  #searchResults button:hover{background:var(--paper-2)}
+  #searchResults button b{display:block;font-size:12.5px}
+  #searchResults button span{color:var(--ink-soft);font-size:11px}
+
+  /* you-are-here pin */
+  .you-pin{position:relative}
+  .you-pin .core{
+    position:absolute;left:2px;top:2px;width:14px;height:14px;
+    background:var(--magenta);border:2px solid var(--paper);
+    box-shadow:0 0 0 1.5px var(--ink);transform:rotate(45deg);display:block;
+  }
+  .you-pin .tag{
+    position:absolute;top:-24px;left:50%;transform:translateX(-50%);
+    font-family:var(--mono);font-size:9px;letter-spacing:.12em;
+    background:var(--ink);color:var(--paper);padding:1px 6px;white-space:nowrap;
+  }
+
+  .pp-btn{
+    margin-top:8px;width:100%;font-family:var(--mono);font-size:10px;
+    letter-spacing:.1em;text-transform:uppercase;background:transparent;
+    border:1px solid var(--ink);color:var(--ink);padding:6px;cursor:pointer;
+  }
+  .pp-btn:hover{background:var(--ink);color:var(--paper)}
+
+  /* CSS-only classic pin (no image files — survives strict previews) */
+  .css-pin{position:relative}
+  .css-pin .body{
+    position:absolute;left:3px;top:2px;width:22px;height:22px;
+    background:#2A81CB;border:1.5px solid #19548C;
+    border-radius:50% 50% 50% 0;transform:rotate(-45deg);
+    box-shadow:-1px 2px 3px rgba(0,0,0,.35);
+  }
+  .css-pin .dot{
+    position:absolute;left:10.5px;top:9px;width:8px;height:8px;
+    border-radius:50%;background:#fff;border:1px solid #19548C;
+  }
+
+  /* layer switcher icon: replace blocked PNG with a text glyph */
+  .leaflet-control-layers-toggle{
+    background-image:none!important;
+    display:flex;align-items:center;justify-content:center;
+    font-size:17px;color:var(--ink);
+  }
+  .leaflet-control-layers-toggle::after{content:"▤"}
+
+  /* offline graticule basemap when tile servers are unreachable */
+  #map.offline{
+    background:
+      repeating-linear-gradient(0deg,transparent 0 49px,rgba(27,38,34,.09) 49px 50px),
+      repeating-linear-gradient(90deg,transparent 0 49px,rgba(27,38,34,.09) 49px 50px),
+      #E9ECE2;
+  }
+  .offline-note{
+    display:none;position:absolute;left:14px;bottom:26px;z-index:850;
+    max-width:300px;background:var(--paper);border:1px solid var(--ink);
+    padding:10px 12px;font-size:11.5px;line-height:1.45;color:var(--ink);
+  }
+  .offline-note b{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--magenta)}
+  .offline-note.show{display:block}
+  .name-label{
+    background:rgba(255,255,255,.88);border:1px solid rgba(27,38,34,.35);
+    border-radius:3px;box-shadow:none;font-family:var(--sans);
+    font-size:10.5px;padding:1px 5px;color:var(--ink);
+  }
+  .name-label::before{display:none}
+
+  /* headline index */
+  .headline{
+    padding:16px 22px;border-bottom:1px solid var(--ink);
+    background:var(--paper-2);
+  }
+  .headline .field-label{margin-bottom:2px}
+  .headline .big{
+    font-family:var(--mono);font-weight:600;font-size:54px;line-height:1;
+    letter-spacing:-.03em;
+  }
+  .headline .big small{font-size:16px;letter-spacing:0;color:var(--ink-soft)}
+  .headline .sub{
+    margin-top:6px;font-family:var(--mono);font-size:11px;color:var(--ink-soft);
+    display:flex;gap:18px;flex-wrap:wrap;
+  }
+  .headline .sub b{color:var(--ink);font-weight:600}
+
+  /* locality ledger */
+  .ledger{flex:1;overflow-y:auto}
+  .ledger-head{
+    position:sticky;top:0;background:var(--paper);
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--ink-soft);
+    display:grid;grid-template-columns:30px 1fr 84px 64px;
+    padding:8px 22px;border-bottom:1px solid var(--hairline);
+  }
+  .loc-row{
+    display:grid;grid-template-columns:30px 1fr 84px 64px;
+    padding:10px 22px;border-bottom:1px solid var(--hairline);
+    cursor:pointer;align-items:baseline;width:100%;
+    background:transparent;border-left:0;border-right:0;border-top:0;text-align:left;
+    font-family:var(--sans);color:var(--ink);
+  }
+  .loc-row:hover{background:var(--paper-2)}
+  .loc-row.active{background:var(--ink);color:var(--paper)}
+  .loc-row .rank{font-family:var(--mono);font-size:11px;color:var(--ink-soft)}
+  .loc-row.active .rank{color:var(--paper)}
+  .loc-row .name{font-size:13.5px;font-weight:560;padding-right:8px}
+  .loc-row .val,.loc-row .ppi{font-family:var(--mono);font-size:12px;text-align:right}
+  .loc-row .ppi{font-weight:600}
+
+  .method{
+    padding:12px 22px;border-top:1px solid var(--ink);
+    font-size:11px;line-height:1.5;color:var(--ink-soft);background:var(--paper-2);
+  }
+  .method b{color:var(--magenta);font-family:var(--mono);font-size:10px;letter-spacing:.1em}
+
+  /* ---------- Map ---------- */
+  main{flex:1;position:relative}
+  #map{position:absolute;inset:0;background:#dfe3da}
+  .leaflet-container{font-family:var(--sans)}
+
+  /* denomination-strip legend (signature) */
+  .denom{
+    position:absolute;right:14px;bottom:26px;z-index:800;
+    background:var(--paper);border:1px solid var(--ink);
+    padding:10px 12px 12px;width:240px;
+  }
+  .denom .field-label{margin-bottom:8px}
+  .denom .strip{display:flex;height:18px;border:1px solid var(--ink)}
+  .denom .strip i{flex:1}
+  .denom .ticks{
+    display:flex;justify-content:space-between;
+    font-family:var(--mono);font-size:9.5px;margin-top:4px;color:var(--ink-soft);
+  }
+
+  /* status toast */
+  .toast{
+    position:absolute;top:14px;left:50%;transform:translateX(-50%);
+    z-index:900;background:var(--ink);color:var(--paper);
+    font-family:var(--mono);font-size:11px;padding:8px 14px;
+    opacity:0;transition:opacity .25s;pointer-events:none;max-width:80%;
+    text-align:center;
+  }
+  .toast.show{opacity:1}
+
+  /* popup — clean white rounded card, like leafletjs.com */
+  .leaflet-tooltip{
+    border-radius:6px;background:#fff;color:var(--ink);
+    border:1px solid rgba(0,0,0,.15);font-family:var(--sans);font-size:12px;
+    padding:4px 9px;box-shadow:0 2px 8px rgba(0,0,0,.18);
+  }
+  .leaflet-popup-content-wrapper{
+    border-radius:12px;background:#fff;color:var(--ink);
+    border:0;box-shadow:0 3px 14px rgba(0,0,0,.3);
+  }
+  .leaflet-popup-tip{background:#fff;border:0;box-shadow:0 3px 14px rgba(0,0,0,.2)}
+  .pp{font-size:12.5px;min-width:200px}
+  .pp h3{
+    font-variation-settings:'wdth' 112;font-size:15px;font-weight:700;margin-bottom:2px;
+  }
+  .pp .tag{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--rupee-deep);margin-bottom:8px;
+  }
+  .pp table{width:100%;border-collapse:collapse}
+  .pp td{padding:4px 0;border-top:1px solid var(--hairline);font-size:12px}
+  .pp td:last-child{text-align:right;font-family:var(--mono);font-weight:500}
+  .pp .ppi-big{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1}
+
+  /* mobile */
+  @media (max-width:760px){
+    body{flex-direction:column}
+    aside{width:100%;min-width:0;height:52vh;order:2;border-right:0;border-top:1px solid var(--ink)}
+    main{height:48vh;order:1}
+    .brand p{display:none}
+    .brand h1{font-size:22px}
+    .headline .big{font-size:38px}
+    .denom{width:180px;bottom:14px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{transition:none!important;animation:none!important}
+  }
+</style>
+</head>
+<body>
+
+<aside>
+  <div class="brand">
+    <div class="eyebrow"><span>Purchasing-power atlas</span><span>NCR · Demo · v1.3</span></div>
+    <h1>Paisa<span class="tick">/</span>Map</h1>
+    <p>Heat map of estimated purchasing power, average income and monthly spend for localities around you. OpenStreetMap base, 5–30 km radius.</p>
+  </div>
+
+  <div class="controls">
+    <div>
+      <div class="field-label" style="margin-bottom:6px"><span>Search location</span></div>
+      <div class="search-wrap">
+        <input id="searchBox" type="text" placeholder="Colony, sector, city — e.g. Saket" aria-label="Search location" autocomplete="off">
+        <button id="searchBtn" aria-label="Search">→</button>
+      </div>
+      <div id="searchResults" role="listbox"></div>
+    </div>
+    <div class="row">
+      <button class="primary" id="locateBtn">◉ Use my location</button>
+      <button class="primary" id="resetBtn" style="flex:0 0 auto">Delhi NCR</button>
+    </div>
+    <div class="row">
+      <button class="primary" id="nearbyBtn" style="background:transparent;color:var(--ink)">＋ Show nearby hubs (malls · markets · banks)</button>
+    </div>
+    <div>
+      <div class="field-label"><span>Radius</span><output id="radiusOut">20 km</output></div>
+      <input type="range" id="radius" min="5" max="30" step="1" value="20" aria-label="Search radius in kilometres">
+    </div>
+    <div>
+      <div class="field-label" style="margin-bottom:6px"><span>Heat by</span></div>
+      <div class="seg" role="group" aria-label="Metric">
+        <button data-metric="ppi" aria-pressed="true">PPI</button>
+        <button data-metric="income" aria-pressed="false">Income</button>
+        <button data-metric="spend" aria-pressed="false">Spend</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="headline">
+    <div class="field-label"><span id="hlLabel">Area purchasing power index</span><span>base 100</span></div>
+    <div class="big"><span id="hlValue">—</span><small> / 200</small></div>
+    <div class="sub">
+      <span>Avg income <b id="hlIncome">—</b>/mo</span>
+      <span>Avg spend <b id="hlSpend">—</b>/mo</span>
+      <span><b id="hlCount">0</b> localities</span>
+    </div>
+  </div>
+
+  <div class="ledger">
+    <div class="ledger-head"><span>#</span><span>Locality</span><span style="text-align:right" id="colLabel">Income/mo</span><span style="text-align:right">PPI</span></div>
+    <div id="locList"></div>
+  </div>
+
+  <div class="method">
+    <b>DEMO DATA</b> — figures are modelled estimates for illustration, not real transaction records. PPI = 0.6 × relative income + 0.4 × relative spend, indexed to the regional mean (100). Wire this to real sources (HCES, CMIE, bureau or UPI aggregator data) before drawing conclusions.
+  </div>
+</aside>
+
+<main>
+  <div id="map" role="application" aria-label="Purchasing power heat map"></div>
+  <div class="denom" aria-hidden="true">
+    <div class="field-label"><span>Index denomination</span></div>
+    <div class="strip">
+      <i style="background:#9DBFA5"></i><i style="background:#C8C77A"></i>
+      <i style="background:#DFAE3A"></i><i style="background:#C9603A"></i>
+      <i style="background:#B33A2B"></i><i style="background:#6E1F1B"></i>
+    </div>
+    <div class="ticks"><span>50</span><span>75</span><span>100</span><span>125</span><span>150</span><span>200</span></div>
+  </div>
+  <div class="offline-note" id="offlineNote">
+    <b>STREET TILES BLOCKED</b><br>
+    This preview can't load map imagery, so you're seeing a grid with locality
+    name labels instead. Download the file and open it in your browser —
+    streets, parks and labels will appear there.
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+<script>
+/* ============================================================
+   PaisaMap — demo purchasing-power heat map
+   All locality figures below are MODELLED for demonstration.
+   ============================================================ */
+const VERSION = "v1.3 · 2026-06-12";
+console.log("PaisaMap build", VERSION, "— features: search · boundaries · nearby hubs · CSS pins · offline mode");
+
+// [name, lat, lng, avg monthly household income (INR, modelled)]
+const NCR = [
+  ["Golf Links",28.598,77.227,450000],["Jor Bagh",28.587,77.214,400000],
+  ["Vasant Vihar",28.557,77.160,380000],["Chanakyapuri",28.595,77.188,350000],
+  ["DLF Phase 5 · Golf Course Rd",28.443,77.102,300000],["Defence Colony",28.573,77.231,280000],
+  ["Greater Kailash 1",28.554,77.234,260000],["Greater Kailash 2",28.534,77.240,250000],
+  ["Connaught Place",28.631,77.219,240000],["DLF Phase 1, Gurugram",28.475,77.100,230000],
+  ["Hauz Khas",28.549,77.200,220000],["Cyber City, Gurugram",28.495,77.089,220000],
+  ["Vasant Kunj",28.520,77.155,210000],["Saket",28.524,77.210,190000],
+  ["Sushant Lok, Gurugram",28.462,77.072,180000],["Civil Lines",28.677,77.225,180000],
+  ["Punjabi Bagh",28.668,77.131,170000],["Noida Sector 18",28.570,77.326,160000],
+  ["Gurugram Sector 56",28.420,77.100,160000],["Model Town",28.702,77.190,150000],
+  ["Rajouri Garden",28.642,77.120,150000],["Lajpat Nagar",28.567,77.243,150000],
+  ["Noida Sector 50",28.570,77.365,150000],["Sohna Road, Gurugram",28.410,77.040,140000],
+  ["Pitampura",28.699,77.131,140000],["Karol Bagh",28.652,77.190,130000],
+  ["Dwarka Sector 10",28.581,77.050,130000],["Noida Sector 62",28.627,77.364,130000],
+  ["Dwarka Sector 21",28.552,77.058,125000],["Preet Vihar",28.641,77.295,120000],
+  ["Janakpuri",28.622,77.087,120000],["Indirapuram",28.642,77.370,115000],
+  ["Sarita Vihar",28.530,77.290,115000],["Mayur Vihar",28.609,77.295,110000],
+  ["Rohini",28.740,77.110,110000],["Vaishali",28.645,77.340,105000],
+  ["Faridabad Sector 15",28.390,77.310,95000],["Greater Noida West",28.600,77.430,95000],
+  ["Laxmi Nagar",28.630,77.277,85000],["Raj Nagar, Ghaziabad",28.690,77.430,85000],
+  ["Okhla · Jamia Nagar",28.560,77.280,75000],["Uttam Nagar",28.620,77.060,70000],
+  ["Shahdara",28.673,77.289,65000],["Najafgarh",28.610,76.980,55000],
+  ["Narela",28.840,77.090,50000]
+];
+
+const DELHI_CENTER = [28.61, 77.21];
+const fmtINR = n => "₹" + Math.round(n).toLocaleString("en-IN");
+const fmtShort = n => n >= 100000 ? "₹" + (n/100000).toFixed(1).replace(/\.0$/,"") + "L"
+                                  : "₹" + Math.round(n/1000) + "k";
+
+// deterministic pseudo-random (so heat jitter is stable per locality)
+function rng(seed){ return () => (seed = (seed*9301+49297)%233280) / 233280; }
+
+// turn raw [name,lat,lng,income] into full record
+function buildRecord(d, i){
+  const income = d[3];
+  const spendRatio = Math.min(.8, Math.max(.45, .85 - income/1e6));
+  const spend = income * spendRatio;
+  return { id:i, name:d[0], lat:d[1], lng:d[2], income, spend, annual:spend*12 };
+}
+
+// synthetic data generator for non-NCR locations (demo fallback)
+function syntheticAround(lat,lng){
+  const r = rng(Math.round(lat*1000)+Math.round(lng*1000));
+  const dirs = ["North","North-East","East","South-East","South","South-West","West","North-West"];
+  const out = [];
+  for(let ring=1; ring<=4; ring++){
+    for(let k=0;k<8;k++){
+      const distKm = ring*5.5*(0.7+r()*0.6);
+      const ang = (k/8)*2*Math.PI + r()*0.5;
+      const dLat = (distKm/111)*Math.cos(ang);
+      const dLng = (distKm/(111*Math.cos(lat*Math.PI/180)))*Math.sin(ang);
+      const income = 45000 + r()*r()*380000; // skewed
+      out.push([`${dirs[k]} cluster ${ring}`, lat+dLat, lng+dLng, Math.round(income/1000)*1000]);
+    }
+  }
+  return out;
+}
+
+const haversine = (a,b,c,d) => {
+  const R=6371, p=Math.PI/180;
+  const x=Math.sin((c-a)*p/2)**2 + Math.cos(a*p)*Math.cos(c*p)*Math.sin((d-b)*p/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));
+};
+
+/* ---------- state ---------- */
+let center = [...DELHI_CENTER];
+let radiusKm = 20;
+let metric = "ppi";
+let dataset = NCR.map(buildRecord);
+let activeId = null;
+
+/* ---------- map ---------- */
+const map = L.map("map",{zoomControl:false}).setView(center, 11);
+L.control.zoom({position:"topleft"}).addTo(map);
+
+// labels pane: keeps CARTO label tiles above the heat layer when those basemaps are used
+map.createPane("labels");
+map.getPane("labels").style.zIndex = 450;          // above heat canvas (400)
+map.getPane("labels").style.pointerEvents = "none";
+
+const ATTR_OSM   = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const ATTR_CARTO = ATTR_OSM + ' &copy; <a href="https://carto.com/attributions">CARTO</a>';
+
+// Classic OpenStreetMap — the colourful leafletjs.com look (default)
+const osmClassic   = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+  {maxZoom:19, attribution:ATTR_OSM});
+// CARTO alternates (OSM-based)
+const cartoStreets = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png",
+  {maxZoom:19, subdomains:"abcd", attribution:ATTR_CARTO});
+const cartoLight   = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png",
+  {maxZoom:19, subdomains:"abcd", attribution:ATTR_CARTO});
+const cartoLabels  = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png",
+  {maxZoom:19, subdomains:"abcd", pane:"labels"});
+
+osmClassic.addTo(map);
+
+L.control.layers(
+  {"OpenStreetMap classic":osmClassic, "Streets (CARTO·OSM)":cartoStreets, "Light (CARTO·OSM)":cartoLight},
+  {"Labels overlay (for CARTO)":cartoLabels},
+  {position:"topright", collapsed:true}
+).addTo(map);
+
+// auto-attach the labels overlay when a CARTO (no-labels) basemap is chosen
+map.on("baselayerchange", e=>{
+  if(e.layer === osmClassic){ map.removeLayer(cartoLabels); }
+  else if(!map.hasLayer(cartoLabels)){ cartoLabels.addTo(map); }
+});
+
+// If OSM tiles fail to load (some networks block them), fall back to CARTO
+let tileFails = 0;
+osmClassic.on("tileerror", ()=>{
+  if(++tileFails === 6 && map.hasLayer(osmClassic)){
+    map.removeLayer(osmClassic);
+    cartoStreets.addTo(map);
+    cartoLabels.addTo(map);
+    toast("OSM tiles blocked on this network — switched to CARTO basemap.");
+  }
+});
+
+let heatLayer = null;
+let circleLayer = null;
+let markerGroup = L.layerGroup().addTo(map);
+let nearbyGroup = L.layerGroup().addTo(map);
+let boundaryLayer = null;
+let nearbyOn = false;
+
+/* ---------- you-are-here pin ---------- */
+const youIcon = L.divIcon({
+  className:"you-pin",
+  html:'<span class="tag">YOU ARE HERE</span><span class="core"></span>',
+  iconSize:[18,18], iconAnchor:[9,9]
+});
+const youMarker = L.marker(center,{icon:youIcon,zIndexOffset:1200,interactive:false}).addTo(map);
+function moveYou(){ youMarker.setLatLng(center); }
+
+/* ---------- CSS-only locality pin (no external images) ---------- */
+const pinIcon = L.divIcon({
+  className:"css-pin",
+  html:'<span class="body"></span><span class="dot"></span>',
+  iconSize:[28,30], iconAnchor:[14,28], popupAnchor:[0,-26], tooltipAnchor:[0,-26]
+});
+
+/* ---------- offline mode: tiles unreachable → grid + name labels ---------- */
+let OFFLINE = false;
+let tilesLoaded = 0;
+[osmClassic,cartoStreets,cartoLight,cartoLabels].forEach(l=>l.on("tileload",()=>{ tilesLoaded++; }));
+setTimeout(()=>{
+  if(tilesLoaded === 0){
+    OFFLINE = true;
+    document.getElementById("map").classList.add("offline");
+    document.getElementById("offlineNote").classList.add("show");
+    render(); // re-render markers with permanent name labels
+  }
+},4500);
+
+/* ---------- boundaries (real polygons from OSM/Nominatim) ---------- */
+function drawBoundary(geojson,label){
+  if(boundaryLayer){ boundaryLayer.remove(); boundaryLayer = null; }
+  if(!geojson) return;
+  boundaryLayer = L.geoJSON(geojson,{
+    style:{color:"#9C3357",weight:2,dashArray:"6 4",fillColor:"#9C3357",fillOpacity:.05},
+    interactive:false
+  }).addTo(map);
+  if(label) toast("Boundary drawn: " + label);
+}
+
+const NOMINATIM = "https://nominatim.openstreetmap.org";
+async function nominatimSearch(q){
+  const url = `${NOMINATIM}/search?format=jsonv2&limit=5&polygon_geojson=1&addressdetails=1&q=${encodeURIComponent(q)}`;
+  const res = await fetch(url,{headers:{Accept:"application/json"}});
+  if(!res.ok) throw new Error("Nominatim " + res.status);
+  return res.json();
+}
+
+// fetch + draw a locality's admin boundary on demand (popup button)
+window.showBoundary = async function(id){
+  const d = dataset.find(x=>x.id===id);
+  if(!d) return;
+  toast("Fetching boundary from OpenStreetMap…",6000);
+  try{
+    const q = d.name.split("·")[0].trim() + ", India";
+    const res = await nominatimSearch(q);
+    const hit = res.find(r => r.geojson && (r.geojson.type==="Polygon" || r.geojson.type==="MultiPolygon"));
+    if(hit){
+      drawBoundary(hit.geojson, d.name);
+      map.flyToBounds(boundaryLayer.getBounds(),{maxZoom:14,duration:.6});
+    } else {
+      toast("OSM has no boundary polygon mapped for “" + d.name + "”.");
+    }
+  }catch(e){
+    toast("Boundary lookup failed — if you're in a restricted preview, download and open the file in a browser tab.",5000);
+  }
+};
+
+/* ---------- location search ---------- */
+const searchBox = document.getElementById("searchBox");
+const searchResults = document.getElementById("searchResults");
+
+async function runSearch(){
+  const q = searchBox.value.trim();
+  if(!q) return;
+  searchResults.style.display = "block";
+  searchResults.innerHTML = '<button disabled>Searching…</button>';
+  try{
+    const res = await nominatimSearch(q);
+    if(!res.length){ searchResults.innerHTML = '<button disabled>No places found. Try adding the city name.</button>'; return; }
+    searchResults.innerHTML = "";
+    res.forEach(r=>{
+      const b = document.createElement("button");
+      const parts = r.display_name.split(",");
+      b.innerHTML = `<b>${parts[0]}</b><span>${parts.slice(1,4).join(",").trim()}</span>`;
+      b.addEventListener("click",()=>applyPlace(r));
+      searchResults.appendChild(b);
+    });
+  }catch(e){
+    searchResults.innerHTML = '<button disabled>Search failed — network blocked here. Download the file and open it in a browser tab.</button>';
+  }
+}
+
+function applyPlace(r){
+  center = [parseFloat(r.lat), parseFloat(r.lon)];
+  const dist = haversine(center[0],center[1],DELHI_CENTER[0],DELHI_CENTER[1]);
+  dataset = (dist <= 60 ? NCR : syntheticAround(center[0],center[1])).map(buildRecord);
+  activeId = null;
+  clearNearby();
+  const poly = r.geojson && (r.geojson.type==="Polygon" || r.geojson.type==="MultiPolygon") ? r.geojson : null;
+  drawBoundary(poly, poly ? r.display_name.split(",")[0] : null);
+  moveYou();
+  searchResults.style.display = "none";
+  searchBox.value = r.display_name.split(",")[0];
+  if(boundaryLayer){ map.flyToBounds(boundaryLayer.getBounds(),{maxZoom:13,duration:.8}); }
+  else { map.flyTo(center, 12, {duration:.8}); }
+  render();
+  if(dist > 60) toast("Outside NCR — locality figures are synthetic demo clusters.");
+}
+
+document.getElementById("searchBtn").addEventListener("click", runSearch);
+searchBox.addEventListener("keydown", e=>{ if(e.key==="Enter") runSearch(); });
+
+/* ---------- nearby hubs (Overpass API — OSM's "places nearby") ---------- */
+const OVERPASS = "https://overpass-api.de/api/interpreter";
+const nearbyBtn = document.getElementById("nearbyBtn");
+
+function clearNearby(){
+  nearbyGroup.clearLayers();
+  nearbyOn = false;
+  nearbyBtn.textContent = "＋ Show nearby hubs (malls · markets · banks)";
+}
+
+nearbyBtn.addEventListener("click", async ()=>{
+  if(nearbyOn){ clearNearby(); return; }
+  const rKm = Math.min(radiusKm,10), r = rKm*1000;
+  toast(`Finding malls, supermarkets & banks within ${rKm} km…`,8000);
+  const q = `[out:json][timeout:25];(
+    nwr["shop"="mall"](around:${r},${center[0]},${center[1]});
+    nwr["shop"="supermarket"](around:${r},${center[0]},${center[1]});
+    nwr["amenity"="bank"](around:${r},${center[0]},${center[1]});
+  );out center 80;`;
+  try{
+    const res = await fetch(OVERPASS,{
+      method:"POST",
+      headers:{"Content-Type":"application/x-www-form-urlencoded"},
+      body:"data="+encodeURIComponent(q)
+    });
+    if(!res.ok) throw new Error("Overpass " + res.status);
+    const json = await res.json();
+    nearbyGroup.clearLayers();
+    let n = 0;
+    (json.elements||[]).forEach(el=>{
+      const la = el.lat ?? el.center?.lat, lo = el.lon ?? el.center?.lon;
+      if(la == null || lo == null) return;
+      const t = el.tags || {};
+      const kind = t.shop === "mall" ? "Mall" : t.shop === "supermarket" ? "Supermarket" : "Bank";
+      L.circleMarker([la,lo],{
+        radius:3.5, color:"#0A5743", weight:1, fillColor:"#0E7A5C", fillOpacity:.9
+      }).bindTooltip(`${t.name || kind} · ${kind}`,{direction:"top",offset:[0,-4]})
+        .addTo(nearbyGroup);
+      n++;
+    });
+    nearbyOn = true;
+    nearbyBtn.textContent = `－ Hide nearby hubs (${n} found)`;
+    toast(n ? `${n} spend hubs plotted (green dots).` : "OSM has no malls/supermarkets/banks tagged in this radius.");
+  }catch(e){
+    toast("Nearby lookup failed — network blocked here. Download the file and open it in a browser tab.",5000);
+  }
+});
+
+const HEAT_GRADIENT = {0.15:"#9DBFA5",0.35:"#C8C77A",0.55:"#DFAE3A",0.75:"#C9603A",0.9:"#B33A2B",1:"#6E1F1B"};
+
+/* ---------- core render ---------- */
+function withinRadius(){
+  return dataset.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm);
+}
+
+function computePPI(rows){
+  const avgI = rows.reduce((s,d)=>s+d.income,0)/rows.length || 1;
+  const avgS = rows.reduce((s,d)=>s+d.spend,0)/rows.length || 1;
+  rows.forEach(d => d.ppi = Math.round(100*(0.6*d.income/avgI + 0.4*d.spend/avgS)));
+  return rows;
+}
+
+function metricValue(d){ return metric==="income" ? d.income : metric==="spend" ? d.spend : d.ppi; }
+
+function render(){
+  const rows = computePPI(withinRadius()).sort((a,b)=>metricValue(b)-metricValue(a));
+
+  // radius circle
+  if(circleLayer) circleLayer.remove();
+  circleLayer = L.circle(center,{
+    radius:radiusKm*1000, color:"#1B2622", weight:1.2, dashArray:"4 5",
+    fillColor:"#0E7A5C", fillOpacity:0.03, interactive:false
+  }).addTo(map);
+
+  // heat
+  if(heatLayer) heatLayer.remove();
+  const max = Math.max(...rows.map(metricValue), 1);
+  const min = Math.min(...rows.map(metricValue), 0);
+  const pts = [];
+  rows.forEach(d=>{
+    const w = 0.15 + 0.85*((metricValue(d)-min)/Math.max(1,(max-min)));
+    const r = rng(d.id*7+3);
+    for(let i=0;i<14;i++){
+      pts.push([d.lat+(r()-.5)*0.022, d.lng+(r()-.5)*0.022, w]);
+    }
+  });
+  heatLayer = L.heatLayer(pts,{radius:30,blur:24,maxZoom:13,minOpacity:0.18,max:1.25,gradient:HEAT_GRADIENT}).addTo(map);
+
+  // markers
+  markerGroup.clearLayers();
+  rows.forEach(d=>{
+    const m = L.marker([d.lat,d.lng],{icon:pinIcon})   // CSS-drawn classic pin
+      .bindPopup(popupHTML(d));
+    if(OFFLINE){
+      m.bindTooltip(d.name,{permanent:true,direction:"top",className:"name-label",opacity:1});
+    }else{
+      m.bindTooltip(d.name,{direction:"top",opacity:.95});
+    }
+    m.on("click",()=>setActive(d.id,false));
+    m.addTo(markerGroup);
+    d._marker = m;
+  });
+
+  // headline
+  const avg = arr => arr.reduce((s,x)=>s+x,0)/(arr.length||1);
+  document.getElementById("hlValue").textContent  = rows.length ? Math.round(avg(rows.map(r=>r.ppi))) : "—";
+  document.getElementById("hlIncome").textContent = rows.length ? fmtShort(avg(rows.map(r=>r.income))) : "—";
+  document.getElementById("hlSpend").textContent  = rows.length ? fmtShort(avg(rows.map(r=>r.spend))) : "—";
+  document.getElementById("hlCount").textContent  = rows.length;
+
+  // ledger list
+  const colLabels = {ppi:"PPI", income:"Income/mo", spend:"Spend/mo"};
+  document.getElementById("colLabel").textContent = colLabels[metric]==="PPI" ? "Income/mo" : colLabels[metric];
+  const list = document.getElementById("locList");
+  list.innerHTML = "";
+  rows.forEach((d,i)=>{
+    const b = document.createElement("button");
+    b.className = "loc-row" + (d.id===activeId ? " active":"");
+    b.innerHTML = `<span class="rank">${String(i+1).padStart(2,"0")}</span>
+      <span class="name">${d.name}</span>
+      <span class="val">${metric==="spend" ? fmtShort(d.spend) : fmtShort(d.income)}</span>
+      <span class="ppi">${d.ppi}</span>`;
+    b.addEventListener("click",()=>{
+      setActive(d.id,true);
+      map.flyTo([d.lat,d.lng], Math.max(map.getZoom(),13), {duration:.6});
+      d._marker && d._marker.openPopup();
+    });
+    list.appendChild(b);
+  });
+}
+
+function setActive(id, fromList){
+  activeId = id;
+  document.querySelectorAll(".loc-row").forEach(el=>el.classList.remove("active"));
+  if(!fromList){
+    // re-render list highlight cheaply
+    const rows=[...document.querySelectorAll(".loc-row")];
+    const d = dataset.find(x=>x.id===id);
+    rows.forEach(el=>{ if(el.querySelector(".name").textContent===d.name) el.classList.add("active"); });
+  } else {
+    render();
+  }
+}
+
+function popupHTML(d){
+  return `<div class="pp">
+    <h3>${d.name}</h3>
+    <div class="tag">Modelled estimate · demo</div>
+    <div class="ppi-big">${d.ppi} <span style="font-size:11px;color:#46524C">PPI</span></div>
+    <table>
+      <tr><td>Avg income</td><td>${fmtINR(d.income)}/mo</td></tr>
+      <tr><td>Monthly spend</td><td>${fmtINR(d.spend)}/mo</td></tr>
+      <tr><td>Annual spend</td><td>${fmtINR(d.annual)}/yr</td></tr>
+    </table>
+    <button class="pp-btn" onclick="showBoundary(${d.id})">Show area boundary</button>
+  </div>`;
+}
+
+/* ---------- toast ---------- */
+let toastT;
+function toast(msg, ms=3200){
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastT); toastT = setTimeout(()=>t.classList.remove("show"), ms);
+}
+
+/* ---------- controls ---------- */
+document.getElementById("radius").addEventListener("input", e=>{
+  radiusKm = +e.target.value;
+  document.getElementById("radiusOut").textContent = radiusKm + " km";
+  render();
+});
+
+document.querySelectorAll(".seg button").forEach(b=>{
+  b.addEventListener("click", ()=>{
+    document.querySelectorAll(".seg button").forEach(x=>x.setAttribute("aria-pressed","false"));
+    b.setAttribute("aria-pressed","true");
+    metric = b.dataset.metric;
+    const labels = {ppi:"Area purchasing power index", income:"Area avg income (indexed view)", spend:"Area avg spend (indexed view)"};
+    document.getElementById("hlLabel").textContent = labels[metric];
+    render();
+  });
+});
+
+document.getElementById("resetBtn").addEventListener("click", ()=>{
+  center = [...DELHI_CENTER];
+  dataset = NCR.map(buildRecord);
+  activeId = null;
+  moveYou();
+  clearNearby();
+  drawBoundary(null);
+  map.flyTo(center, 11, {duration:.6});
+  render();
+  toast("Showing Delhi NCR demo dataset");
+});
+
+document.getElementById("locateBtn").addEventListener("click", ()=>{
+  if(!navigator.geolocation){ toast("Geolocation isn’t available in this browser — showing Delhi NCR."); return; }
+  toast("Requesting location…",6000);
+  navigator.geolocation.getCurrentPosition(pos=>{
+    const {latitude:la, longitude:lo} = pos.coords;
+    center = [la,lo];
+    // inside NCR? keep real-ish dataset, else generate demo clusters
+    const distToDelhi = haversine(la,lo,DELHI_CENTER[0],DELHI_CENTER[1]);
+    dataset = (distToDelhi <= 60 ? NCR : syntheticAround(la,lo)).map(buildRecord);
+    activeId = null;
+    moveYou();
+    clearNearby();
+    drawBoundary(null);
+    map.flyTo(center, 11, {duration:.8});
+    render();
+    toast(distToDelhi <= 60 ? "Centred on you · NCR localities" : "Centred on you · synthetic demo clusters (no NCR data here)");
+  }, err=>{
+    toast("Location blocked or unavailable — showing Delhi NCR demo.");
+  }, {enableHighAccuracy:false, timeout:8000});
+});
+
+/* ---------- go ---------- */
+render();
+</script>
+</body>
+</html>
