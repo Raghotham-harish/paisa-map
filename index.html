@@ -335,7 +335,7 @@
 
 <aside>
   <div class="brand">
-    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v2.6 · Live</span></div>
+    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v2.7 · Live</span></div>
     <h1>Paisa<span class="tick">/</span>Map</h1>
   </div>
 
@@ -430,7 +430,7 @@
    PaisaMap — demo purchasing-power heat map
    All locality figures below are MODELLED for demonstration.
    ============================================================ */
-const VERSION = "v2.6 · 2026-06-14";
+const VERSION = "v2.7 · 2026-06-14";
 console.log("PaisaMap build", VERSION, "— features: search · boundaries · nearby hubs · CSS pins · offline mode");
 
 // [name, lat, lng, avg monthly household income (INR, modelled)]
@@ -628,8 +628,15 @@ youMarker.on("dragend", async e=>{
   const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
   dataset = (nearby.length > 0 ? nearby : syntheticAround(center[0],center[1])).map(buildRecord);
   activeId = null; clearNearby(); drawBoundary(null);
-  map.panTo(center);
   render();
+  // Fit viewport to show both pin and all plotted locality markers together
+  const inView = dataset.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm);
+  if(inView.length > 0){
+    const allPts = [center, ...inView.map(d => [d.lat, d.lng])];
+    map.flyToBounds(L.latLngBounds(allPts), {padding:[60,60], maxZoom:12, duration:0.8});
+  } else {
+    map.flyTo(center, 12, {duration:0.8});
+  }
   toast(nearby.length > 0 ? "Centred on pin · local PPI data" : "No data here yet — showing demo clusters");
 });
 
