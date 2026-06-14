@@ -877,31 +877,37 @@ function render(){
 
   if(viewMode === "zones"){
     rows.forEach(d=>{
-      const fill = zoneColor(d);  // absolute thresholds per metric
-      const baseStyle = {color:"#fff",weight:1.5,fillColor:fill,fillOpacity:0.55,interactive:false};
+      const fill = zoneColor(d);
+      // fade opacity by distance from pin: 0.15 at 30km, 0.70 at 0km
+      const distFromPin = haversine(center[0],center[1],d.lat,d.lng);
+      const pinProx = Math.exp(-distFromPin / 12);
+      const fillOpacity = 0.15 + 0.55 * pinProx;
+      const baseStyle = {color:"#fff",weight:1.5,fillColor:fill,fillOpacity,interactive:false};
       const circRadius = 600 + 18 * Math.max(0, d.ppi - 40);
       const circ = L.circle([d.lat,d.lng],{radius:circRadius,...baseStyle}).addTo(polyLayer);
       fetchLocalityBoundary(d.name, d.lat, d.lng).then(geom=>{
         if(!geom || gen !== renderGen) return;
         polyLayer.removeLayer(circ);
-        L.geoJSON(geom,{style:()=>baseStyle,interactive:false}).addTo(polyLayer);
+        L.geoJSON(geom,{style:()=>({...baseStyle}),interactive:false}).addTo(polyLayer);
       });
     });
   } else {
     const heatRange = Math.max(metricMax - metricMin, 1);
     const pts = [];
+    // anchor heat dot at pin position so it's obvious the pin drives the heat
+    pts.push([center[0], center[1], 0.25]);
     rows.forEach(d=>{
-      // base weight from metric value, modulated by proximity to pin
-      const baseW = 0.15 + 0.85*((metricValue(d) - metricMin) / heatRange);
+      const baseW = 0.2 + 0.8*((metricValue(d) - metricMin) / heatRange);
       const distKm = haversine(center[0],center[1],d.lat,d.lng);
-      const prox = Math.exp(-distKm / 18);          // half-strength ~12km from pin
-      const w = Math.min(1, baseW * (0.35 + 0.65 * prox));
+      // steep decay: half-strength at ~7km — dragging pin visibly shifts the heat
+      const prox = Math.exp(-distKm / 10);
+      const w = Math.max(0.04, baseW * prox);
       const r = rng(d.id*7+3);
-      for(let i=0;i<14;i++){
-        pts.push([d.lat+(r()-.5)*0.022, d.lng+(r()-.5)*0.022, w]);
+      for(let i=0;i<18;i++){
+        pts.push([d.lat+(r()-.5)*0.025, d.lng+(r()-.5)*0.025, w]);
       }
     });
-    heatLayer = L.heatLayer(pts,{radius:30,blur:24,maxZoom:13,minOpacity:0.18,max:1.25,gradient:HEAT_GRADIENTS[metric]}).addTo(map);
+    heatLayer = L.heatLayer(pts,{radius:28,blur:20,maxZoom:13,minOpacity:0.12,max:1.0,gradient:HEAT_GRADIENTS[metric]}).addTo(map);
   }
 
   // markers
