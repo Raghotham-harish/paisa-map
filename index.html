@@ -300,7 +300,7 @@
 
 <aside>
   <div class="brand">
-    <div class="eyebrow"><span>Purchasing-power atlas</span><span>NCR · Live · v2.0</span></div>
+    <div class="eyebrow"><span>Purchasing-power atlas</span><span>Delhi · Mumbai · Blr · Live · v2.1</span></div>
     <h1>Paisa<span class="tick">/</span>Map</h1>
     <p>Heat map of estimated purchasing power, average income and monthly spend for localities around you. OpenStreetMap base, 5–30 km radius.</p>
   </div>
@@ -316,7 +316,7 @@
     </div>
     <div class="row">
       <button class="primary" id="locateBtn">◉ Use my location</button>
-      <button class="primary" id="resetBtn" style="flex:0 0 auto">Delhi NCR</button>
+      <button class="primary" id="resetBtn" style="flex:0 0 auto">Delhi NCR ↺</button>
     </div>
     <div class="row">
       <button class="primary" id="nearbyBtn" style="background:transparent;color:var(--ink)">＋ Show nearby hubs (malls · markets · banks)</button>
@@ -629,8 +629,8 @@ async function runSearch(){
 
 function applyPlace(r){
   center = [parseFloat(r.lat), parseFloat(r.lon)];
-  const dist = haversine(center[0],center[1],DELHI_CENTER[0],DELHI_CENTER[1]);
-  dataset = (dist <= 60 ? ncrData : syntheticAround(center[0],center[1])).map(buildRecord);
+  const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
+  dataset = (nearby.length > 0 ? nearby : syntheticAround(center[0],center[1])).map(buildRecord);
   activeId = null;
   clearNearby();
   const poly = r.geojson && (r.geojson.type==="Polygon" || r.geojson.type==="MultiPolygon") ? r.geojson : null;
@@ -641,7 +641,7 @@ function applyPlace(r){
   if(boundaryLayer){ map.flyToBounds(boundaryLayer.getBounds(),{maxZoom:13,duration:.8}); }
   else { map.flyTo(center, 12, {duration:.8}); }
   render();
-  if(dist > 60) toast("Outside NCR — locality figures are synthetic demo clusters.");
+  if(nearby.length === 0) toast("No data for this area yet — showing synthetic demo clusters.");
 }
 
 document.getElementById("searchBtn").addEventListener("click", runSearch);
@@ -850,15 +850,15 @@ document.getElementById("locateBtn").addEventListener("click", ()=>{
     const {latitude:la, longitude:lo} = pos.coords;
     center = [la,lo];
     // inside NCR? keep real-ish dataset, else generate demo clusters
-    const distToDelhi = haversine(la,lo,DELHI_CENTER[0],DELHI_CENTER[1]);
-    dataset = (distToDelhi <= 60 ? ncrData : syntheticAround(la,lo)).map(buildRecord);
+    const nearby = ncrData.filter(d => haversine(la,lo,d[1],d[2]) <= 80);
+    dataset = (nearby.length > 0 ? nearby : syntheticAround(la,lo)).map(buildRecord);
     activeId = null;
     moveYou();
     clearNearby();
     drawBoundary(null);
     map.flyTo(center, 11, {duration:.8});
     render();
-    toast(distToDelhi <= 60 ? "Centred on you · NCR localities" : "Centred on you · synthetic demo clusters (no NCR data here)");
+    toast(nearby.length > 0 ? "Centred on you · local PPI data" : "Centred on you · synthetic demo clusters (no data here yet)");
   }, err=>{
     toast("Location blocked or unavailable — showing Delhi NCR demo.");
   }, {enableHighAccuracy:false, timeout:8000});
