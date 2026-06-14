@@ -333,6 +333,13 @@
         <button data-metric="spend" aria-pressed="false">Spend</button>
       </div>
     </div>
+    <div>
+      <div class="field-label" style="margin-bottom:6px"><span>View</span></div>
+      <div class="seg" role="group" aria-label="View mode">
+        <button id="viewZones" aria-pressed="true">⬡ Zones</button>
+        <button id="viewHeat"  aria-pressed="false">🌡 Heat</button>
+      </div>
+    </div>
   </div>
 
   <div class="headline">
@@ -529,10 +536,42 @@ osmClassic.on("tileerror", ()=>{
 
 let heatLayer = null;
 let circleLayer = null;
+let polyLayer = L.layerGroup().addTo(map);
 let markerGroup = L.layerGroup().addTo(map);
 let nearbyGroup = L.layerGroup().addTo(map);
 let boundaryLayer = null;
 let nearbyOn = false;
+let viewMode = "zones"; // "zones" | "heat"
+const polyCache = new Map(); // locality name → GeoJSON geometry or null
+
+async function fetchLocalityBoundary(name, lat, lng){
+  if(polyCache.has(name)) return polyCache.get(name);
+  polyCache.set(name, null); // mark in-flight
+  try{
+    const q = encodeURIComponent(name + " India");
+    const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=geojson&polygon_geojson=1&countrycodes=in&limit=1`;
+    const res = await fetch(url, {headers:{"Accept-Language":"en"}});
+    const data = await res.json();
+    const feat = data.features && data.features[0];
+    const geom = feat && (feat.geometry.type === "Polygon" || feat.geometry.type === "MultiPolygon")
+      ? feat.geometry : null;
+    polyCache.set(name, geom);
+    return geom;
+  }catch(e){ return null; }
+}
+
+document.getElementById("viewZones").addEventListener("click",()=>{
+  viewMode = "zones";
+  document.getElementById("viewZones").setAttribute("aria-pressed","true");
+  document.getElementById("viewHeat").setAttribute("aria-pressed","false");
+  render();
+});
+document.getElementById("viewHeat").addEventListener("click",()=>{
+  viewMode = "heat";
+  document.getElementById("viewHeat").setAttribute("aria-pressed","true");
+  document.getElementById("viewZones").setAttribute("aria-pressed","false");
+  render();
+});
 
 /* ---------- you-are-here pin ---------- */
 const youIcon = L.divIcon({
@@ -695,7 +734,17 @@ nearbyBtn.addEventListener("click", async ()=>{
   }
 });
 
-const HEAT_GRADIENT = {0.15:"#9DBFA5",0.35:"#C8C77A",0.55:"#DFAE3A",0.75:"#C9603A",0.9:"#B33A2B",1:"#6E1F1B"};
+// green=affluent, amber=mid, red=low — high PPI should look "good" (green)
+const HEAT_GRADIENT = {0:"#922B21", 0.25:"#C9603A", 0.5:"#DFAE3A", 0.75:"#7DBB61", 1:"#1A7A4A"};
+
+function ppiColor(ppi){
+  if(ppi >= 145) return "#1A7A4A";  // dark green
+  if(ppi >= 120) return "#27AE60";  // green
+  if(ppi >= 100) return "#F1C40F";  // yellow
+  if(ppi >= 80)  return "#E67E22";  // amber
+  if(ppi >= 60)  return "#E74C3C";  // red
+  return                "#922B21";  // dark red
+}
 
 /* ---------- core render ---------- */
 function withinRadius(){
@@ -721,19 +770,36 @@ function render(){
     fillColor:"#0E7A5C", fillOpacity:0.03, interactive:false
   }).addTo(map);
 
-  // heat
-  if(heatLayer) heatLayer.remove();
+  // zones or heat
+  if(heatLayer){ heatLayer.remove(); heatLayer = null; }
+  polyLayer.clearLayers();
   const max = Math.max(...rows.map(metricValue), 1);
   const min = Math.min(...rows.map(metricValue), 0);
-  const pts = [];
-  rows.forEach(d=>{
-    const w = 0.15 + 0.85*((metricValue(d)-min)/Math.max(1,(max-min)));
-    const r = rng(d.id*7+3);
-    for(let i=0;i<14;i++){
-      pts.push([d.lat+(r()-.5)*0.022, d.lng+(r()-.5)*0.022, w]);
-    }
-  });
-  heatLayer = L.heatLayer(pts,{radius:30,blur:24,maxZoom:13,minOpacity:0.18,max:1.25,gradient:HEAT_GRADIENT}).addTo(map);
+
+  if(viewMode === "zones"){
+    rows.forEach(d=>{
+      const fill = ppiColor(d.ppi);
+      const baseStyle = {color:"#fff",weight:1.5,fillColor:fill,fillOpacity:0.55,interactive:false};
+      // draw circle zone immediately
+      const circ = L.circle([d.lat,d.lng],{radius:1300,...baseStyle}).addTo(polyLayer);
+      // try to upgrade to real boundary polygon
+      fetchLocalityBoundary(d.name, d.lat, d.lng).then(geom=>{
+        if(!geom) return;
+        polyLayer.removeLayer(circ);
+        L.geoJSON(geom,{style:()=>baseStyle}).addTo(polyLayer);
+      });
+    });
+  } else {
+    const pts = [];
+    rows.forEach(d=>{
+      const w = 0.15 + 0.85*((metricValue(d)-min)/Math.max(1,(max-min)));
+      const r = rng(d.id*7+3);
+      for(let i=0;i<14;i++){
+        pts.push([d.lat+(r()-.5)*0.022, d.lng+(r()-.5)*0.022, w]);
+      }
+    });
+    heatLayer = L.heatLayer(pts,{radius:30,blur:24,maxZoom:13,minOpacity:0.18,max:1.25,gradient:HEAT_GRADIENT}).addTo(map);
+  }
 
   // markers
   markerGroup.clearLayers();
