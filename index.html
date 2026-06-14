@@ -1041,30 +1041,37 @@ document.getElementById("resetBtn").addEventListener("click", async ()=>{
   toast("Showing all " + ncrData.length + " localities");
 });
 
-document.getElementById("locateBtn").addEventListener("click", async ()=>{
-  if(!navigator.geolocation){ toast("Geolocation isn’t available in this browser — showing Delhi NCR."); return; }
-  if(dataPromise) await dataPromise;
-  toast("Requesting location…",6000);
-  navigator.geolocation.getCurrentPosition(pos=>{
+// shared locate function — auto=true on page load (silent fail, no request toast)
+function locateUser(auto){
+  if(!navigator.geolocation){
+    if(!auto) toast("Geolocation not available — showing Delhi NCR.");
+    return;
+  }
+  if(!auto) toast("Requesting location…", 6000);
+  navigator.geolocation.getCurrentPosition(async pos=>{
     const {latitude:la, longitude:lo} = pos.coords;
-    center = [la,lo];
+    if(dataPromise) await dataPromise;   // wait for CSV before filtering
+    center = [la, lo];
     const nearby = ncrData.filter(d => haversine(la,lo,d[1],d[2]) <= 80);
     dataset = (nearby.length > 0 ? nearby : syntheticAround(la,lo)).map(buildRecord);
     activeId = null;
     moveYou();
     clearNearby();
     drawBoundary(null);
-    map.flyTo(center, 11, {duration:.8});
+    document.querySelectorAll(".city-btn").forEach(b=>b.classList.remove("active"));
+    map.flyTo(center, 12, {duration:1});
     render();
-    toast(nearby.length > 0 ? "Centred on you · local PPI data" : "Centred on you · synthetic demo clusters (no data here yet)");
-  }, err=>{
-    toast("Location blocked or unavailable — showing Delhi NCR demo.");
+    toast(nearby.length > 0 ? "Centred on your location · local PPI data" : "Your location · no PPI data here yet — showing demo clusters");
+  }, ()=>{
+    if(!auto) toast("Location unavailable — showing Delhi NCR.");
   }, {enableHighAccuracy:false, timeout:8000});
-});
+}
+document.getElementById("locateBtn").addEventListener("click", ()=> locateUser(false));
 
 /* ---------- go ---------- */
 render();
 dataPromise = loadPPIData();
+locateUser(true);   // auto-locate on page load; silently falls back to Delhi if denied
 </script>
 </body>
 </html>
