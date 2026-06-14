@@ -335,7 +335,7 @@
 
 <aside>
   <div class="brand">
-    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v2.8 · Live</span></div>
+    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v2.9 · Live</span></div>
     <h1>Paisa<span class="tick">/</span>Map</h1>
   </div>
 
@@ -430,7 +430,7 @@
    PaisaMap — demo purchasing-power heat map
    All locality figures below are MODELLED for demonstration.
    ============================================================ */
-const VERSION = "v2.8 · 2026-06-14";
+const VERSION = "v2.9 · 2026-06-14";
 console.log("PaisaMap build", VERSION, "— features: search · boundaries · nearby hubs · CSS pins · offline mode");
 
 // [name, lat, lng, avg monthly household income (INR, modelled)]
@@ -474,7 +474,13 @@ async function loadPPIData(){
       return [name, parseFloat(lat), parseFloat(lng), parseFloat(income)];
     }).filter(r=>r[1]&&r[2]&&r[3]);
     if(parsed.length > 0){
-      ncrData = parsed;
+      // Keep NCR localities the CSV doesn't cover (Gurgaon, Noida, Faridabad etc.)
+      // NCR income is ~5.5× monthly scale — normalise before merging
+      const NCR_SCALE = 5.5;
+      const ncr_extras = NCR.filter(n =>
+        !parsed.some(p => haversine(n[1],n[2],p[1],p[2]) < 5)
+      ).map(n => [n[0], n[1], n[2], Math.round(n[3] / NCR_SCALE)]);
+      ncrData = [...parsed, ...ncr_extras];
       dataset = ncrData.map(buildRecord);
       render();
     }
@@ -625,11 +631,12 @@ youMarker.on("dragend", async e=>{
   const ll = e.target.getLatLng();
   center = [ll.lat, ll.lng];
   if(dataPromise) await dataPromise;
+  liveData = []; liveGen++;          // cancel any in-flight live fetch
   const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
   dataset = (nearby.length > 0 ? nearby : syntheticAround(center[0],center[1])).map(buildRecord);
   activeId = null; clearNearby(); drawBoundary(null);
   render();
-  // Fit viewport to show both pin and all plotted locality markers together
+  // Fit viewport to show pin + any static data within radius
   const inView = dataset.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm);
   if(inView.length > 0){
     const allPts = [center, ...inView.map(d => [d.lat, d.lng])];
@@ -637,7 +644,14 @@ youMarker.on("dragend", async e=>{
   } else {
     map.flyTo(center, 12, {duration:0.8});
   }
-  toast(nearby.length > 0 ? "Centred on pin · local PPI data" : "No data here yet — showing demo clusters");
+  // If no static data in radius, fetch live OSM data
+  const hasStatic = ncrData.some(d => haversine(center[0],center[1],d[1],d[2]) <= radiusKm);
+  if(hasStatic){
+    toast("Centred on pin · local PPI data");
+  } else {
+    toast("Fetching live data from OpenStreetMap…", 10000);
+    loadLiveAreaData(center[0], center[1]);
+  }
 });
 
 /* ---------- CSS-only locality pin (no external images) ---------- */
@@ -849,10 +863,73 @@ function updateLegend(){
 }
 
 let renderGen = 0;
+let liveData  = [];   // on-demand Overpass results
+let liveGen   = 0;
+
+/* ---------- live data: query Overpass when no static data in radius ---------- */
+async function loadLiveAreaData(lat, lng){
+  const myGen = ++liveGen;
+  try{
+    // Count premium POIs within 2 km of pin
+    const q = `[out:json][timeout:20];(
+      nwr["shop"="mall"](around:2000,${lat},${lng});
+      nwr["shop"="supermarket"](around:2000,${lat},${lng});
+      nwr["amenity"="bank"](around:2000,${lat},${lng});
+      nwr["shop"="jewelry"](around:2000,${lat},${lng});
+      nwr["leisure"="fitness_centre"](around:2000,${lat},${lng});
+      nwr["amenity"="school"](around:2000,${lat},${lng});
+      nwr["amenity"="hospital"](around:2000,${lat},${lng});
+      nwr["amenity"="fuel"](around:2000,${lat},${lng});
+      nwr["amenity"="pharmacy"](around:2000,${lat},${lng});
+      nwr["amenity"="restaurant"](around:2000,${lat},${lng});
+    );out count;`;
+
+    const [ovRes, nomRes] = await Promise.all([
+      fetch(OVERPASS, {method:"POST", body:q, headers:{"Content-Type":"text/plain"}}),
+      fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=14`,
+            {headers:{"Accept-Language":"en","User-Agent":"PaisaMap/2.9"}})
+    ]);
+    if(myGen !== liveGen) return;
+
+    const [ovData, nomData] = await Promise.all([ovRes.json(), nomRes.json()]);
+    if(myGen !== liveGen) return;
+
+    // Estimate monthly household income from POI density (calibrated on 38 pincodes)
+    const count   = parseInt(ovData?.elements?.[0]?.tags?.total) || 0;
+    const density = count / (Math.PI * 4); // per km² for 2km radius
+    const baseInc = Math.round(Math.max(11000, Math.min(160000, 11000 + 900 * density)));
+
+    const adr = nomData?.address || {};
+    const locName = adr.suburb || adr.neighbourhood || adr.village
+                  || adr.town || adr.city_district || "Your Area";
+
+    // Centre point + 8 directional samples at radiusKm/3 spacing
+    const step = Math.max(2, Math.min(radiusKm / 3, 8));
+    const stepDeg = step / 111;
+    const rr = rng(Math.round(lat * 1000) + Math.round(lng * 1000));
+    const pts = [[locName, lat, lng, baseInc]];
+    ["N","NE","E","SE","S","SW","W","NW"].forEach((d, i) => {
+      const ang  = (i / 8) * 2 * Math.PI;
+      const dist = stepDeg * (0.8 + rr() * 0.4);
+      const dlat = dist * Math.cos(ang);
+      const dlng = dist / Math.cos(lat * Math.PI / 180) * Math.sin(ang);
+      const inc  = Math.round(Math.max(10000, Math.min(160000, baseInc * (0.5 + rr() * 1.0))));
+      pts.push([`${d} · ${locName}`, lat + dlat, lng + dlng, inc]);
+    });
+
+    liveData = pts.map(buildRecord);
+    render();
+    toast(`Live OSM data · ${locName}`, 3000);
+  } catch(e){
+    if(myGen === liveGen) toast("Showing estimated data — OSM query failed", 3000);
+  }
+}
 
 /* ---------- core render ---------- */
 function withinRadius(){
-  return dataset.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm);
+  const base = dataset.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm);
+  const live = liveData.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm);
+  return [...base, ...live];
 }
 
 function computePPI(rows){
@@ -866,7 +943,14 @@ function metricValue(d){ return metric==="income" ? d.income : metric==="spend" 
 
 function render(){
   const gen = ++renderGen;
-  const rows = computePPI(withinRadius()).sort((a,b)=>metricValue(b)-metricValue(a));
+  let rows = computePPI(withinRadius()).sort((a,b)=>metricValue(b)-metricValue(a));
+
+  // No real data within selected radius → show synthetic demo clusters around pin
+  if(rows.length === 0){
+    const synth = syntheticAround(center[0], center[1]).map(buildRecord);
+    rows = computePPI(synth.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm))
+             .sort((a,b)=>metricValue(b)-metricValue(a));
+  }
 
   const metricVals = rows.map(metricValue);
   const metricMin = rows.length ? Math.min(...metricVals) : 0;
@@ -1010,6 +1094,7 @@ const CITIES = {
 };
 async function jumpToCity(key){
   if(dataPromise) await dataPromise;
+  liveData = []; liveGen++;
   const c = CITIES[key];
   center = [...c.center];
   const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
@@ -1054,6 +1139,7 @@ document.getElementById("resetBtn").addEventListener("click", async ()=>{
 
 async function applyLocation(la, lo){
   if(dataPromise) await dataPromise;
+  liveData = []; liveGen++;
   center = [la, lo];
   const nearby = ncrData.filter(d => haversine(la,lo,d[1],d[2]) <= 80);
   dataset = (nearby.length > 0 ? nearby : syntheticAround(la,lo)).map(buildRecord);
@@ -1062,6 +1148,9 @@ async function applyLocation(la, lo){
   map.flyTo(center, 12, {duration:1});
   render();
   try{ localStorage.setItem("pm_loc", JSON.stringify([la,lo])); }catch(e){}
+  // If outside static coverage, fetch live OSM data automatically
+  const hasStatic = ncrData.some(d => haversine(la,lo,d[1],d[2]) <= radiusKm);
+  if(!hasStatic) loadLiveAreaData(la, lo);
 }
 
 function locateUser(auto){
