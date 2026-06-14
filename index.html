@@ -335,7 +335,7 @@
 
 <aside>
   <div class="brand">
-    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v2.5 · Live</span></div>
+    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v2.6 · Live</span></div>
     <h1>Paisa<span class="tick">/</span>Map</h1>
   </div>
 
@@ -430,7 +430,7 @@
    PaisaMap — demo purchasing-power heat map
    All locality figures below are MODELLED for demonstration.
    ============================================================ */
-const VERSION = "v2.5 · 2026-06-14";
+const VERSION = "v2.6 · 2026-06-14";
 console.log("PaisaMap build", VERSION, "— features: search · boundaries · nearby hubs · CSS pins · offline mode");
 
 // [name, lat, lng, avg monthly household income (INR, modelled)]
@@ -628,6 +628,7 @@ youMarker.on("dragend", async e=>{
   const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
   dataset = (nearby.length > 0 ? nearby : syntheticAround(center[0],center[1])).map(buildRecord);
   activeId = null; clearNearby(); drawBoundary(null);
+  map.panTo(center);
   render();
   toast(nearby.length > 0 ? "Centred on pin · local PPI data" : "No data here yet — showing demo clusters");
 });
@@ -894,12 +895,14 @@ function render(){
   } else {
     const heatRange = Math.max(metricMax - metricMin, 1);
     const pts = [];
-    // anchor heat dot at pin position so it's obvious the pin drives the heat
-    pts.push([center[0], center[1], 0.25]);
+    // prominent anchor cluster at pin so dragging is visually obvious
+    const rPin = rng(42);
+    for(let i=0;i<24;i++){
+      pts.push([center[0]+(rPin()-.5)*0.012, center[1]+(rPin()-.5)*0.012, 0.55]);
+    }
     rows.forEach(d=>{
       const baseW = 0.2 + 0.8*((metricValue(d) - metricMin) / heatRange);
       const distKm = haversine(center[0],center[1],d.lat,d.lng);
-      // steep decay: half-strength at ~7km — dragging pin visibly shifts the heat
       const prox = Math.exp(-distKm / 10);
       const w = Math.max(0.04, baseW * prox);
       const r = rng(d.id*7+3);
