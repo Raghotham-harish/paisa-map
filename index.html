@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
 <style>
   :root{
     --paper:#EDEFE8;
@@ -34,7 +35,7 @@
 
   /* ---------- Sidebar : the ledger ---------- */
   aside{
-    width:300px;min-width:300px;height:100vh;
+    width:340px;min-width:340px;height:100vh;
     display:flex;flex-direction:column;
     border-right:1px solid var(--ink);
     background:var(--paper);
@@ -96,14 +97,16 @@
   .city-btn:hover,.city-btn.active{background:var(--rupee);color:var(--paper);border-color:var(--rupee)}
 
   /* action bar */
-  .action-bar{display:flex;gap:5px;align-items:stretch}
+  .action-bar{display:flex;flex-direction:column;gap:5px}
+  .action-row{display:flex;gap:5px;align-items:stretch}
   .act-btn{
-    font-size:15px;padding:7px 9px;cursor:pointer;
+    font-size:15px;padding:7px 10px;cursor:pointer;
     background:var(--paper-2);border:1px solid var(--hairline);color:var(--ink);
-    white-space:nowrap;
+    display:flex;align-items:center;justify-content:center;
   }
   .act-btn:hover{background:var(--ink);color:var(--paper)}
   .act-btn.active{background:var(--rupee);color:var(--paper);border-color:var(--rupee)}
+  .act-btn i,.mini-seg i{font-size:14px;line-height:1;vertical-align:middle}
 
   /* mini toggles */
   .mini-seg{display:flex;border:1px solid var(--ink);flex-shrink:0}
@@ -339,9 +342,10 @@
   <div class="controls">
     <!-- Quick city jump -->
     <div class="city-row">
-      <button class="city-btn active" data-city="delhi">🏛 Delhi</button>
-      <button class="city-btn" data-city="mumbai">🌊 Mumbai</button>
-      <button class="city-btn" data-city="bengaluru">🌿 Blr</button>
+      <button class="city-btn active" data-city="delhi">Delhi</button>
+      <button class="city-btn" data-city="mumbai">Mumbai</button>
+      <button class="city-btn" data-city="bengaluru">Bengaluru</button>
+      <button class="city-btn" id="resetBtn" title="Reset — show all data"><i class="ti ti-refresh"></i></button>
     </div>
 
     <!-- Search: area name or 6-digit pincode -->
@@ -351,18 +355,22 @@
     </div>
     <div id="searchResults" role="listbox"></div>
 
-    <!-- Compact action bar: locate · nearby · metric · view -->
+    <!-- Compact action bar: 2-row layout -->
     <div class="action-bar">
-      <button class="act-btn" id="locateBtn" title="Use my location">📍</button>
-      <button class="act-btn" id="nearbyBtn" title="Nearby hubs">🏪</button>
-      <div class="mini-seg" id="metricSeg" role="group" aria-label="Metric">
-        <button data-metric="ppi"    aria-pressed="true"  title="PPI">PPI</button>
-        <button data-metric="income" aria-pressed="false" title="Income">₹</button>
-        <button data-metric="spend"  aria-pressed="false" title="Spend">💸</button>
+      <div class="action-row">
+        <button class="act-btn" id="locateBtn" title="Use my location"><i class="ti ti-current-location"></i></button>
+        <button class="act-btn" id="nearbyBtn" title="Nearby hubs"><i class="ti ti-building-store"></i></button>
+        <div class="mini-seg" id="metricSeg" role="group" aria-label="Metric" style="flex:1">
+          <button data-metric="ppi"    aria-pressed="true"  title="PPI" style="flex:1">PPI</button>
+          <button data-metric="income" aria-pressed="false" title="Income" style="flex:1">₹</button>
+          <button data-metric="spend"  aria-pressed="false" title="Spend" style="flex:1">Spd</button>
+        </div>
       </div>
-      <div class="mini-seg" id="viewSeg" role="group" aria-label="View">
-        <button id="viewZones" aria-pressed="true"  title="Zone polygons">⬡</button>
-        <button id="viewHeat"  aria-pressed="false" title="Heatmap">🌡</button>
+      <div class="action-row">
+        <div class="mini-seg" id="viewSeg" role="group" aria-label="View" style="flex:1">
+          <button id="viewZones" aria-pressed="true"  title="Zone polygons" style="flex:1"><i class="ti ti-hexagon"></i> Zones</button>
+          <button id="viewHeat"  aria-pressed="false" title="Heatmap" style="flex:1"><i class="ti ti-flame"></i> Heat</button>
+        </div>
       </div>
     </div>
 
@@ -372,7 +380,7 @@
       <input type="range" id="radius" min="10" max="80" step="5" value="50" aria-label="Radius km">
       <output id="radiusOut">50 km</output>
     </div>
-    <p class="drag-hint">Drag the 🔴 pin on map to move your location</p>
+    <p class="drag-hint">Drag the red pin on the map to move your location</p>
   </div>
 
   <div class="headline">
@@ -453,6 +461,7 @@ const NCR = [
 ];
 
 let ncrData = NCR;
+let dataPromise = null;
 
 async function loadPPIData(){
   try{
@@ -579,17 +588,15 @@ const polyCache = new Map(); // locality name → GeoJSON geometry or null
 
 async function fetchLocalityBoundary(name, lat, lng){
   if(polyCache.has(name)) return polyCache.get(name);
-  polyCache.set(name, null); // mark in-flight
+  polyCache.set(name, null);
   try{
-    const q = encodeURIComponent(name + " India");
-    const url = `https://nominatim.openstreetmap.org/search?q=${q}&format=geojson&polygon_geojson=1&countrycodes=in&limit=1`;
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&zoom=14&format=geojson&polygon_geojson=1`;
     const res = await fetch(url, {headers:{"Accept-Language":"en"}});
     const data = await res.json();
-    const feat = data.features && data.features[0];
-    const geom = feat && (feat.geometry.type === "Polygon" || feat.geometry.type === "MultiPolygon")
-      ? feat.geometry : null;
-    polyCache.set(name, geom);
-    return geom;
+    const geom = data.geometry || null;
+    const valid = geom && (geom.type==="Polygon" || geom.type==="MultiPolygon") ? geom : null;
+    polyCache.set(name, valid);
+    return valid;
   }catch(e){ return null; }
 }
 
@@ -735,7 +742,8 @@ const nearbyBtn = document.getElementById("nearbyBtn");
 function clearNearby(){
   nearbyGroup.clearLayers();
   nearbyOn = false;
-  nearbyBtn.textContent = "＋ Show nearby hubs (malls · markets · banks)";
+  nearbyBtn.innerHTML = '<i class="ti ti-building-store"></i>';
+  nearbyBtn.title = "Nearby hubs";
 }
 
 nearbyBtn.addEventListener("click", async ()=>{
@@ -769,7 +777,8 @@ nearbyBtn.addEventListener("click", async ()=>{
       n++;
     });
     nearbyOn = true;
-    nearbyBtn.textContent = `－ Hide nearby hubs (${n} found)`;
+    nearbyBtn.innerHTML = '<i class="ti ti-x"></i>';
+    nearbyBtn.title = `Hide nearby hubs (${n} found)`;
     toast(n ? `${n} spend hubs plotted (green dots).` : "OSM has no malls/supermarkets/banks tagged in this radius.");
   }catch(e){
     toast("Nearby lookup failed — network blocked here. Download the file and open it in a browser tab.",5000);
@@ -822,8 +831,9 @@ function render(){
     rows.forEach(d=>{
       const fill = ppiColor(d.ppi);
       const baseStyle = {color:"#fff",weight:1.5,fillColor:fill,fillOpacity:0.55,interactive:false};
-      // draw circle zone immediately
-      const circ = L.circle([d.lat,d.lng],{radius:1300,...baseStyle}).addTo(polyLayer);
+      // draw circle zone immediately — radius scales with PPI
+      const circRadius = 600 + 18 * Math.max(0, d.ppi - 40);
+      const circ = L.circle([d.lat,d.lng],{radius:circRadius,...baseStyle}).addTo(polyLayer);
       // try to upgrade to real boundary polygon
       fetchLocalityBoundary(d.name, d.lat, d.lng).then(geom=>{
         if(!geom) return;
@@ -927,7 +937,8 @@ const CITIES = {
   mumbai:    {center:[19.07,72.87], zoom:12},
   bengaluru: {center:[12.97,77.59], zoom:12},
 };
-function jumpToCity(key){
+async function jumpToCity(key){
+  if(dataPromise) await dataPromise;
   const c = CITIES[key];
   center = [...c.center];
   const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
@@ -935,7 +946,7 @@ function jumpToCity(key){
   activeId = null; clearNearby(); drawBoundary(null); moveYou();
   map.flyTo(center, c.zoom, {duration:.8});
   render();
-  document.querySelectorAll(".city-btn").forEach(b=>b.classList.toggle("active", b.dataset.city===key));
+  document.querySelectorAll(".city-btn").forEach(b=>b.classList.toggle("active", b.dataset.city===key && b.id!=="resetBtn"));
 }
 document.querySelectorAll(".city-btn").forEach(b=>b.addEventListener("click",()=>jumpToCity(b.dataset.city)));
 
@@ -956,7 +967,8 @@ document.querySelectorAll("#metricSeg button").forEach(b=>{
   });
 });
 
-document.getElementById("resetBtn").addEventListener("click", ()=>{
+document.getElementById("resetBtn").addEventListener("click", async ()=>{
+  if(dataPromise) await dataPromise;
   center = [...DELHI_CENTER];
   dataset = ncrData.map(buildRecord);
   activeId = null;
@@ -965,16 +977,17 @@ document.getElementById("resetBtn").addEventListener("click", ()=>{
   drawBoundary(null);
   map.flyTo(center, 11, {duration:.6});
   render();
-  toast("Showing NCR PPI dataset");
+  document.querySelectorAll(".city-btn").forEach(b=>b.classList.remove("active"));
+  toast("Showing all " + ncrData.length + " localities");
 });
 
-document.getElementById("locateBtn").addEventListener("click", ()=>{
+document.getElementById("locateBtn").addEventListener("click", async ()=>{
   if(!navigator.geolocation){ toast("Geolocation isn’t available in this browser — showing Delhi NCR."); return; }
+  if(dataPromise) await dataPromise;
   toast("Requesting location…",6000);
   navigator.geolocation.getCurrentPosition(pos=>{
     const {latitude:la, longitude:lo} = pos.coords;
     center = [la,lo];
-    // inside NCR? keep real-ish dataset, else generate demo clusters
     const nearby = ncrData.filter(d => haversine(la,lo,d[1],d[2]) <= 80);
     dataset = (nearby.length > 0 ? nearby : syntheticAround(la,lo)).map(buildRecord);
     activeId = null;
@@ -991,7 +1004,7 @@ document.getElementById("locateBtn").addEventListener("click", ()=>{
 
 /* ---------- go ---------- */
 render();
-loadPPIData();
+dataPromise = loadPPIData();
 </script>
 </body>
 </html>
