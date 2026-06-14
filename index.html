@@ -335,7 +335,7 @@
 
 <aside>
   <div class="brand">
-    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v2.7 · Live</span></div>
+    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v2.8 · Live</span></div>
     <h1>Paisa<span class="tick">/</span>Map</h1>
   </div>
 
@@ -430,7 +430,7 @@
    PaisaMap — demo purchasing-power heat map
    All locality figures below are MODELLED for demonstration.
    ============================================================ */
-const VERSION = "v2.7 · 2026-06-14";
+const VERSION = "v2.8 · 2026-06-14";
 console.log("PaisaMap build", VERSION, "— features: search · boundaries · nearby hubs · CSS pins · offline mode");
 
 // [name, lat, lng, avg monthly household income (INR, modelled)]
@@ -891,8 +891,9 @@ function render(){
       const pinProx = Math.exp(-distFromPin / 12);
       const fillOpacity = 0.15 + 0.55 * pinProx;
       const baseStyle = {color:"#fff",weight:1.5,fillColor:fill,fillOpacity,interactive:false};
-      const circRadius = 600 + 18 * Math.max(0, d.ppi - 40);
-      const circ = L.circle([d.lat,d.lng],{radius:circRadius,...baseStyle}).addTo(polyLayer);
+      // circleMarker uses pixel radius so blobs are always visible at any zoom level
+      const pxRadius = 10 + Math.round(Math.max(0, d.ppi - 50) / 12);
+      const circ = L.circleMarker([d.lat,d.lng],{radius:pxRadius,...baseStyle}).addTo(polyLayer);
       fetchLocalityBoundary(d.name, d.lat, d.lng).then(geom=>{
         if(!geom || gen !== renderGen) return;
         polyLayer.removeLayer(circ);
