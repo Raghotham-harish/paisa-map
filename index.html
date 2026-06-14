@@ -1041,29 +1041,37 @@ document.getElementById("resetBtn").addEventListener("click", async ()=>{
   toast("Showing all " + ncrData.length + " localities");
 });
 
-// shared locate function — auto=true on page load (silent fail, no request toast)
+async function applyLocation(la, lo){
+  if(dataPromise) await dataPromise;
+  center = [la, lo];
+  const nearby = ncrData.filter(d => haversine(la,lo,d[1],d[2]) <= 80);
+  dataset = (nearby.length > 0 ? nearby : syntheticAround(la,lo)).map(buildRecord);
+  activeId = null; moveYou(); clearNearby(); drawBoundary(null);
+  document.querySelectorAll(".city-btn").forEach(b=>b.classList.remove("active"));
+  map.flyTo(center, 12, {duration:1});
+  render();
+  try{ localStorage.setItem("pm_loc", JSON.stringify([la,lo])); }catch(e){}
+}
+
 function locateUser(auto){
   if(!navigator.geolocation){
-    if(!auto) toast("Geolocation not available — showing Delhi NCR.");
+    if(!auto) toast("Geolocation not available.");
     return;
   }
   if(!auto) toast("Requesting location…", 6000);
   navigator.geolocation.getCurrentPosition(async pos=>{
     const {latitude:la, longitude:lo} = pos.coords;
-    if(dataPromise) await dataPromise;   // wait for CSV before filtering
-    center = [la, lo];
-    const nearby = ncrData.filter(d => haversine(la,lo,d[1],d[2]) <= 80);
-    dataset = (nearby.length > 0 ? nearby : syntheticAround(la,lo)).map(buildRecord);
-    activeId = null;
-    moveYou();
-    clearNearby();
-    drawBoundary(null);
-    document.querySelectorAll(".city-btn").forEach(b=>b.classList.remove("active"));
-    map.flyTo(center, 12, {duration:1});
-    render();
-    toast(nearby.length > 0 ? "Centred on your location · local PPI data" : "Your location · no PPI data here yet — showing demo clusters");
-  }, ()=>{
-    if(!auto) toast("Location unavailable — showing Delhi NCR.");
+    await applyLocation(la, lo);
+    toast(center[0]===la
+      ? (dataset.length > 0 ? "Centred on your location · local PPI data" : "Your location · no PPI data here yet")
+      : "");
+  }, err=>{
+    // always tell user when blocked so they know what to do
+    if(err.code === 1){
+      toast("Location blocked — click the address-bar 🔒 icon › allow Location, then reload.", 6000);
+    } else if(!auto){
+      toast("Location unavailable.");
+    }
   }, {enableHighAccuracy:false, timeout:8000});
 }
 document.getElementById("locateBtn").addEventListener("click", ()=> locateUser(false));
@@ -1071,7 +1079,19 @@ document.getElementById("locateBtn").addEventListener("click", ()=> locateUser(f
 /* ---------- go ---------- */
 render();
 dataPromise = loadPPIData();
-locateUser(true);   // auto-locate on page load; silently falls back to Delhi if denied
+
+// On load: instantly restore last saved location, then refresh from GPS
+(async ()=>{
+  try{
+    const saved = localStorage.getItem("pm_loc");
+    if(saved){
+      const [la,lo] = JSON.parse(saved);
+      await applyLocation(la, lo);
+      toast("Restored your last location — refreshing from GPS…", 2500);
+    }
+  }catch(e){}
+  locateUser(true);
+})();
 </script>
 </body>
 </html>
