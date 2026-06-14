@@ -787,9 +787,14 @@ nearbyBtn.addEventListener("click", async ()=>{
   }
 });
 
-// green=affluent, amber=mid, red=low — high PPI should look "good" (green)
-const HEAT_GRADIENT = {0:"#922B21", 0.25:"#C9603A", 0.5:"#DFAE3A", 0.75:"#7DBB61", 1:"#1A7A4A"};
+// distinct gradients per metric so switching PPI/Income/Spend is visually obvious
+const HEAT_GRADIENTS = {
+  ppi:    {0:"#922B21", 0.25:"#C9603A", 0.5:"#DFAE3A", 0.75:"#7DBB61", 1:"#1A7A4A"},
+  income: {0:"#1A237E", 0.25:"#1565C0", 0.5:"#0097A7", 0.75:"#F9A825", 1:"#E65100"},
+  spend:  {0:"#4A0030", 0.25:"#880E4F", 0.5:"#C2670C", 0.75:"#CDDC39", 1:"#1B5E20"},
+};
 
+// PPI — relative (computePPI normalises to mean=100) with absolute breakpoints
 function ppiColor(ppi){
   if(ppi >= 145) return "#1A7A4A";
   if(ppi >= 120) return "#27AE60";
@@ -798,32 +803,41 @@ function ppiColor(ppi){
   if(ppi >= 60)  return "#E74C3C";
   return                "#922B21";
 }
-
-// relative color for any metric — maps min→max to 6-band scale
-function metricColor(v, mn, mx){
-  const t = mx > mn ? (v - mn) / (mx - mn) : 0.5;
-  if(t >= 5/6) return "#1A7A4A";
-  if(t >= 4/6) return "#27AE60";
-  if(t >= 3/6) return "#F1C40F";
-  if(t >= 2/6) return "#E67E22";
-  if(t >= 1/6) return "#E74C3C";
-  return              "#922B21";
+// Income — absolute INR thresholds so switching metric changes colours
+function incomeColor(v){
+  if(v >= 120000) return "#1A7A4A";
+  if(v >= 75000)  return "#27AE60";
+  if(v >= 50000)  return "#F1C40F";
+  if(v >= 35000)  return "#E67E22";
+  if(v >= 20000)  return "#E74C3C";
+  return                 "#922B21";
+}
+// Spend — absolute INR thresholds
+function spendColor(v){
+  if(v >= 90000) return "#1A7A4A";
+  if(v >= 60000) return "#27AE60";
+  if(v >= 40000) return "#F1C40F";
+  if(v >= 28000) return "#E67E22";
+  if(v >= 17000) return "#E74C3C";
+  return                "#922B21";
+}
+function zoneColor(d){
+  if(metric === "income") return incomeColor(d.income);
+  if(metric === "spend")  return spendColor(d.spend);
+  return ppiColor(d.ppi);
 }
 
-function updateLegend(rows){
+// Fixed ticks per metric for the legend
+const LEGEND_TICKS = {
+  ppi:    ["50","70","85","100","120","145+"],
+  income: ["₹20k","₹35k","₹50k","₹75k","₹1.2L","₹1.5L+"],
+  spend:  ["₹17k","₹28k","₹40k","₹60k","₹90k","₹1L+"],
+};
+function updateLegend(){
   const labels = {ppi:"PPI index", income:"Avg income / mo", spend:"Avg spend / mo"};
   document.getElementById("denomLabel").textContent = labels[metric];
-  if(metric === "ppi"){
-    document.getElementById("denomTicks").innerHTML =
-      '<span>50</span><span>70</span><span>85</span><span>100</span><span>120</span><span>145+</span>';
-  } else {
-    const vals = rows.map(metricValue);
-    if(!vals.length) return;
-    const mn = Math.min(...vals), mx = Math.max(...vals), rng2 = mx - mn || 1;
-    const steps = [0, 0.2, 0.4, 0.6, 0.8, 1.0];
-    document.getElementById("denomTicks").innerHTML =
-      steps.map(t => `<span>${fmtShort(mn + t*rng2)}</span>`).join("");
-  }
+  document.getElementById("denomTicks").innerHTML =
+    LEGEND_TICKS[metric].map(t=>`<span>${t}</span>`).join("");
 }
 
 let renderGen = 0;
@@ -863,12 +877,12 @@ function render(){
 
   if(viewMode === "zones"){
     rows.forEach(d=>{
-      const fill = metricColor(metricValue(d), metricMin, metricMax);
+      const fill = zoneColor(d);  // absolute thresholds per metric
       const baseStyle = {color:"#fff",weight:1.5,fillColor:fill,fillOpacity:0.55,interactive:false};
       const circRadius = 600 + 18 * Math.max(0, d.ppi - 40);
       const circ = L.circle([d.lat,d.lng],{radius:circRadius,...baseStyle}).addTo(polyLayer);
       fetchLocalityBoundary(d.name, d.lat, d.lng).then(geom=>{
-        if(!geom || gen !== renderGen) return;  // discard stale polygon from prior render
+        if(!geom || gen !== renderGen) return;
         polyLayer.removeLayer(circ);
         L.geoJSON(geom,{style:()=>baseStyle,interactive:false}).addTo(polyLayer);
       });
@@ -877,13 +891,17 @@ function render(){
     const heatRange = Math.max(metricMax - metricMin, 1);
     const pts = [];
     rows.forEach(d=>{
-      const w = 0.15 + 0.85*((metricValue(d) - metricMin) / heatRange);
+      // base weight from metric value, modulated by proximity to pin
+      const baseW = 0.15 + 0.85*((metricValue(d) - metricMin) / heatRange);
+      const distKm = haversine(center[0],center[1],d.lat,d.lng);
+      const prox = Math.exp(-distKm / 18);          // half-strength ~12km from pin
+      const w = Math.min(1, baseW * (0.35 + 0.65 * prox));
       const r = rng(d.id*7+3);
       for(let i=0;i<14;i++){
         pts.push([d.lat+(r()-.5)*0.022, d.lng+(r()-.5)*0.022, w]);
       }
     });
-    heatLayer = L.heatLayer(pts,{radius:30,blur:24,maxZoom:13,minOpacity:0.18,max:1.25,gradient:HEAT_GRADIENT}).addTo(map);
+    heatLayer = L.heatLayer(pts,{radius:30,blur:24,maxZoom:13,minOpacity:0.18,max:1.25,gradient:HEAT_GRADIENTS[metric]}).addTo(map);
   }
 
   // markers
@@ -928,8 +946,8 @@ function render(){
     list.appendChild(b);
   });
 
-  // sync legend to current metric and data range
-  updateLegend(rows);
+  // sync legend to current metric
+  updateLegend();
 }
 
 function setActive(id, fromList){
