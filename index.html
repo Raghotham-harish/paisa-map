@@ -406,13 +406,13 @@
 <main>
   <div id="map" role="application" aria-label="Purchasing power heat map"></div>
   <div class="denom" aria-hidden="true">
-    <div class="field-label"><span>Index denomination</span></div>
-    <div class="strip">
-      <i style="background:#9DBFA5"></i><i style="background:#C8C77A"></i>
-      <i style="background:#DFAE3A"></i><i style="background:#C9603A"></i>
-      <i style="background:#B33A2B"></i><i style="background:#6E1F1B"></i>
+    <div class="field-label"><span id="denomLabel">PPI index</span><span style="font-size:9px;color:var(--ink-soft)">low → high</span></div>
+    <div class="strip" id="denomStrip">
+      <i style="background:#922B21"></i><i style="background:#E74C3C"></i>
+      <i style="background:#E67E22"></i><i style="background:#F1C40F"></i>
+      <i style="background:#27AE60"></i><i style="background:#1A7A4A"></i>
     </div>
-    <div class="ticks"><span>50</span><span>75</span><span>100</span><span>125</span><span>150</span><span>200</span></div>
+    <div class="ticks" id="denomTicks"><span>50</span><span>70</span><span>85</span><span>100</span><span>120</span><span>145+</span></div>
   </div>
   <div class="offline-note" id="offlineNote">
     <b>STREET TILES BLOCKED</b><br>
@@ -621,9 +621,10 @@ const youIcon = L.divIcon({
 });
 const youMarker = L.marker(center,{icon:youIcon,zIndexOffset:1200,draggable:true}).addTo(map);
 function moveYou(){ youMarker.setLatLng(center); }
-youMarker.on("dragend", e=>{
+youMarker.on("dragend", async e=>{
   const ll = e.target.getLatLng();
   center = [ll.lat, ll.lng];
+  if(dataPromise) await dataPromise;
   const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
   dataset = (nearby.length > 0 ? nearby : syntheticAround(center[0],center[1])).map(buildRecord);
   activeId = null; clearNearby(); drawBoundary(null);
@@ -715,7 +716,8 @@ async function runSearch(){
   }
 }
 
-function applyPlace(r){
+async function applyPlace(r){
+  if(dataPromise) await dataPromise;
   center = [parseFloat(r.lat), parseFloat(r.lon)];
   const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
   dataset = (nearby.length > 0 ? nearby : syntheticAround(center[0],center[1])).map(buildRecord);
@@ -789,13 +791,42 @@ nearbyBtn.addEventListener("click", async ()=>{
 const HEAT_GRADIENT = {0:"#922B21", 0.25:"#C9603A", 0.5:"#DFAE3A", 0.75:"#7DBB61", 1:"#1A7A4A"};
 
 function ppiColor(ppi){
-  if(ppi >= 145) return "#1A7A4A";  // dark green
-  if(ppi >= 120) return "#27AE60";  // green
-  if(ppi >= 100) return "#F1C40F";  // yellow
-  if(ppi >= 80)  return "#E67E22";  // amber
-  if(ppi >= 60)  return "#E74C3C";  // red
-  return                "#922B21";  // dark red
+  if(ppi >= 145) return "#1A7A4A";
+  if(ppi >= 120) return "#27AE60";
+  if(ppi >= 100) return "#F1C40F";
+  if(ppi >= 80)  return "#E67E22";
+  if(ppi >= 60)  return "#E74C3C";
+  return                "#922B21";
 }
+
+// relative color for any metric — maps min→max to 6-band scale
+function metricColor(v, mn, mx){
+  const t = mx > mn ? (v - mn) / (mx - mn) : 0.5;
+  if(t >= 5/6) return "#1A7A4A";
+  if(t >= 4/6) return "#27AE60";
+  if(t >= 3/6) return "#F1C40F";
+  if(t >= 2/6) return "#E67E22";
+  if(t >= 1/6) return "#E74C3C";
+  return              "#922B21";
+}
+
+function updateLegend(rows){
+  const labels = {ppi:"PPI index", income:"Avg income / mo", spend:"Avg spend / mo"};
+  document.getElementById("denomLabel").textContent = labels[metric];
+  if(metric === "ppi"){
+    document.getElementById("denomTicks").innerHTML =
+      '<span>50</span><span>70</span><span>85</span><span>100</span><span>120</span><span>145+</span>';
+  } else {
+    const vals = rows.map(metricValue);
+    if(!vals.length) return;
+    const mn = Math.min(...vals), mx = Math.max(...vals), rng2 = mx - mn || 1;
+    const steps = [0, 0.2, 0.4, 0.6, 0.8, 1.0];
+    document.getElementById("denomTicks").innerHTML =
+      steps.map(t => `<span>${fmtShort(mn + t*rng2)}</span>`).join("");
+  }
+}
+
+let renderGen = 0;
 
 /* ---------- core render ---------- */
 function withinRadius(){
@@ -812,7 +843,12 @@ function computePPI(rows){
 function metricValue(d){ return metric==="income" ? d.income : metric==="spend" ? d.spend : d.ppi; }
 
 function render(){
+  const gen = ++renderGen;
   const rows = computePPI(withinRadius()).sort((a,b)=>metricValue(b)-metricValue(a));
+
+  const metricVals = rows.map(metricValue);
+  const metricMin = rows.length ? Math.min(...metricVals) : 0;
+  const metricMax = rows.length ? Math.max(...metricVals) : 1;
 
   // radius circle
   if(circleLayer) circleLayer.remove();
@@ -824,27 +860,24 @@ function render(){
   // zones or heat
   if(heatLayer){ heatLayer.remove(); heatLayer = null; }
   polyLayer.clearLayers();
-  const max = Math.max(...rows.map(metricValue), 1);
-  const min = Math.min(...rows.map(metricValue), 0);
 
   if(viewMode === "zones"){
     rows.forEach(d=>{
-      const fill = ppiColor(d.ppi);
+      const fill = metricColor(metricValue(d), metricMin, metricMax);
       const baseStyle = {color:"#fff",weight:1.5,fillColor:fill,fillOpacity:0.55,interactive:false};
-      // draw circle zone immediately — radius scales with PPI
       const circRadius = 600 + 18 * Math.max(0, d.ppi - 40);
       const circ = L.circle([d.lat,d.lng],{radius:circRadius,...baseStyle}).addTo(polyLayer);
-      // try to upgrade to real boundary polygon
       fetchLocalityBoundary(d.name, d.lat, d.lng).then(geom=>{
-        if(!geom) return;
+        if(!geom || gen !== renderGen) return;  // discard stale polygon from prior render
         polyLayer.removeLayer(circ);
         L.geoJSON(geom,{style:()=>baseStyle,interactive:false}).addTo(polyLayer);
       });
     });
   } else {
+    const heatRange = Math.max(metricMax - metricMin, 1);
     const pts = [];
     rows.forEach(d=>{
-      const w = 0.15 + 0.85*((metricValue(d)-min)/Math.max(1,(max-min)));
+      const w = 0.15 + 0.85*((metricValue(d) - metricMin) / heatRange);
       const r = rng(d.id*7+3);
       for(let i=0;i<14;i++){
         pts.push([d.lat+(r()-.5)*0.022, d.lng+(r()-.5)*0.022, w]);
@@ -894,6 +927,9 @@ function render(){
     });
     list.appendChild(b);
   });
+
+  // sync legend to current metric and data range
+  updateLegend(rows);
 }
 
 function setActive(id, fromList){
