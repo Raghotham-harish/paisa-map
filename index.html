@@ -34,43 +34,40 @@
 
   /* ---------- Sidebar : the ledger ---------- */
   aside{
-    width:392px;min-width:392px;height:100vh;
+    width:300px;min-width:300px;height:100vh;
     display:flex;flex-direction:column;
     border-right:1px solid var(--ink);
     background:var(--paper);
     z-index:1000;
   }
   .brand{
-    padding:20px 22px 16px;
+    padding:12px 16px 10px;
     border-bottom:1px solid var(--ink);
   }
+  .brand p{display:none}
   .brand .eyebrow{
-    font-family:var(--mono);font-size:10px;letter-spacing:.22em;
+    font-family:var(--mono);font-size:9px;letter-spacing:.18em;
     text-transform:uppercase;color:var(--rupee-deep);
     display:flex;justify-content:space-between;
   }
   .brand h1{
     font-variation-settings:'wdth' 118;
-    font-weight:760;font-size:30px;letter-spacing:-.01em;
-    margin-top:6px;line-height:1;
+    font-weight:760;font-size:24px;letter-spacing:-.01em;
+    margin-top:4px;line-height:1;
   }
   .brand h1 .tick{color:var(--rupee)}
-  .brand p{
-    margin-top:8px;font-size:12.5px;color:var(--ink-soft);line-height:1.45;
-  }
 
   .controls{
-    padding:16px 22px;border-bottom:1px solid var(--hairline);
-    display:flex;flex-direction:column;gap:14px;
+    padding:10px 14px;border-bottom:1px solid var(--hairline);
+    display:flex;flex-direction:column;gap:8px;
   }
-  .row{display:flex;gap:10px;align-items:center}
   button.primary{
     font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
     background:var(--ink);color:var(--paper);border:1px solid var(--ink);
     padding:10px 14px;cursor:pointer;flex:1;
   }
   button.primary:hover{background:var(--rupee-deep);border-color:var(--rupee-deep)}
-  button.primary:focus-visible,.seg button:focus-visible,input:focus-visible,.loc-row:focus-visible{
+  button.primary:focus-visible,.mini-seg button:focus-visible,input:focus-visible,.loc-row:focus-visible{
     outline:2px solid var(--magenta);outline-offset:2px;
   }
   .field-label{
@@ -82,20 +79,56 @@
     width:100%;appearance:none;height:2px;background:var(--ink);cursor:pointer;
   }
   input[type=range]::-webkit-slider-thumb{
-    appearance:none;width:16px;height:16px;border-radius:0;
+    appearance:none;width:14px;height:14px;border-radius:0;
     background:var(--rupee);border:1.5px solid var(--ink);
   }
   input[type=range]::-moz-range-thumb{
-    width:14px;height:14px;border-radius:0;background:var(--rupee);border:1.5px solid var(--ink);
+    width:12px;height:12px;border-radius:0;background:var(--rupee);border:1.5px solid var(--ink);
   }
-  .seg{display:flex;border:1px solid var(--ink)}
-  .seg button{
-    flex:1;font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+
+  /* city pills */
+  .city-row{display:flex;gap:5px}
+  .city-btn{
+    flex:1;font-family:var(--sans);font-size:11px;font-weight:600;
+    padding:7px 4px;cursor:pointer;border:1px solid var(--hairline);
+    background:var(--paper-2);color:var(--ink);text-align:center;
+  }
+  .city-btn:hover,.city-btn.active{background:var(--rupee);color:var(--paper);border-color:var(--rupee)}
+
+  /* action bar */
+  .action-bar{display:flex;gap:5px;align-items:stretch}
+  .act-btn{
+    font-size:15px;padding:7px 9px;cursor:pointer;
+    background:var(--paper-2);border:1px solid var(--hairline);color:var(--ink);
+    white-space:nowrap;
+  }
+  .act-btn:hover{background:var(--ink);color:var(--paper)}
+  .act-btn.active{background:var(--rupee);color:var(--paper);border-color:var(--rupee)}
+
+  /* mini toggles */
+  .mini-seg{display:flex;border:1px solid var(--ink);flex-shrink:0}
+  .mini-seg button{
+    padding:7px 8px;font-family:var(--mono);font-size:11px;
     background:transparent;border:0;border-right:1px solid var(--ink);
-    padding:9px 4px;cursor:pointer;color:var(--ink);
+    cursor:pointer;color:var(--ink);
   }
-  .seg button:last-child{border-right:0}
-  .seg button[aria-pressed="true"]{background:var(--rupee);color:var(--paper)}
+  .mini-seg button:last-child{border-right:0}
+  .mini-seg button[aria-pressed="true"]{background:var(--rupee);color:var(--paper)}
+
+  /* compact radius row */
+  .radius-row{
+    display:flex;align-items:center;gap:7px;
+    font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--ink-soft);
+  }
+  .radius-row input{flex:1}
+  .radius-row output{min-width:38px;text-align:right;color:var(--ink);font-weight:600}
+
+  /* drag hint on you-pin */
+  .drag-hint{
+    font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--ink-soft);
+    text-align:center;padding:3px 0 0;
+  }
 
   /* search */
   .search-wrap{display:flex;border:1px solid var(--ink);background:var(--paper)}
@@ -284,12 +317,11 @@
   /* mobile */
   @media (max-width:760px){
     body{flex-direction:column}
-    aside{width:100%;min-width:0;height:52vh;order:2;border-right:0;border-top:1px solid var(--ink)}
-    main{height:48vh;order:1}
-    .brand p{display:none}
-    .brand h1{font-size:22px}
-    .headline .big{font-size:38px}
-    .denom{width:180px;bottom:14px}
+    aside{width:100%;min-width:0;height:46vh;order:2;border-right:0;border-top:1px solid var(--ink)}
+    main{height:54vh;order:1}
+    .brand h1{font-size:20px}
+    .headline .big{font-size:34px}
+    .denom{width:160px;bottom:14px}
   }
   @media (prefers-reduced-motion:reduce){
     *{transition:none!important;animation:none!important}
@@ -300,46 +332,47 @@
 
 <aside>
   <div class="brand">
-    <div class="eyebrow"><span>Purchasing-power atlas</span><span>Delhi · Mumbai · Blr · Live · v2.1</span></div>
+    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v2.2 · Live</span></div>
     <h1>Paisa<span class="tick">/</span>Map</h1>
-    <p>Heat map of estimated purchasing power, average income and monthly spend for localities around you. OpenStreetMap base, 5–30 km radius.</p>
   </div>
 
   <div class="controls">
-    <div>
-      <div class="field-label" style="margin-bottom:6px"><span>Search location</span></div>
-      <div class="search-wrap">
-        <input id="searchBox" type="text" placeholder="Colony, sector, city — e.g. Saket" aria-label="Search location" autocomplete="off">
-        <button id="searchBtn" aria-label="Search">→</button>
+    <!-- Quick city jump -->
+    <div class="city-row">
+      <button class="city-btn active" data-city="delhi">🏛 Delhi</button>
+      <button class="city-btn" data-city="mumbai">🌊 Mumbai</button>
+      <button class="city-btn" data-city="bengaluru">🌿 Blr</button>
+    </div>
+
+    <!-- Search: area name or 6-digit pincode -->
+    <div class="search-wrap">
+      <input id="searchBox" type="text" placeholder="Area or pincode…" aria-label="Search" autocomplete="off">
+      <button id="searchBtn" aria-label="Search">→</button>
+    </div>
+    <div id="searchResults" role="listbox"></div>
+
+    <!-- Compact action bar: locate · nearby · metric · view -->
+    <div class="action-bar">
+      <button class="act-btn" id="locateBtn" title="Use my location">📍</button>
+      <button class="act-btn" id="nearbyBtn" title="Nearby hubs">🏪</button>
+      <div class="mini-seg" id="metricSeg" role="group" aria-label="Metric">
+        <button data-metric="ppi"    aria-pressed="true"  title="PPI">PPI</button>
+        <button data-metric="income" aria-pressed="false" title="Income">₹</button>
+        <button data-metric="spend"  aria-pressed="false" title="Spend">💸</button>
       </div>
-      <div id="searchResults" role="listbox"></div>
-    </div>
-    <div class="row">
-      <button class="primary" id="locateBtn">◉ Use my location</button>
-      <button class="primary" id="resetBtn" style="flex:0 0 auto">Delhi NCR ↺</button>
-    </div>
-    <div class="row">
-      <button class="primary" id="nearbyBtn" style="background:transparent;color:var(--ink)">＋ Show nearby hubs (malls · markets · banks)</button>
-    </div>
-    <div>
-      <div class="field-label"><span>Radius</span><output id="radiusOut">20 km</output></div>
-      <input type="range" id="radius" min="5" max="30" step="1" value="20" aria-label="Search radius in kilometres">
-    </div>
-    <div>
-      <div class="field-label" style="margin-bottom:6px"><span>Heat by</span></div>
-      <div class="seg" role="group" aria-label="Metric">
-        <button data-metric="ppi" aria-pressed="true">PPI</button>
-        <button data-metric="income" aria-pressed="false">Income</button>
-        <button data-metric="spend" aria-pressed="false">Spend</button>
-      </div>
-    </div>
-    <div>
-      <div class="field-label" style="margin-bottom:6px"><span>View</span></div>
-      <div class="seg" role="group" aria-label="View mode">
-        <button id="viewZones" aria-pressed="true">⬡ Zones</button>
-        <button id="viewHeat"  aria-pressed="false">🌡 Heat</button>
+      <div class="mini-seg" id="viewSeg" role="group" aria-label="View">
+        <button id="viewZones" aria-pressed="true"  title="Zone polygons">⬡</button>
+        <button id="viewHeat"  aria-pressed="false" title="Heatmap">🌡</button>
       </div>
     </div>
+
+    <!-- Radius one-liner -->
+    <div class="radius-row">
+      <span>Radius</span>
+      <input type="range" id="radius" min="10" max="80" step="5" value="50" aria-label="Radius km">
+      <output id="radiusOut">50 km</output>
+    </div>
+    <p class="drag-hint">Drag the 🔴 pin on map to move your location</p>
   </div>
 
   <div class="headline">
@@ -481,7 +514,7 @@ const haversine = (a,b,c,d) => {
 
 /* ---------- state ---------- */
 let center = [...DELHI_CENTER];
-let radiusKm = 20;
+let radiusKm = 50;
 let metric = "ppi";
 let dataset = NCR.map(buildRecord);
 let activeId = null;
@@ -579,8 +612,17 @@ const youIcon = L.divIcon({
   html:'<span class="tag">YOU ARE HERE</span><span class="core"></span>',
   iconSize:[18,18], iconAnchor:[9,9]
 });
-const youMarker = L.marker(center,{icon:youIcon,zIndexOffset:1200,interactive:false}).addTo(map);
+const youMarker = L.marker(center,{icon:youIcon,zIndexOffset:1200,draggable:true}).addTo(map);
 function moveYou(){ youMarker.setLatLng(center); }
+youMarker.on("dragend", e=>{
+  const ll = e.target.getLatLng();
+  center = [ll.lat, ll.lng];
+  const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
+  dataset = (nearby.length > 0 ? nearby : syntheticAround(center[0],center[1])).map(buildRecord);
+  activeId = null; clearNearby(); drawBoundary(null);
+  render();
+  toast(nearby.length > 0 ? "Centred on pin · local PPI data" : "No data here yet — showing demo clusters");
+});
 
 /* ---------- CSS-only locality pin (no external images) ---------- */
 const pinIcon = L.divIcon({
@@ -786,7 +828,7 @@ function render(){
       fetchLocalityBoundary(d.name, d.lat, d.lng).then(geom=>{
         if(!geom) return;
         polyLayer.removeLayer(circ);
-        L.geoJSON(geom,{style:()=>baseStyle}).addTo(polyLayer);
+        L.geoJSON(geom,{style:()=>baseStyle,interactive:false}).addTo(polyLayer);
       });
     });
   } else {
@@ -880,15 +922,32 @@ function toast(msg, ms=3200){
 }
 
 /* ---------- controls ---------- */
+const CITIES = {
+  delhi:     {center:[28.61,77.21], zoom:11},
+  mumbai:    {center:[19.07,72.87], zoom:12},
+  bengaluru: {center:[12.97,77.59], zoom:12},
+};
+function jumpToCity(key){
+  const c = CITIES[key];
+  center = [...c.center];
+  const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
+  dataset = (nearby.length > 0 ? nearby : syntheticAround(center[0],center[1])).map(buildRecord);
+  activeId = null; clearNearby(); drawBoundary(null); moveYou();
+  map.flyTo(center, c.zoom, {duration:.8});
+  render();
+  document.querySelectorAll(".city-btn").forEach(b=>b.classList.toggle("active", b.dataset.city===key));
+}
+document.querySelectorAll(".city-btn").forEach(b=>b.addEventListener("click",()=>jumpToCity(b.dataset.city)));
+
 document.getElementById("radius").addEventListener("input", e=>{
   radiusKm = +e.target.value;
   document.getElementById("radiusOut").textContent = radiusKm + " km";
   render();
 });
 
-document.querySelectorAll(".seg button").forEach(b=>{
+document.querySelectorAll("#metricSeg button").forEach(b=>{
   b.addEventListener("click", ()=>{
-    document.querySelectorAll(".seg button").forEach(x=>x.setAttribute("aria-pressed","false"));
+    document.querySelectorAll("#metricSeg button").forEach(x=>x.setAttribute("aria-pressed","false"));
     b.setAttribute("aria-pressed","true");
     metric = b.dataset.metric;
     const labels = {ppi:"Area purchasing power index", income:"Area avg income (indexed view)", spend:"Area avg spend (indexed view)"};
