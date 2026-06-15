@@ -87,14 +87,38 @@
     width:12px;height:12px;border-radius:0;background:var(--rupee);border:1.5px solid var(--ink);
   }
 
-  /* city pills */
-  .city-row{display:flex;gap:5px}
-  .city-btn{
-    flex:1;font-family:var(--sans);font-size:11px;font-weight:600;
-    padding:7px 4px;cursor:pointer;border:1px solid var(--hairline);
-    background:var(--paper-2);color:var(--ink);text-align:center;
+  /* city search dropdown */
+  .city-search-wrap{display:flex;align-items:center;border:1px solid var(--ink);background:var(--paper)}
+  .city-search-wrap input{
+    flex:1;border:0;background:transparent;padding:8px 6px;
+    font-family:var(--sans);font-size:13px;color:var(--ink);min-width:0;
   }
-  .city-btn:hover,.city-btn.active{background:var(--rupee);color:var(--paper);border-color:var(--rupee)}
+  .city-search-wrap input::placeholder{color:var(--ink-soft)}
+  .city-search-wrap .city-pin-icon{
+    padding:0 8px;color:var(--ink-soft);font-size:14px;line-height:1;pointer-events:none;
+  }
+  .city-search-wrap button{
+    background:transparent;border:0;border-left:1px solid var(--hairline);
+    padding:0 10px;cursor:pointer;color:var(--ink-soft);align-self:stretch;
+  }
+  .city-search-wrap button:hover{background:var(--paper-2);color:var(--ink)}
+  #cityDropdown{
+    display:none;border:1px solid var(--ink);border-top:0;
+    max-height:200px;overflow-y:auto;background:var(--paper);
+  }
+  #cityDropdown button{
+    display:flex;align-items:center;width:100%;text-align:left;border:0;
+    border-bottom:1px solid var(--hairline);background:transparent;
+    padding:8px 12px;cursor:pointer;color:var(--ink);
+    font-family:var(--sans);font-size:12.5px;gap:8px;
+  }
+  #cityDropdown button:hover{background:var(--paper-2)}
+  .city-tag{
+    font-family:var(--mono);font-size:9px;letter-spacing:.08em;
+    color:var(--rupee-deep);background:rgba(14,122,92,.12);
+    padding:1px 5px;white-space:nowrap;flex-shrink:0;
+  }
+  .city-tag.live{color:var(--amber);background:rgba(223,174,58,.15)}
 
   /* action bar */
   .action-bar{display:flex;flex-direction:column;gap:5px}
@@ -335,18 +359,19 @@
 
 <aside>
   <div class="brand">
-    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v3.0 · Live</span></div>
+    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v3.1 · Live</span></div>
     <h1>Paisa<span class="tick">/</span>Map</h1>
   </div>
 
   <div class="controls">
-    <!-- Quick city jump -->
-    <div class="city-row">
-      <button class="city-btn active" data-city="delhi">Delhi</button>
-      <button class="city-btn" data-city="mumbai">Mumbai</button>
-      <button class="city-btn" data-city="bengaluru">Bengaluru</button>
-      <button class="city-btn" id="resetBtn" title="Reset — show all data"><i class="ti ti-refresh"></i></button>
+    <!-- Quick city jump: searchable dropdown -->
+    <div class="city-search-wrap">
+      <i class="ti ti-map-pin city-pin-icon"></i>
+      <input id="cityInput" type="text" placeholder="Jump to city…" autocomplete="off"
+             aria-label="City search" role="combobox" aria-expanded="false" aria-controls="cityDropdown">
+      <button id="resetBtn" title="Reset — show all data"><i class="ti ti-refresh"></i></button>
     </div>
+    <div id="cityDropdown" role="listbox" aria-label="Cities"></div>
 
     <!-- Search: area name or 6-digit pincode -->
     <div class="search-wrap">
@@ -430,7 +455,7 @@
    PaisaMap — demo purchasing-power heat map
    All locality figures below are MODELLED for demonstration.
    ============================================================ */
-const VERSION = "v3.0 · 2026-06-16";
+const VERSION = "v3.1 · 2026-06-16";
 console.log("PaisaMap build", VERSION, "— features: search · boundaries · nearby hubs · CSS pins · offline mode");
 
 // [name, lat, lng, avg monthly household income (INR, modelled)]
@@ -865,6 +890,7 @@ function updateLegend(){
 let renderGen = 0;
 let liveData  = [];   // on-demand Overpass results
 let liveGen   = 0;
+let lastHeatPts = [];  // kept so zoomend can recreate heat layer at new radius
 
 /* ---------- live data: query Overpass when no static data in radius ---------- */
 async function loadLiveAreaData(lat, lng){
@@ -925,6 +951,18 @@ async function loadLiveAreaData(lat, lng){
   }
 }
 
+/* ---------- heat radius — scales with zoom so blobs stay geographically proportional ---------- */
+function heatRadiusForZoom(){
+  const z = map.getZoom();
+  return z<=9?55 : z<=10?45 : z<=11?35 : z<=12?28 : z<=13?22 : z<=14?18 : 14;
+}
+map.on("zoomend",()=>{
+  if(viewMode !== "heat" || !heatLayer || !lastHeatPts.length) return;
+  heatLayer.remove();
+  const hr = heatRadiusForZoom();
+  heatLayer = L.heatLayer(lastHeatPts,{radius:hr,blur:Math.round(hr*.72),maxZoom:16,minOpacity:0.12,max:1.0,gradient:HEAT_GRADIENTS[metric]}).addTo(map);
+});
+
 /* ---------- core render ---------- */
 function withinRadius(){
   const base = dataset.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm);
@@ -974,10 +1012,11 @@ function render(){
       const distFromPin = haversine(center[0],center[1],d.lat,d.lng);
       const pinProx = Math.exp(-distFromPin / 12);
       const fillOpacity = 0.15 + 0.55 * pinProx;
-      const baseStyle = {color:"#fff",weight:1.5,fillColor:fill,fillOpacity,interactive:false};
-      // circleMarker uses pixel radius so blobs are always visible at any zoom level
-      const pxRadius = 10 + Math.round(Math.max(0, d.ppi - 50) / 12);
-      const circ = L.circleMarker([d.lat,d.lng],{radius:pxRadius,...baseStyle}).addTo(polyLayer);
+      const baseStyle = {color:fill,weight:1.5,fillColor:fill,fillOpacity,interactive:false};
+      // L.circle uses meter radius — it auto-scales with zoom so coverage stays geographically correct.
+      // ~2 km avg; wealthier (denser) areas are slightly smaller, suburban areas slightly larger.
+      const coverM = Math.round(Math.max(1200, 2600 - d.ppi * 10));
+      const circ = L.circle([d.lat,d.lng],{radius:coverM,...baseStyle}).addTo(polyLayer);
       fetchLocalityBoundary(d.name, d.lat, d.lng).then(geom=>{
         if(!geom || gen !== renderGen) return;
         polyLayer.removeLayer(circ);
@@ -1002,7 +1041,9 @@ function render(){
         pts.push([d.lat+(r()-.5)*0.025, d.lng+(r()-.5)*0.025, w]);
       }
     });
-    heatLayer = L.heatLayer(pts,{radius:28,blur:20,maxZoom:13,minOpacity:0.12,max:1.0,gradient:HEAT_GRADIENTS[metric]}).addTo(map);
+    lastHeatPts = pts;
+    const hr = heatRadiusForZoom();
+    heatLayer = L.heatLayer(pts,{radius:hr,blur:Math.round(hr*.72),maxZoom:16,minOpacity:0.12,max:1.0,gradient:HEAT_GRADIENTS[metric]}).addTo(map);
   }
 
   // markers
@@ -1088,23 +1129,99 @@ function toast(msg, ms=3200){
 
 /* ---------- controls ---------- */
 const CITIES = {
-  delhi:     {center:[28.61,77.21], zoom:11},
-  mumbai:    {center:[19.07,72.87], zoom:12},
-  bengaluru: {center:[12.97,77.59], zoom:12},
+  delhi:     {label:"Delhi · NCR",  center:[28.61,77.21], zoom:11, hasData:true},
+  mumbai:    {label:"Mumbai",        center:[19.07,72.87], zoom:12, hasData:true},
+  bengaluru: {label:"Bengaluru",     center:[12.97,77.59], zoom:12, hasData:true},
+  hyderabad: {label:"Hyderabad",     center:[17.38,78.49], zoom:12, hasData:false},
+  chennai:   {label:"Chennai",       center:[13.08,80.27], zoom:12, hasData:false},
+  pune:      {label:"Pune",          center:[18.52,73.86], zoom:12, hasData:false},
+  kolkata:   {label:"Kolkata",       center:[22.57,88.36], zoom:12, hasData:false},
+  ahmedabad: {label:"Ahmedabad",     center:[23.03,72.59], zoom:12, hasData:false},
+  jaipur:    {label:"Jaipur",        center:[26.91,75.79], zoom:12, hasData:false},
+  lucknow:   {label:"Lucknow",       center:[26.85,80.95], zoom:12, hasData:false},
 };
 async function jumpToCity(key){
   if(dataPromise) await dataPromise;
   liveData = []; liveGen++;
   const c = CITIES[key];
+  if(!c) return;
   center = [...c.center];
   const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
   dataset = (nearby.length > 0 ? nearby : syntheticAround(center[0],center[1])).map(buildRecord);
   activeId = null; clearNearby(); drawBoundary(null); moveYou();
   map.flyTo(center, c.zoom, {duration:.8});
   render();
-  document.querySelectorAll(".city-btn").forEach(b=>b.classList.toggle("active", b.dataset.city===key && b.id!=="resetBtn"));
+  const ci = document.getElementById("cityInput");
+  if(ci) ci.value = c.label;
+  if(!c.hasData || nearby.length === 0){
+    toast("Fetching live OSM data for " + c.label + "…", 10000);
+    loadLiveAreaData(center[0], center[1]);
+  }
 }
-document.querySelectorAll(".city-btn").forEach(b=>b.addEventListener("click",()=>jumpToCity(b.dataset.city)));
+
+/* ── City search dropdown ── */
+(function(){
+  const inp  = document.getElementById("cityInput");
+  const drop = document.getElementById("cityDropdown");
+  const ALL  = Object.entries(CITIES).map(([k,v]) => ({key:k, ...v}));
+
+  function buildDropdown(items){
+    drop.innerHTML = "";
+    if(!items.length){ drop.style.display="none"; return; }
+    items.forEach(c=>{
+      const btn = document.createElement("button");
+      const cls = c.hasData ? "city-tag" : "city-tag live";
+      const lbl = c.hasData ? "DATA" : "LIVE";
+      btn.innerHTML = `<span>${c.label}</span><span class="${cls}">${lbl}</span>`;
+      btn.setAttribute("role","option");
+      btn.addEventListener("mousedown", e=>{ e.preventDefault(); selectCity(c); });
+      drop.appendChild(btn);
+    });
+    drop.style.display = "block";
+    inp.setAttribute("aria-expanded","true");
+  }
+
+  function selectCity(c){
+    inp.value = c.label;
+    drop.style.display = "none";
+    inp.setAttribute("aria-expanded","false");
+    jumpToCity(c.key);
+  }
+
+  inp.addEventListener("focus", ()=> buildDropdown(ALL));
+  inp.addEventListener("input", ()=>{
+    const q = inp.value.toLowerCase().trim();
+    buildDropdown(q ? ALL.filter(c=> c.label.toLowerCase().includes(q)||c.key.includes(q)) : ALL);
+  });
+  inp.addEventListener("keydown", e=>{
+    if(e.key==="Escape"){ drop.style.display="none"; inp.blur(); inp.setAttribute("aria-expanded","false"); }
+    if(e.key==="Enter"){
+      const first = drop.querySelector("button");
+      if(first) first.dispatchEvent(new MouseEvent("mousedown",{bubbles:true}));
+    }
+    if(e.key==="ArrowDown"){
+      e.preventDefault();
+      const first = drop.querySelector("button");
+      if(first) first.focus();
+    }
+  });
+  drop.addEventListener("keydown", e=>{
+    const btns = [...drop.querySelectorAll("button")];
+    const idx  = btns.indexOf(document.activeElement);
+    if(e.key==="ArrowDown" && idx < btns.length-1) btns[idx+1].focus();
+    if(e.key==="ArrowUp"){ if(idx>0) btns[idx-1].focus(); else inp.focus(); }
+    if(e.key==="Enter" && idx>=0) btns[idx].dispatchEvent(new MouseEvent("mousedown",{bubbles:true}));
+    if(e.key==="Escape"){ drop.style.display="none"; inp.focus(); }
+  });
+  document.addEventListener("click", e=>{
+    if(!e.target.closest(".city-search-wrap") && !e.target.closest("#cityDropdown")){
+      drop.style.display="none";
+      inp.setAttribute("aria-expanded","false");
+    }
+  });
+
+  inp.value = CITIES.delhi.label;  // initial state
+})();
 
 document.getElementById("radius").addEventListener("input", e=>{
   radiusKm = +e.target.value;
@@ -1133,7 +1250,8 @@ document.getElementById("resetBtn").addEventListener("click", async ()=>{
   drawBoundary(null);
   map.flyTo(center, 11, {duration:.6});
   render();
-  document.querySelectorAll(".city-btn").forEach(b=>b.classList.remove("active"));
+  const ci = document.getElementById("cityInput");
+  if(ci) ci.value = "";
   toast("Showing all " + ncrData.length + " localities");
 });
 
