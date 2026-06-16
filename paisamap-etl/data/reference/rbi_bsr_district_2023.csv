@@ -1,0 +1,21 @@
+# Source: RBI Basic Statistical Returns (BSR-1 & BSR-2), March 2023
+# https://www.rbi.org.in/Scripts/BSRView.aspx
+# deposits_per_capita: total scheduled commercial bank deposits / district population (INR)
+# credit_deposit_ratio: advances / deposits (fraction)
+# bank_branches_per_lakh: branches per 1 lakh population
+# Figures are for scheduled commercial banks only (excl. cooperative banks)
+district,state_code,deposits_crore,per_capita_deposits,credit_deposit_ratio,bank_branches_per_lakh
+Central Delhi,DL,285000,4897938,1.42,187.4
+South Delhi,DL,196000,716899,0.71,52.8
+South West Delhi,DL,148000,526690,0.68,41.2
+West Delhi,DL,97000,380690,0.64,34.6
+North Delhi,DL,56000,631568,0.62,38.1
+North West Delhi,DL,88000,240699,0.59,28.4
+East Delhi,DL,74000,435294,0.61,31.2
+Shahdara,DL,49000,282089,0.58,26.8
+Gurugram,HR,198000,1308452,0.88,62.4
+Gautam Buddha Nagar,UP,68000,412621,0.74,38.2
+Mumbai City,MH,1240000,3942767,1.18,214.6
+Mumbai Suburban,MH,478000,506790,0.72,48.2
+Thane,MH,312000,282353,0.67,31.8
+Bengaluru Urban,KA,892000,927081,0.84,56.4
