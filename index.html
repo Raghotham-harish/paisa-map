@@ -681,14 +681,11 @@ youMarker.on("dragend", async e=>{
   } else {
     map.flyTo(center, 12, {duration:0.8});
   }
-  // If no static data in radius, fetch live OSM data
+  // If no static data in radius, fetch live OSM data immediately
   const hasStatic = ncrData.some(d => haversine(center[0],center[1],d[1],d[2]) <= radiusKm);
-  if(hasStatic){
-    toast("Centred on pin · local PPI data");
-  } else {
-    toast("Fetching live data from OpenStreetMap…", 10000);
-    loadLiveAreaData(center[0], center[1]);
-  }
+  if(!hasStatic) loadLiveAreaData(center[0], center[1]);
+  // Auto-enrich if pin lands on an unknown pincode (persists to dataset on local server)
+  autoEnrichIfNew(center[0], center[1]);
 });
 
 /* ---------- CSS-only locality pin (no external images) ---------- */
@@ -858,6 +855,7 @@ async function applyPlace(r){
   else{map.flyTo(center,13,{duration:.8});}
   render();
   if(nearby.length===0) toast("No data for this area yet — showing synthetic demo clusters.");
+  autoEnrichIfNew(center[0], center[1]);
 }
 
 // ── On-demand enrichment flow ─────────────────────────────────────────────────
@@ -899,6 +897,57 @@ async function enrichPincodeFlow(pincode){
     toast("Enrichment taking longer than expected — check server logs.",5000);
   }catch(e){
     toast("Enrichment request failed — is the server running?",5000);
+  }
+}
+
+// ── Auto-enrich when "You Are Here" pin is dropped on an unknown pincode ────────
+async function autoEnrichIfNew(lat, lng){
+  // Reverse-geocode to detect the Indian pincode at this location
+  let pc, name;
+  try{
+    const rev = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&zoom=14&format=json&addressdetails=1`,
+      {headers:{"Accept-Language":"en"}}
+    ).then(r=>r.json());
+    pc   = (rev?.address?.postcode||"").replace(/\s/g,"");
+    name = rev?.address?.suburb||rev?.address?.neighbourhood||
+           rev?.address?.village||rev?.address?.city_district||
+           rev?.address?.town||pc||"This area";
+  }catch(e){ return; }
+
+  if(!/^\d{6}$/.test(pc)) return;          // not an Indian 6-digit pincode
+
+  if(pincodeMap[pc]){
+    const d=pincodeMap[pc];
+    toast(`${d.name} · PPI ${d.ppi} · \u20b9${Math.round((d.income||0)/1000)}k/mo`);
+    return;
+  }
+
+  // Unknown pincode — enrich if running on local server
+  if(!IS_SERVER){
+    toast(`Pincode ${pc} (${name}) not in PaisaMap yet — run python3 server.py for auto-enrichment`,6000);
+    return;
+  }
+  toast(`Enriching ${name} (${pc})\u2026 (~30-60 sec)`,90000);
+  try{
+    await fetch(`/api/enrich?pincode=${pc}&lat=${lat}&lng=${lng}&name=${encodeURIComponent(name)}`);
+    const deadline=Date.now()+120000;
+    while(Date.now()<deadline){
+      await new Promise(r=>setTimeout(r,5000));
+      const s=await fetch(`/api/status/${pc}`).then(r=>r.json());
+      if(s.status==="done"){
+        dataPromise=loadPPIData().then(()=>{
+          render();
+          const d=pincodeMap[pc];
+          toast(`\u2713 ${name} (${pc}) added \u2014 PPI ${d?.ppi||"\u2014"} \u00b7 \u20b9${Math.round((d?.income||0)/1000)}k/mo`);
+        });
+        return;
+      }
+      if(s.status==="error"){toast(`Could not enrich ${pc} \u2014 check server logs`,4000);return;}
+    }
+    toast("Enrichment is taking longer than expected",4000);
+  }catch(e){
+    toast("Enrichment failed \u2014 is the server running?",5000);
   }
 }
 
@@ -1406,7 +1455,9 @@ function locateUser(auto){
   navigator.geolocation.getCurrentPosition(async pos=>{
     const {latitude:la, longitude:lo} = pos.coords;
     await applyLocation(la, lo);
-    toast(center[0]===la
+    // Auto-enrich on explicit GPS button tap (not on silent page-load auto-locate)
+    if(!auto) autoEnrichIfNew(la, lo);
+    else toast(center[0]===la
       ? (dataset.length > 0 ? "Centred on your location · local PPI data" : "Your location · no PPI data here yet")
       : "");
   }, err=>{
