@@ -492,9 +492,10 @@ let dataPromise = null;
 let pincodeMap = {};   // "560027" → {pincode, name, lat, lng, ppi, income}
 let nameIndex  = [];   // array of same objects, for fuzzy name search
 
-// Whether we're running on the local Flask server — enables /api/* endpoints
-// GitHub Pages uses https: but has no /api routes, so check hostname explicitly
-const IS_SERVER = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+// True on any host that has our /api backend (local Flask or production server)
+// False on GitHub Pages (static-only) and file:// direct opens
+const IS_SERVER = !window.location.hostname.includes("github.io")
+               && window.location.protocol !== "file:";
 
 async function loadPPIData(){
   try{

@@ -1,0 +1,23 @@
+# Source: VAHAN dashboard / MoRTH annual report 2023-24
+# https://vahan.parivahan.gov.in/vahan4dashboard/
+# district: as per Census 2011 / MoRTH classification
+# total_vehicles, cars_4w, two_wheelers, ev_count: absolute numbers
+# cars_per_1000: per 1000 population
+# ev_share: EV / total (fraction)
+# car_2w_ratio: 4-wheelers / 2-wheelers
+# luxury_share: premium segment (estimated from RTO category split)
+district,state_code,total_vehicles,cars_4w,two_wheelers,ev_count,cars_per_1000,ev_share,car_2w_ratio,luxury_share
+Central Delhi,DL,382000,86000,241000,9800,147.8,0.0256,0.357,0.088
+South Delhi,DL,1810000,358000,1228000,44800,130.9,0.0248,0.292,0.097
+South West Delhi,DL,1640000,295000,1120000,38200,104.9,0.0233,0.263,0.079
+West Delhi,DL,1420000,222000,985000,28600,87.1,0.0201,0.225,0.062
+North Delhi,DL,754000,112000,566000,15400,126.4,0.0204,0.198,0.055
+North West Delhi,DL,1510000,217000,1090000,30800,59.4,0.0204,0.199,0.054
+East Delhi,DL,908000,146000,652000,18400,85.9,0.0203,0.224,0.058
+Shahdara,DL,852000,130000,618000,17100,74.8,0.0201,0.210,0.052
+Gurugram,HR,1890000,481000,1102000,52400,317.8,0.0277,0.437,0.121
+Gautam Buddha Nagar,UP,958000,215000,678000,22200,130.5,0.0232,0.317,0.071
+Mumbai City,MH,762000,178000,380000,12400,56.6,0.0163,0.468,0.082
+Mumbai Suburban,MH,3110000,682000,2098000,45800,72.3,0.0147,0.325,0.063
+Thane,MH,2840000,594000,1852000,38200,53.8,0.0135,0.321,0.055
+Bengaluru Urban,KA,9520000,1412000,7248000,285000,146.8,0.0299,0.195,0.074

@@ -1,0 +1,29 @@
+# Source: CBDT Income Tax Statistics AY 2022-23
+# https://incometaxindia.gov.in/Pages/publications/income-tax-statistics.aspx
+# state_filer_rate: returns filed / estimated taxpaying population (fraction)
+# urban_multiplier: urban areas file at ~2.4x state average (captures metro concentration)
+# district_estimates: hand-calculated for our specific districts using
+#   urban_filer_rate = state_filer_rate * urban_multiplier * district_wealth_index
+state_code,state_name,total_filers,state_population,state_filer_rate,urban_multiplier,notes
+DL,Delhi,3670000,20000000,0.1835,1.00,Delhi is almost entirely urban; district variation from wealth
+MH,Maharashtra,8300000,126000000,0.0659,2.41,Mumbai City ~18%, rest of state much lower
+KA,Karnataka,3900000,67000000,0.0582,2.48,Bengaluru ~15%, rest of state ~3%
+HR,Haryana,1800000,28000000,0.0643,2.02,Gurugram area ~13%, rural Haryana ~3%
+UP,Uttar Pradesh,4200000,235000000,0.0179,4.45,Noida/NCR ~8%, rest of UP ~1%
+# District-level filer rate estimates (used by merge script)
+# Computed as: state_filer_rate * urban_mult * relative_district_wealth
+# district,state_code,est_filer_rate
+Central Delhi,DL,0.2820
+South Delhi,DL,0.3150
+South West Delhi,DL,0.2680
+West Delhi,DL,0.1920
+North Delhi,DL,0.1740
+North West Delhi,DL,0.1580
+East Delhi,DL,0.1680
+Shahdara,DL,0.1510
+Gurugram,HR,0.1380
+Gautam Buddha Nagar,UP,0.0820
+Mumbai City,MH,0.1940
+Mumbai Suburban,MH,0.1580
+Thane,MH,0.0920
+Bengaluru Urban,KA,0.1480
