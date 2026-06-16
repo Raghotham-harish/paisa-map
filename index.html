@@ -722,7 +722,7 @@ function drawBoundary(geojson,label){
   if(label) toast("Boundary drawn: " + label);
 }
 
-const NOMINATIM = “https://nominatim.openstreetmap.org”;
+const NOMINATIM = "https://nominatim.openstreetmap.org";
 
 // Search via server proxy (avoids CORS when opened as file://)
 // Falls back to direct Nominatim if not served over HTTP.
@@ -731,12 +731,12 @@ async function nominatimSearch(q, indiaOnly=true){
   if(IS_SERVER){
     url = `/api/search?q=${encodeURIComponent(q)}`;
   } else {
-    const extra = indiaOnly ? “&countrycodes=in” : “”;
+    const extra = indiaOnly ? "&countrycodes=in" : "";
     url = `${NOMINATIM}/search?format=jsonv2&limit=6&polygon_geojson=1&addressdetails=1${extra}&q=${encodeURIComponent(q)}`;
-    opts = {headers:{Accept:”application/json”,”User-Agent”:”PaisaMap/3.2”}};
+    opts = {headers:{Accept:"application/json","User-Agent":"PaisaMap/3.2"}};
   }
   const res = await fetch(url, opts);
-  if(!res.ok) throw new Error(“Search “ + res.status);
+  if(!res.ok) throw new Error("Search " + res.status);
   return res.json();
 }
 
@@ -744,37 +744,37 @@ async function nominatimSearch(q, indiaOnly=true){
 window.showBoundary = async function(id){
   const d = dataset.find(x=>x.id===id);
   if(!d) return;
-  toast(“Fetching boundary from OpenStreetMap…”,6000);
+  toast("Fetching boundary from OpenStreetMap…",6000);
   try{
-    const q = d.name.split(“·”)[0].trim() + “, India”;
+    const q = d.name.split("·")[0].trim() + ", India";
     const res = await nominatimSearch(q);
-    const hit = res.find(r => r.geojson && (r.geojson.type===”Polygon” || r.geojson.type===”MultiPolygon”));
+    const hit = res.find(r => r.geojson && (r.geojson.type==="Polygon" || r.geojson.type==="MultiPolygon"));
     if(hit){
       drawBoundary(hit.geojson, d.name);
       map.flyToBounds(boundaryLayer.getBounds(),{maxZoom:14,duration:.6});
     } else {
-      toast(“OSM has no boundary polygon mapped for “” + d.name + “”.”);
+      toast(`OSM has no boundary polygon mapped for "${d.name}".`);
     }
   }catch(e){
-    const hint = IS_SERVER ? “” : “ — run python3 server.py for better search support”;
-    toast(“Boundary lookup failed” + hint, 5000);
+    const hint = IS_SERVER ? "" : " — run python3 server.py for better search support";
+    toast("Boundary lookup failed" + hint, 5000);
   }
 };
 
 /* ---------- location search ---------- */
-const searchBox     = document.getElementById(“searchBox”);
-const searchResults = document.getElementById(“searchResults”);
+const searchBox     = document.getElementById("searchBox");
+const searchResults = document.getElementById("searchResults");
 
 // Show local-dataset matches in the dropdown
 function showLocalResults(matches){
-  searchResults.innerHTML=””;
+  searchResults.innerHTML="";
   matches.forEach(d=>{
-    const b=document.createElement(“button”);
-    b.innerHTML=`<b>${d.name}</b><span style=”font-family:var(--mono);font-size:10px”>${d.pincode||””} · PPI ${d.ppi||”—“}</span>`;
-    b.addEventListener(“click”,()=>{
+    const b=document.createElement("button");
+    b.innerHTML=`<b>${d.name}</b><span style="font-family:var(--mono);font-size:10px">${d.pincode||""} · PPI ${d.ppi||"—"}</span>`;
+    b.addEventListener("click",()=>{
       center=[d.lat,d.lng];
       moveYou();
-      searchResults.style.display=”none”;
+      searchResults.style.display="none";
       searchBox.value=d.name;
       activeId=null;
       map.flyTo(center,14,{duration:.7});
@@ -784,11 +784,11 @@ function showLocalResults(matches){
         const rec=dataset.find(x=>Math.abs(x.lat-d.lat)<0.002&&Math.abs(x.lng-d.lng)<0.002);
         if(rec) setActive(rec.id,true);
       }, 300);
-      toast(`${d.name} · PPI ${d.ppi||”—“} · ₹${Math.round((d.income||0)/1000)}k/mo`);
+      toast(`${d.name} · PPI ${d.ppi||"—"} · ₹${Math.round((d.income||0)/1000)}k/mo`);
     });
     searchResults.appendChild(b);
   });
-  searchResults.style.display=”block”;
+  searchResults.style.display="block";
 }
 
 async function runSearch(){
@@ -811,33 +811,33 @@ async function runSearch(){
 
   // 3. Unknown 6-digit pincode → offer on-demand enrichment
   if(/^\d{6}$/.test(q)){
-    searchResults.style.display=”block”;
-    searchResults.innerHTML=`<button id=”enrichBtn” style=”color:var(--rupee-deep)”>📍 Pincode ${q} not in PaisaMap yet — tap to enrich it</button>`;
-    document.getElementById(“enrichBtn”).onclick=()=>enrichPincodeFlow(q);
+    searchResults.style.display="block";
+    searchResults.innerHTML=`<button id="enrichBtn" style="color:var(--rupee-deep)">📍 Pincode ${q} not in PaisaMap yet — tap to enrich it</button>`;
+    document.getElementById("enrichBtn").onclick=()=>enrichPincodeFlow(q);
     return;
   }
 
   // 4. Nominatim (India-only) for unknown area names
-  searchResults.style.display=”block”;
+  searchResults.style.display="block";
   searchResults.innerHTML='<button disabled>Searching…</button>';
   try{
     const res=await nominatimSearch(q,true);
     if(!res.length){
-      searchResults.innerHTML='<button disabled>No places found in India. Try adding the city name (e.g. “Bandra Mumbai”).</button>';
+      searchResults.innerHTML='<button disabled>No places found in India. Try adding the city name (e.g. "Bandra Mumbai").</button>';
       return;
     }
-    searchResults.innerHTML=””;
+    searchResults.innerHTML="";
     res.forEach(r=>{
-      const b=document.createElement(“button”);
-      const parts=r.display_name.split(“,”);
-      b.innerHTML=`<b>${parts[0]}</b><span>${parts.slice(1,4).join(“,”).trim()}</span>`;
-      b.addEventListener(“click”,()=>applyPlace(r));
+      const b=document.createElement("button");
+      const parts=r.display_name.split(",");
+      b.innerHTML=`<b>${parts[0]}</b><span>${parts.slice(1,4).join(",").trim()}</span>`;
+      b.addEventListener("click",()=>applyPlace(r));
       searchResults.appendChild(b);
     });
   }catch(e){
     const hint=IS_SERVER
-      ? “Search failed — check network connection.”
-      : “Search blocked. Run <b>python3 server.py</b> and open http://localhost:8080”;
+      ? "Search failed — check network connection."
+      : "Search blocked. Run <b>python3 server.py</b> and open http://localhost:8080";
     searchResults.innerHTML=`<button disabled>${hint}</button>`;
   }
 }
@@ -849,31 +849,31 @@ async function applyPlace(r){
   dataset=(nearby.length>0?nearby:syntheticAround(center[0],center[1])).map(buildRecord);
   activeId=null;
   clearNearby();
-  const poly=r.geojson&&(r.geojson.type===”Polygon”||r.geojson.type===”MultiPolygon”)?r.geojson:null;
-  drawBoundary(poly,poly?r.display_name.split(“,”)[0]:null);
+  const poly=r.geojson&&(r.geojson.type==="Polygon"||r.geojson.type==="MultiPolygon")?r.geojson:null;
+  drawBoundary(poly,poly?r.display_name.split(",")[0]:null);
   moveYou();
-  searchResults.style.display=”none”;
-  searchBox.value=r.display_name.split(“,”)[0];
+  searchResults.style.display="none";
+  searchBox.value=r.display_name.split(",")[0];
   if(boundaryLayer){map.flyToBounds(boundaryLayer.getBounds(),{maxZoom:13,duration:.8});}
   else{map.flyTo(center,13,{duration:.8});}
   render();
-  if(nearby.length===0) toast(“No data for this area yet — showing synthetic demo clusters.”);
+  if(nearby.length===0) toast("No data for this area yet — showing synthetic demo clusters.");
 }
 
 // ── On-demand enrichment flow ─────────────────────────────────────────────────
 async function enrichPincodeFlow(pincode){
-  searchResults.style.display=”none”;
+  searchResults.style.display="none";
   if(!IS_SERVER){
-    toast(“Run  python3 server.py  and open http://localhost:8080 to enable enrichment”,7000);
+    toast("Run  python3 server.py  and open http://localhost:8080 to enable enrichment",7000);
     return;
   }
   toast(`Resolving pincode ${pincode}…`,8000);
   let lat,lng,name=pincode;
   try{
-    const hits=await nominatimSearch(pincode+” India”);
-    if(hits.length){lat=hits[0].lat;lng=hits[0].lon;name=hits[0].display_name.split(“,”)[0];}
+    const hits=await nominatimSearch(pincode+" India");
+    if(hits.length){lat=hits[0].lat;lng=hits[0].lon;name=hits[0].display_name.split(",")[0];}
   }catch(e){}
-  if(!lat||!lng){toast(“Could not resolve pincode — try entering the area name instead.”,5000);return;}
+  if(!lat||!lng){toast("Could not resolve pincode — try entering the area name instead.",5000);return;}
   center=[+lat,+lng];
   moveYou();
   map.flyTo(center,14,{duration:.8});
@@ -885,29 +885,29 @@ async function enrichPincodeFlow(pincode){
     while(Date.now()<deadline){
       await new Promise(r=>setTimeout(r,4000));
       const s=await fetch(`/api/status/${pincode}`).then(r=>r.json());
-      if(s.status===”done”){
+      if(s.status==="done"){
         dataPromise=loadPPIData().then(()=>{
           render();
           const d=pincodeMap[pincode];
           if(d){center=[d.lat,d.lng];moveYou();map.flyTo(center,14,{duration:.6});}
-          toast(`✓ ${name} enriched — PPI: ${pincodeMap[pincode]?.ppi||”—“}`);
+          toast(`✓ ${name} enriched — PPI: ${pincodeMap[pincode]?.ppi||"—"}`);
         });
         return;
       }
-      if(s.status===”error”){toast(`Enrichment failed for ${pincode}`,5000);return;}
+      if(s.status==="error"){toast(`Enrichment failed for ${pincode}`,5000);return;}
     }
-    toast(“Enrichment taking longer than expected — check server logs.”,5000);
+    toast("Enrichment taking longer than expected — check server logs.",5000);
   }catch(e){
-    toast(“Enrichment request failed — is the server running?”,5000);
+    toast("Enrichment request failed — is the server running?",5000);
   }
 }
 
-document.getElementById(“searchBtn”).addEventListener(“click”,runSearch);
-searchBox.addEventListener(“keydown”,e=>{if(e.key===”Enter”)runSearch();});
+document.getElementById("searchBtn").addEventListener("click",runSearch);
+searchBox.addEventListener("keydown",e=>{if(e.key==="Enter")runSearch();});
 // Hide results when clicking outside
-document.addEventListener(“click”,e=>{
-  if(!e.target.closest(“.search-wrap”)&&!e.target.closest(“#searchResults”))
-    searchResults.style.display=”none”;
+document.addEventListener("click",e=>{
+  if(!e.target.closest(".search-wrap")&&!e.target.closest("#searchResults"))
+    searchResults.style.display="none";
 });
 
 /* ---------- nearby hubs (Overpass API — OSM's "places nearby") ---------- */
