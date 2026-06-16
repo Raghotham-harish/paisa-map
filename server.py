@@ -1,16 +1,3 @@
-<<<<<<< HEAD
-from flask import Flask
-
-app = Flask(__name__)
-
-@app.route("/api/health")
-def health():
-    return {"status": "ok"}
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
-
-=======
 """
 server.py — PaisaMap local server
 
@@ -107,6 +94,11 @@ def api_status(pincode):
         return jsonify(_jobs.get(pincode, {"status": "unknown"}))
 
 
+@app.route("/api/health")
+def health():
+    return jsonify({"status": "ok"})
+
+
 def _run_enrich(pc, lat, lng, name):
     try:
         res = subprocess.run(
@@ -115,7 +107,6 @@ def _run_enrich(pc, lat, lng, name):
         )
         with _lock:
             if res.returncode == 0:
-                # Extract PPI from the last line of stdout
                 lines = [l for l in res.stdout.splitlines() if l.strip()]
                 ppi_line = next((l for l in reversed(lines) if "PPI" in l), "")
                 _jobs[pc] = {
@@ -142,4 +133,3 @@ if __name__ == "__main__":
     print(f"  ETL:             {ETL}")
     print(f"  Python:          {PYTHON}\n")
     app.run(port=port, debug=False, use_reloader=False)
->>>>>>> 83e8b2b3e5b17960dbc3675a84a302e2350bd4d2
