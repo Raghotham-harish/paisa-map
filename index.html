@@ -359,7 +359,7 @@
 
 <aside>
   <div class="brand">
-    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v3.1 · Live</span></div>
+    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v3.2 · Live</span></div>
     <h1>Paisa<span class="tick">/</span>Map</h1>
   </div>
 
@@ -455,7 +455,7 @@
    PaisaMap — demo purchasing-power heat map
    All locality figures below are MODELLED for demonstration.
    ============================================================ */
-const VERSION = "v3.1 · 2026-06-16";
+const VERSION = "v3.2 · 2026-06-16";
 console.log("PaisaMap build", VERSION, "— features: search · boundaries · nearby hubs · CSS pins · offline mode");
 
 // [name, lat, lng, avg monthly household income (INR, modelled)]
@@ -488,6 +488,14 @@ const NCR = [
 let ncrData = NCR;
 let dataPromise = null;
 
+// Local lookup indexes built from the CSV (pincode → record, name index)
+let pincodeMap = {};   // "560027" → {pincode, name, lat, lng, ppi, income}
+let nameIndex  = [];   // array of same objects, for fuzzy name search
+
+// Whether we're running on the local Flask server — enables /api/* endpoints
+// GitHub Pages uses https: but has no /api routes, so check hostname explicitly
+const IS_SERVER = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
 async function loadPPIData(){
   try{
     const res = await fetch("data/output/ppi_map_data.csv");
@@ -496,16 +504,20 @@ async function loadPPIData(){
     const lines = text.trim().split("\n");
     const parsed = lines.slice(1).map(line=>{
       const [pincode,name,lat,lng,ppi,income] = line.split(",");
-      return [name, parseFloat(lat), parseFloat(lng), parseFloat(income)];
-    }).filter(r=>r[1]&&r[2]&&r[3]);
+      return {pincode, name, lat:+lat, lng:+lng, ppi:+ppi||100, income:+income};
+    }).filter(r=>r.lat&&r.lng&&r.income);
     if(parsed.length > 0){
-      // Keep NCR localities the CSV doesn't cover (Gurgaon, Noida, Faridabad etc.)
-      // NCR income is ~5.5× monthly scale — normalise before merging
+      // Build lookup indexes
+      pincodeMap = {};
+      nameIndex  = [];
+      parsed.forEach(r=>{ pincodeMap[r.pincode]=r; nameIndex.push(r); });
+
+      // Keep NCR localities not covered by the CSV (Noida, Faridabad hardcoded)
       const NCR_SCALE = 5.5;
       const ncr_extras = NCR.filter(n =>
-        !parsed.some(p => haversine(n[1],n[2],p[1],p[2]) < 5)
+        !parsed.some(p => haversine(n[1],n[2],p.lat,p.lng) < 5)
       ).map(n => [n[0], n[1], n[2], Math.round(n[3] / NCR_SCALE)]);
-      ncrData = [...parsed, ...ncr_extras];
+      ncrData = [...parsed.map(r=>[r.name,r.lat,r.lng,r.income]), ...ncr_extras];
       dataset = ncrData.map(buildRecord);
       render();
     }
@@ -710,11 +722,21 @@ function drawBoundary(geojson,label){
   if(label) toast("Boundary drawn: " + label);
 }
 
-const NOMINATIM = "https://nominatim.openstreetmap.org";
-async function nominatimSearch(q){
-  const url = `${NOMINATIM}/search?format=jsonv2&limit=5&polygon_geojson=1&addressdetails=1&q=${encodeURIComponent(q)}`;
-  const res = await fetch(url,{headers:{Accept:"application/json"}});
-  if(!res.ok) throw new Error("Nominatim " + res.status);
+const NOMINATIM = “https://nominatim.openstreetmap.org”;
+
+// Search via server proxy (avoids CORS when opened as file://)
+// Falls back to direct Nominatim if not served over HTTP.
+async function nominatimSearch(q, indiaOnly=true){
+  let url, opts={};
+  if(IS_SERVER){
+    url = `/api/search?q=${encodeURIComponent(q)}`;
+  } else {
+    const extra = indiaOnly ? “&countrycodes=in” : “”;
+    url = `${NOMINATIM}/search?format=jsonv2&limit=6&polygon_geojson=1&addressdetails=1${extra}&q=${encodeURIComponent(q)}`;
+    opts = {headers:{Accept:”application/json”,”User-Agent”:”PaisaMap/3.2”}};
+  }
+  const res = await fetch(url, opts);
+  if(!res.ok) throw new Error(“Search “ + res.status);
   return res.json();
 }
 
@@ -722,67 +744,171 @@ async function nominatimSearch(q){
 window.showBoundary = async function(id){
   const d = dataset.find(x=>x.id===id);
   if(!d) return;
-  toast("Fetching boundary from OpenStreetMap…",6000);
+  toast(“Fetching boundary from OpenStreetMap…”,6000);
   try{
-    const q = d.name.split("·")[0].trim() + ", India";
+    const q = d.name.split(“·”)[0].trim() + “, India”;
     const res = await nominatimSearch(q);
-    const hit = res.find(r => r.geojson && (r.geojson.type==="Polygon" || r.geojson.type==="MultiPolygon"));
+    const hit = res.find(r => r.geojson && (r.geojson.type===”Polygon” || r.geojson.type===”MultiPolygon”));
     if(hit){
       drawBoundary(hit.geojson, d.name);
       map.flyToBounds(boundaryLayer.getBounds(),{maxZoom:14,duration:.6});
     } else {
-      toast("OSM has no boundary polygon mapped for “" + d.name + "”.");
+      toast(“OSM has no boundary polygon mapped for “” + d.name + “”.”);
     }
   }catch(e){
-    toast("Boundary lookup failed — if you're in a restricted preview, download and open the file in a browser tab.",5000);
+    const hint = IS_SERVER ? “” : “ — run python3 server.py for better search support”;
+    toast(“Boundary lookup failed” + hint, 5000);
   }
 };
 
 /* ---------- location search ---------- */
-const searchBox = document.getElementById("searchBox");
-const searchResults = document.getElementById("searchResults");
+const searchBox     = document.getElementById(“searchBox”);
+const searchResults = document.getElementById(“searchResults”);
+
+// Show local-dataset matches in the dropdown
+function showLocalResults(matches){
+  searchResults.innerHTML=””;
+  matches.forEach(d=>{
+    const b=document.createElement(“button”);
+    b.innerHTML=`<b>${d.name}</b><span style=”font-family:var(--mono);font-size:10px”>${d.pincode||””} · PPI ${d.ppi||”—“}</span>`;
+    b.addEventListener(“click”,()=>{
+      center=[d.lat,d.lng];
+      moveYou();
+      searchResults.style.display=”none”;
+      searchBox.value=d.name;
+      activeId=null;
+      map.flyTo(center,14,{duration:.7});
+      render();
+      // Highlight in ledger
+      setTimeout(()=>{
+        const rec=dataset.find(x=>Math.abs(x.lat-d.lat)<0.002&&Math.abs(x.lng-d.lng)<0.002);
+        if(rec) setActive(rec.id,true);
+      }, 300);
+      toast(`${d.name} · PPI ${d.ppi||”—“} · ₹${Math.round((d.income||0)/1000)}k/mo`);
+    });
+    searchResults.appendChild(b);
+  });
+  searchResults.style.display=”block”;
+}
 
 async function runSearch(){
-  const q = searchBox.value.trim();
+  const q=searchBox.value.trim();
   if(!q) return;
-  searchResults.style.display = "block";
-  searchResults.innerHTML = '<button disabled>Searching…</button>';
+
+  // 1. Exact 6-digit pincode → local lookup first
+  if(/^\d{6}$/.test(q)&&pincodeMap[q]){
+    showLocalResults([pincodeMap[q]]);
+    return;
+  }
+
+  // 2. Fuzzy name match on local dataset (instant, no network)
+  const ql=q.toLowerCase();
+  const local=nameIndex.filter(d=>d.name.toLowerCase().includes(ql)).slice(0,6);
+  if(local.length>0){
+    showLocalResults(local);
+    return;
+  }
+
+  // 3. Unknown 6-digit pincode → offer on-demand enrichment
+  if(/^\d{6}$/.test(q)){
+    searchResults.style.display=”block”;
+    searchResults.innerHTML=`<button id=”enrichBtn” style=”color:var(--rupee-deep)”>📍 Pincode ${q} not in PaisaMap yet — tap to enrich it</button>`;
+    document.getElementById(“enrichBtn”).onclick=()=>enrichPincodeFlow(q);
+    return;
+  }
+
+  // 4. Nominatim (India-only) for unknown area names
+  searchResults.style.display=”block”;
+  searchResults.innerHTML='<button disabled>Searching…</button>';
   try{
-    const res = await nominatimSearch(q);
-    if(!res.length){ searchResults.innerHTML = '<button disabled>No places found. Try adding the city name.</button>'; return; }
-    searchResults.innerHTML = "";
+    const res=await nominatimSearch(q,true);
+    if(!res.length){
+      searchResults.innerHTML='<button disabled>No places found in India. Try adding the city name (e.g. “Bandra Mumbai”).</button>';
+      return;
+    }
+    searchResults.innerHTML=””;
     res.forEach(r=>{
-      const b = document.createElement("button");
-      const parts = r.display_name.split(",");
-      b.innerHTML = `<b>${parts[0]}</b><span>${parts.slice(1,4).join(",").trim()}</span>`;
-      b.addEventListener("click",()=>applyPlace(r));
+      const b=document.createElement(“button”);
+      const parts=r.display_name.split(“,”);
+      b.innerHTML=`<b>${parts[0]}</b><span>${parts.slice(1,4).join(“,”).trim()}</span>`;
+      b.addEventListener(“click”,()=>applyPlace(r));
       searchResults.appendChild(b);
     });
   }catch(e){
-    searchResults.innerHTML = '<button disabled>Search failed — network blocked here. Download the file and open it in a browser tab.</button>';
+    const hint=IS_SERVER
+      ? “Search failed — check network connection.”
+      : “Search blocked. Run <b>python3 server.py</b> and open http://localhost:8080”;
+    searchResults.innerHTML=`<button disabled>${hint}</button>`;
   }
 }
 
 async function applyPlace(r){
   if(dataPromise) await dataPromise;
-  center = [parseFloat(r.lat), parseFloat(r.lon)];
-  const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
-  dataset = (nearby.length > 0 ? nearby : syntheticAround(center[0],center[1])).map(buildRecord);
-  activeId = null;
+  center=[parseFloat(r.lat), parseFloat(r.lon)];
+  const nearby=ncrData.filter(d=>haversine(center[0],center[1],d[1],d[2])<=80);
+  dataset=(nearby.length>0?nearby:syntheticAround(center[0],center[1])).map(buildRecord);
+  activeId=null;
   clearNearby();
-  const poly = r.geojson && (r.geojson.type==="Polygon" || r.geojson.type==="MultiPolygon") ? r.geojson : null;
-  drawBoundary(poly, poly ? r.display_name.split(",")[0] : null);
+  const poly=r.geojson&&(r.geojson.type===”Polygon”||r.geojson.type===”MultiPolygon”)?r.geojson:null;
+  drawBoundary(poly,poly?r.display_name.split(“,”)[0]:null);
   moveYou();
-  searchResults.style.display = "none";
-  searchBox.value = r.display_name.split(",")[0];
-  if(boundaryLayer){ map.flyToBounds(boundaryLayer.getBounds(),{maxZoom:13,duration:.8}); }
-  else { map.flyTo(center, 12, {duration:.8}); }
+  searchResults.style.display=”none”;
+  searchBox.value=r.display_name.split(“,”)[0];
+  if(boundaryLayer){map.flyToBounds(boundaryLayer.getBounds(),{maxZoom:13,duration:.8});}
+  else{map.flyTo(center,13,{duration:.8});}
   render();
-  if(nearby.length === 0) toast("No data for this area yet — showing synthetic demo clusters.");
+  if(nearby.length===0) toast(“No data for this area yet — showing synthetic demo clusters.”);
 }
 
-document.getElementById("searchBtn").addEventListener("click", runSearch);
-searchBox.addEventListener("keydown", e=>{ if(e.key==="Enter") runSearch(); });
+// ── On-demand enrichment flow ─────────────────────────────────────────────────
+async function enrichPincodeFlow(pincode){
+  searchResults.style.display=”none”;
+  if(!IS_SERVER){
+    toast(“Run  python3 server.py  and open http://localhost:8080 to enable enrichment”,7000);
+    return;
+  }
+  toast(`Resolving pincode ${pincode}…`,8000);
+  let lat,lng,name=pincode;
+  try{
+    const hits=await nominatimSearch(pincode+” India”);
+    if(hits.length){lat=hits[0].lat;lng=hits[0].lon;name=hits[0].display_name.split(“,”)[0];}
+  }catch(e){}
+  if(!lat||!lng){toast(“Could not resolve pincode — try entering the area name instead.”,5000);return;}
+  center=[+lat,+lng];
+  moveYou();
+  map.flyTo(center,14,{duration:.8});
+  toast(`Adding ${name} (${pincode}) to PaisaMap — runs in background (~30–60 sec)…`,90000);
+  try{
+    await fetch(`/api/enrich?pincode=${pincode}&lat=${lat}&lng=${lng}&name=${encodeURIComponent(name)}`);
+    // Poll for completion
+    const deadline=Date.now()+120000;
+    while(Date.now()<deadline){
+      await new Promise(r=>setTimeout(r,4000));
+      const s=await fetch(`/api/status/${pincode}`).then(r=>r.json());
+      if(s.status===”done”){
+        dataPromise=loadPPIData().then(()=>{
+          render();
+          const d=pincodeMap[pincode];
+          if(d){center=[d.lat,d.lng];moveYou();map.flyTo(center,14,{duration:.6});}
+          toast(`✓ ${name} enriched — PPI: ${pincodeMap[pincode]?.ppi||”—“}`);
+        });
+        return;
+      }
+      if(s.status===”error”){toast(`Enrichment failed for ${pincode}`,5000);return;}
+    }
+    toast(“Enrichment taking longer than expected — check server logs.”,5000);
+  }catch(e){
+    toast(“Enrichment request failed — is the server running?”,5000);
+  }
+}
+
+document.getElementById(“searchBtn”).addEventListener(“click”,runSearch);
+searchBox.addEventListener(“keydown”,e=>{if(e.key===”Enter”)runSearch();});
+// Hide results when clicking outside
+document.addEventListener(“click”,e=>{
+  if(!e.target.closest(“.search-wrap”)&&!e.target.closest(“#searchResults”))
+    searchResults.style.display=”none”;
+});
 
 /* ---------- nearby hubs (Overpass API — OSM's "places nearby") ---------- */
 const OVERPASS = "https://overpass-api.de/api/interpreter";
