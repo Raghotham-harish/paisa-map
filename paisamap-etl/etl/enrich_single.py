@@ -137,16 +137,20 @@ def scale_from_poi(poi: float, prior: dict, city_poi_median: float = 15.0) -> di
     # POI density is the best real-time signal; scale others proportionally.
     # Use dampened power scaling (exponent < 1) to avoid wild extrapolation.
     ratio = max(0.15, min(5.0, poi / max(city_poi_median, 0.5)))
+    # fin_density scales with POI density (financial inclusion tracks economic activity)
+    # National median ~0.04 SFB+COOP+RRB branches/km² from 73-pincode dataset
+    fin_national_median = 0.04
     return {
         "rate_per_sqft":       round(prior["rate"]   * ratio ** 0.80),
         "deposits_per_capita": round(prior["dep"]    * ratio ** 0.75),
         "radiance_mean":       round(prior["nl"]     * ratio ** 0.25, 1),
         "filers_per_capita":   round(prior["itr"]    * ratio ** 0.55, 4),
         "cars_per_1000":       round(prior["veh"]    * ratio ** 0.35, 1),
-        "car_2w_ratio":        prior["c2w"],   # RTO district-level — don't scale
+        "car_2w_ratio":        prior["c2w"],
         "luxury_share":        prior["lux"],
         "ev_share":            prior["ev"],
         "premium_poi_per_km2": poi,
+        "fin_density_per_km2": round(fin_national_median * ratio ** 0.50, 4),
     }
 
 
@@ -293,12 +297,14 @@ def main():
     names_df.loc[pc] = {"name": name}
     names_df.to_csv(RAW / "pincode_names.csv")
 
-    _append("property_rates.csv",  "rate_per_sqft",        signals["rate_per_sqft"])
-    _append("bank_deposits.csv",   "deposits_per_capita",   signals["deposits_per_capita"])
-    _append("nightlights.csv",     "radiance_mean",         signals["radiance_mean"])
-    _append("poi_density.csv",     "premium_poi_per_km2",   signals["premium_poi_per_km2"])
-    _append("itr_filers.csv",      "filers_per_capita",     signals["filers_per_capita"])
-    _append("vehicle_density.csv", "cars_per_1000",         signals["cars_per_1000"])
+    _append("property_rates.csv",      "rate_per_sqft",         signals["rate_per_sqft"])
+    _append("bank_deposits.csv",       "deposits_per_capita",   signals["deposits_per_capita"])
+    _append("nightlights.csv",         "radiance_mean",         signals["radiance_mean"])
+    _append("poi_density.csv",         "premium_poi_per_km2",   signals["premium_poi_per_km2"])
+    _append("itr_filers.csv",          "filers_per_capita",     signals["filers_per_capita"])
+    _append("vehicle_density.csv",     "cars_per_1000",         signals["cars_per_1000"])
+    if (RAW / "financial_inclusion.csv").exists():
+        _append("financial_inclusion.csv", "fin_density_per_km2",   signals["fin_density_per_km2"])
 
     # rto_enhanced — 4 columns
     rto_df = pd.read_csv(RAW / "rto_enhanced.csv", dtype={"pincode": str}).set_index("pincode")

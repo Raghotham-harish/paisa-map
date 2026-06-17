@@ -1,123 +1,208 @@
 """
-fetch_financial.py
-Queries the Overpass API to count three categories of financial-inclusion
-institutions within 8 km of each of our 38 pincodes:
+fetch_financial.py — Financial inclusion signal: SFB / co-op / RRB branch density.
 
-  1. Small Finance Banks (SFBs): Ujjivan, Equitas, Au Small Finance, Jana,
-     Suryoday, ESAF, Utkarsh, Capital Small Finance, Fincare, North East SFB
-  2. Cooperative / Urban Co-operative Banks: Saraswat, Cosmos, SVC, TJSB,
-     NKGSB, Abhyudaya, Janata, Mahesh, Sahakari
-  3. Regional Rural Banks (RRBs / Gramin Banks): any branch with "Gramin" or
-     "Grameena" or "Regional Rural" in its name
+Strategy (v2 — fixed timeout):
+  One simple Overpass query per pincode: fetch ALL bank tags within 5km radius.
+  Classify SFB / COOP / RRB in Python — no server-side regex, no timeouts.
+
+OSM tag fields checked: name, operator, brand (catches inconsistent tagging).
 
 Output: data/raw/financial_inclusion.csv
-  pincode, sfb_branches, coop_branches, rrb_branches, fin_branches_total,
-  fin_density_per_km2
+  pincode, sfb_branches, coop_branches, rrb_branches,
+  fin_branches_total, fin_density_per_km2
 
-Note: SFBs and cooperative banks primarily serve the middle and lower-middle
-income segments. In the PPI composite they function similarly to poi_density
-— a proxy for economic activity and financial-services penetration — so they
-are included as a positive contributor with a small weight.
+Usage:
+  cd paisamap-etl
+  python3 etl/fetch_financial.py           # full run
+  python3 etl/fetch_financial.py --resume  # skip pincodes already in output CSV
+  python3 etl/fetch_financial.py --dry-run # query but don't write
 """
 
+import argparse
 import json
 import math
 import time
-import urllib.request
 import urllib.parse
+import urllib.request
+from pathlib import Path
+
 import pandas as pd
 
-OVERPASS = "https://overpass-api.de/api/interpreter"
-RADIUS_M = 8_000       # 8 km — small enough to avoid timeouts
-AREA_KM2 = math.pi * (RADIUS_M / 1000) ** 2    # ~201 km²
+OVERPASS  = "https://overpass-api.de/api/interpreter"
+RADIUS_M  = 5_000               # 5 km — reduces data volume vs old 8 km
+AREA_KM2  = math.pi * (RADIUS_M / 1000) ** 2   # ~78.5 km²
+SLEEP_SEC = 4                   # between requests — Overpass rate limit
 
-SLEEP_SEC = 3          # polite pause between per-pincode requests
+RAW = Path(__file__).resolve().parents[1] / "data" / "raw"
+OUT = RAW / "financial_inclusion.csv"
 
-# ── Institution name patterns ────────────────────────────────────────────────
-SFB_PATTERN  = (
-    "Ujjivan|Equitas|Au Small Finance|Au Small|Jana Small Finance|Jana SFB|"
-    "Suryoday|ESAF|Utkarsh|Capital Small Finance|Fincare|North East Small"
-)
+# ── Classification keywords (checked against name + operator + brand tags) ────
+# Lower-case, substring match. Order matters: SFB checked before COOP.
 
-COOP_PATTERN = (
-    "Saraswat|Cosmos Co-op|Cosmos Bank|SVC Bank|TJSB|NKGSB|Abhyudaya|"
-    "Janata Sahakari|Mahesh Bank|Sahakari Bank|Co-operative Bank|"
-    "Urban Co-op|Cooperative Bank"
-)
+SFB_KEYWORDS = [
+    "ujjivan", "equitas", "au small finance", "au sfb",
+    "jana small finance", "jana sfb", "suryoday", "esaf",
+    "utkarsh", "capital small finance", "fincare",
+    "north east small finance", "shivalik small finance",
+    "unity small finance", "savein", "northeast sfb",
+]
 
-RRB_PATTERN  = "Gramin Bank|Grameena Bank|Regional Rural Bank|Kshetriya"
+COOP_KEYWORDS = [
+    "saraswat", "cosmos co-op", "cosmos bank", "svc bank",
+    "tjsb", "nkgsb", "abhyudaya", "janata sahakari",
+    "mahesh bank", "sahakari bank", "co-operative bank",
+    "cooperative bank", "urban co-op", "nagpur nagarik",
+    "zoroastrian", "the shamrao vithal", "apna sahakari",
+    "mandvi co-op", "goa urban",
+]
+
+RRB_KEYWORDS = [
+    "gramin bank", "grameena bank", "regional rural bank",
+    "kshetriya gramin", "pragathi krishna", "kaveri grameena",
+    "canara bank (gramin)", "andhra pragathi", "chaitanya godavari",
+    "bangiya gramin", "paschim banga", "madhyanchal gramin",
+    "baroda rajasthan", "rajasthan marudhara", "uttar bihar",
+    "dakshin bihar", "jharkhand rajya gramin", "vananchal gramin",
+    "chhattisgarh rajya gramin", "vidarbha konkan gramin",
+]
 
 
-def overpass_count(lat, lng, pattern):
-    """Return branch count matching `pattern` within RADIUS_M of (lat, lng)."""
-    q = f"""[out:json][timeout:25];
+def classify(tags: dict) -> str:
+    """Return 'sfb', 'coop', 'rrb', or '' based on name/operator/brand tags."""
+    text = " ".join(filter(None, [
+        tags.get("name", ""),
+        tags.get("operator", ""),
+        tags.get("brand", ""),
+    ])).lower()
+
+    for kw in SFB_KEYWORDS:
+        if kw in text:
+            return "sfb"
+    for kw in RRB_KEYWORDS:
+        if kw in text:
+            return "rrb"
+    for kw in COOP_KEYWORDS:
+        if kw in text:
+            return "coop"
+    return ""
+
+
+def fetch_banks(lat: float, lng: float) -> list[dict]:
+    """
+    Single Overpass query: all amenity=bank within RADIUS_M.
+    Returns list of tag dicts. Empty list on failure.
+    """
+    q = f"""[out:json][timeout:30];
 (
-  nwr["amenity"="bank"]["name"~"{pattern}",i](around:{RADIUS_M},{lat},{lng});
-  nwr["amenity"="bank"]["operator"~"{pattern}",i](around:{RADIUS_M},{lat},{lng});
+  nwr["amenity"="bank"](around:{RADIUS_M},{lat},{lng});
 );
-out count;"""
-    try:
-        data = urllib.parse.urlencode({"data": q}).encode()
-        req = urllib.request.Request(
-            OVERPASS, data=data,
-            headers={"User-Agent": "PaisaMap-ETL/2.0",
-                     "Content-Type": "application/x-www-form-urlencoded"}
-        )
-        with urllib.request.urlopen(req, timeout=30) as r:
-            j = json.loads(r.read())
-        return int(j["elements"][0]["tags"]["total"])
-    except Exception as e:
-        print(f"      WARN Overpass error: {e}")
-        return None
+out tags;"""
+
+    data = urllib.parse.urlencode({"data": q}).encode()
+    req  = urllib.request.Request(
+        OVERPASS, data=data,
+        headers={"User-Agent": "PaisaMap-ETL/2.0",
+                 "Content-Type": "application/x-www-form-urlencoded"},
+    )
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=40) as r:
+                j = json.loads(r.read())
+            return [el.get("tags", {}) for el in j.get("elements", [])]
+        except Exception as e:
+            wait = 10 * (attempt + 1)
+            print(f"    attempt {attempt+1} failed ({e}) — retry in {wait}s",
+                  flush=True)
+            time.sleep(wait)
+    return []
+
+
+def process_pincode(pc: str, lat: float, lng: float) -> dict:
+    banks = fetch_banks(lat, lng)
+    sfb = coop = rrb = 0
+    for tags in banks:
+        cat = classify(tags)
+        if cat == "sfb":   sfb  += 1
+        elif cat == "coop": coop += 1
+        elif cat == "rrb":  rrb  += 1
+
+    total   = sfb + coop + rrb
+    density = round(total / AREA_KM2, 4)
+    return {
+        "pincode":             pc,
+        "sfb_branches":        sfb,
+        "coop_branches":       coop,
+        "rrb_branches":        rrb,
+        "fin_branches_total":  total,
+        "fin_density_per_km2": density,
+        "_bank_nodes_found":   len(banks),
+    }
 
 
 def main():
-    coords = pd.read_csv("data/raw/pincode_coords.csv", dtype={"pincode": str})
-    results = []
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--resume",  action="store_true",
+                    help="Skip pincodes already written to output CSV")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="Query but don't write CSV")
+    args = ap.parse_args()
 
-    total = len(coords)
+    coords = pd.read_csv(RAW / "pincode_coords.csv", dtype={"pincode": str})
+    total  = len(coords)
+
+    # Build resume set
+    done: set[str] = set()
+    if args.resume and OUT.exists():
+        done = set(pd.read_csv(OUT, dtype={"pincode": str})["pincode"])
+        print(f"Resuming: {len(done)}/{total} already done")
+
+    results: list[dict] = []
+    # Carry forward existing rows when resuming
+    if args.resume and OUT.exists():
+        results = pd.read_csv(OUT, dtype={"pincode": str}).to_dict("records")
+
     for i, row in coords.iterrows():
-        pc  = row["pincode"]
-        lat = row["lat"]
-        lng = row["lng"]
-        print(f"  [{i+1:>2}/{total}] {pc} ({lat}, {lng})")
+        pc  = str(row["pincode"])
+        lat = float(row["lat"])
+        lng = float(row["lng"])
 
-        sfb  = overpass_count(lat, lng, SFB_PATTERN);  time.sleep(SLEEP_SEC)
-        coop = overpass_count(lat, lng, COOP_PATTERN); time.sleep(SLEEP_SEC)
-        rrb  = overpass_count(lat, lng, RRB_PATTERN);  time.sleep(SLEEP_SEC)
+        if pc in done:
+            continue
 
-        print(f"         SFB={sfb}  COOP={coop}  RRB={rrb}")
+        print(f"  [{i+1:>2}/{total}] {pc} ({lat:.4f},{lng:.4f})", end="  ", flush=True)
+        res = process_pincode(pc, lat, lng)
+        print(f"SFB={res['sfb_branches']} COOP={res['coop_branches']} "
+              f"RRB={res['rrb_branches']}  "
+              f"({res['_bank_nodes_found']} bank nodes found)")
 
-        # Treat None (timeout) as 0 — conservative undercount, noted in warnings
-        sfb  = sfb  if sfb  is not None else 0
-        coop = coop if coop is not None else 0
-        rrb  = rrb  if rrb  is not None else 0
+        results.append(res)
 
-        total_fin = sfb + coop + rrb
-        density   = round(total_fin / AREA_KM2, 4)
-        results.append({
-            "pincode":            pc,
-            "sfb_branches":       sfb,
-            "coop_branches":      coop,
-            "rrb_branches":       rrb,
-            "fin_branches_total": total_fin,
-            "fin_density_per_km2": density,
-        })
+        # Write incrementally — crash-safe
+        if not args.dry_run:
+            df_out = pd.DataFrame(results)
+            df_out.drop(columns=["_bank_nodes_found"], errors="ignore")\
+                  .to_csv(OUT, index=False)
 
-    out = pd.DataFrame(results)
-    out.to_csv("data/raw/financial_inclusion.csv", index=False)
-    print(f"\nWrote {len(out)} rows → data/raw/financial_inclusion.csv")
+        time.sleep(SLEEP_SEC)
+
+    df_final = pd.DataFrame(results).drop(columns=["_bank_nodes_found"],
+                                           errors="ignore")
+
+    print(f"\n{'[DRY RUN] ' if args.dry_run else ''}Wrote {len(df_final)} rows → {OUT}")
 
     print("\nTop 10 by fin_branches_total:")
-    print(out.nlargest(10, "fin_branches_total")[
-        ["pincode","sfb_branches","coop_branches","rrb_branches","fin_density_per_km2"]
-    ].to_string(index=False))
+    print(df_final.nlargest(10, "fin_branches_total")
+          [["pincode","sfb_branches","coop_branches","rrb_branches","fin_density_per_km2"]]
+          .to_string(index=False))
 
     print("\nCity totals:")
-    for prefix, label in [("11","Delhi/NCR"), ("40","Mumbai"), ("56","Bengaluru")]:
-        sub = out[out["pincode"].str.startswith(prefix)]
-        print(f"  {label}: SFB={sub['sfb_branches'].sum()} "
-              f"COOP={sub['coop_branches'].sum()} RRB={sub['rrb_branches'].sum()}")
+    for prefix, label in [("11","Delhi"), ("12","Gurgaon/HR"),
+                           ("40","Mumbai"), ("56","Bengaluru")]:
+        sub = df_final[df_final["pincode"].str.startswith(prefix)]
+        if not sub.empty:
+            print(f"  {label}: SFB={sub['sfb_branches'].sum()} "
+                  f"COOP={sub['coop_branches'].sum()} "
+                  f"RRB={sub['rrb_branches'].sum()}")
 
 
 if __name__ == "__main__":

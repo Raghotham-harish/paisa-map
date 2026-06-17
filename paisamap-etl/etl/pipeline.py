@@ -21,15 +21,16 @@ RAW, OUT = ROOT / "data" / "raw", ROOT / "data" / "output"
 # Proxy registry: filename -> (value column, weight)
 # Replace the synthetic CSVs in data/raw with real extracts; nothing else changes.
 PROXIES = {
-    "property_rates.csv":   ("rate_per_sqft",        0.25),
-    "bank_deposits.csv":    ("deposits_per_capita",   0.25),
-    "vehicle_density.csv":  ("cars_per_1000",         0.15),
-    "nightlights.csv":      ("radiance_mean",         0.15),
-    "itr_filers.csv":       ("filers_per_capita",     0.10),
-    "poi_density.csv":      ("premium_poi_per_km2",   0.10),
-    # financial_inclusion placeholder: Overpass OSM tagging for SFBs/coops in India
-    # is too sparse and rate-limited for reliable data. Slot reserved for future
-    # PMJDY district data (dataful.in) or RBI BSR bank-office data.
+    "property_rates.csv":      ("rate_per_sqft",         0.25),
+    "bank_deposits.csv":       ("deposits_per_capita",   0.23),
+    "vehicle_density.csv":     ("cars_per_1000",         0.15),
+    "nightlights.csv":         ("radiance_mean",         0.15),
+    "itr_filers.csv":          ("filers_per_capita",     0.10),
+    "poi_density.csv":         ("premium_poi_per_km2",   0.08),
+    "financial_inclusion.csv": ("fin_density_per_km2",   0.04),
+    # Weight note: financial_inclusion added at 0.04 (small — OSM coverage uneven).
+    # bank_deposits reduced 0.25→0.23 to keep total = 1.00.
+    # When financial_inclusion.csv is absent, pipeline skips it gracefully.
 }
 
 HCES_URBAN_MPCE = 6_996          # ₹/person/month, HCES 2023-24 urban fact sheet
