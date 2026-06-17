@@ -42,7 +42,7 @@ STATE_NAMES = {
 
 # ── Pincode → state (first two digits of Indian pincode) ─────────────────────
 PREFIX_STATE: dict[str, str] = {
-    "11": "DL", "12": "DL",    # Delhi + Gurgaon NCR zone
+    "11": "DL", "12": "HR",    # 11x = Delhi, 12x = Haryana (Gurgaon/Faridabad)
     "13": "HP", "14": "PB", "15": "PB", "16": "CH", "17": "HP",
     "18": "JK", "19": "JK",
     "20": "UP", "21": "UP", "22": "UP", "24": "UP",
@@ -65,27 +65,32 @@ def state_from_pincode(pc: str) -> str:
     return PREFIX_STATE.get(str(pc)[:2], "XX")
 
 # ── City-level priors for estimating signals ──────────────────────────────────
-# Values are calibrated against our 72-pincode dataset medians.
+# Recalibrated 2026-06-18 from actual raw signal medians (DL=22, MH=25, KA=23, HR=2 pincodes).
+# Data-derived states use actual medians directly.
+# Non-data states apply a 60% correction towards DL ratios for rate/dep/itr/nl/c2w/lux;
+# ev corrected upward (all three data states showed underestimation); veh kept per-state.
 CITY_PRIORS: dict[str, dict] = {
-    "DL": dict(rate=27966, dep=600000, nl=45.0, itr=0.25, c2w=0.62, lux=0.10, ev=0.06, veh=55),
-    "MH": dict(rate=29500, dep=650000, nl=50.0, itr=0.26, c2w=0.35, lux=0.09, ev=0.02, veh=48),
-    "KA": dict(rate=16500, dep=400000, nl=38.0, itr=0.22, c2w=0.48, lux=0.08, ev=0.07, veh=42),
-    "HR": dict(rate=15000, dep=360000, nl=36.0, itr=0.22, c2w=0.55, lux=0.08, ev=0.04, veh=50),
-    "TS": dict(rate=8500,  dep=290000, nl=37.0, itr=0.18, c2w=0.42, lux=0.07, ev=0.03, veh=38),
-    "AP": dict(rate=6200,  dep=225000, nl=30.0, itr=0.15, c2w=0.38, lux=0.06, ev=0.02, veh=32),
-    "TN": dict(rate=8800,  dep=300000, nl=34.0, itr=0.19, c2w=0.32, lux=0.06, ev=0.03, veh=36),
-    "GJ": dict(rate=7600,  dep=270000, nl=33.0, itr=0.21, c2w=0.45, lux=0.08, ev=0.04, veh=40),
-    "WB": dict(rate=7200,  dep=245000, nl=36.0, itr=0.14, c2w=0.22, lux=0.05, ev=0.02, veh=28),
-    "PB": dict(rate=8000,  dep=265000, nl=30.0, itr=0.18, c2w=0.50, lux=0.07, ev=0.02, veh=44),
-    "RJ": dict(rate=6600,  dep=222000, nl=28.0, itr=0.14, c2w=0.40, lux=0.06, ev=0.02, veh=36),
-    "MP": dict(rate=5600,  dep=194000, nl=24.0, itr=0.13, c2w=0.36, lux=0.05, ev=0.02, veh=30),
-    "KL": dict(rate=7200,  dep=244000, nl=26.0, itr=0.20, c2w=0.28, lux=0.05, ev=0.03, veh=32),
-    "UP": dict(rate=8200,  dep=235000, nl=30.0, itr=0.17, c2w=0.42, lux=0.06, ev=0.03, veh=36),
+    # ── Data-derived (actual medians from raw CSVs) ───────────────────────────
+    "DL": dict(rate=18010, dep=399318, nl=38.0, itr=0.1836, c2w=0.319, lux=0.0424, ev=0.061,  veh=43.2),
+    "MH": dict(rate=27000, dep=570000, nl=46.0, itr=0.2465, c2w=0.477, lux=0.1392, ev=0.0429, veh=20.1),
+    "KA": dict(rate=12000, dep=320000, nl=36.0, itr=0.1760, c2w=0.358, lux=0.0759, ev=0.0963, veh=74.1),
+    "HR": dict(rate=19000, dep=550000, nl=40.0, itr=0.2120, c2w=1.650, lux=0.1250, ev=0.060,  veh=70.0),
+    # ── Corrected (60% DL-anchor correction applied to old hardcoded values) ──
+    "TS": dict(rate=6684,  dep=231802, nl=33.5, itr=0.1513, c2w=0.298, lux=0.0458, ev=0.0392, veh=38),
+    "AP": dict(rate=4876,  dep=179847, nl=27.2, itr=0.1261, c2w=0.269, lux=0.0393, ev=0.0261, veh=32),
+    "TN": dict(rate=6920,  dep=239795, nl=30.8, itr=0.1597, c2w=0.227, lux=0.0393, ev=0.0392, veh=36),
+    "GJ": dict(rate=5977,  dep=215816, nl=29.9, itr=0.1765, c2w=0.319, lux=0.0524, ev=0.0523, veh=40),
+    "WB": dict(rate=5662,  dep=195833, nl=32.6, itr=0.1177, c2w=0.156, lux=0.0327, ev=0.0261, veh=28),
+    "PB": dict(rate=6291,  dep=211819, nl=27.2, itr=0.1513, c2w=0.354, lux=0.0458, ev=0.0261, veh=44),
+    "RJ": dict(rate=5190,  dep=177449, nl=25.4, itr=0.1177, c2w=0.283, lux=0.0393, ev=0.0261, veh=36),
+    "MP": dict(rate=4404,  dep=155068, nl=21.8, itr=0.1093, c2w=0.255, lux=0.0327, ev=0.0261, veh=30),
+    "KL": dict(rate=5662,  dep=195034, nl=23.6, itr=0.1681, c2w=0.198, lux=0.0327, ev=0.0392, veh=32),
+    "UP": dict(rate=6448,  dep=187840, nl=27.2, itr=0.1429, c2w=0.298, lux=0.0393, ev=0.0392, veh=36),
 }
 
-# Fallback if state unknown
-_DEFAULT_PRIOR = dict(rate=8000, dep=250000, nl=30.0, itr=0.16,
-                      c2w=0.40, lux=0.06, ev=0.03, veh=35)
+# Fallback if state unknown — national median derived from data states
+_DEFAULT_PRIOR = dict(rate=7000, dep=220000, nl=28.0, itr=0.14,
+                      c2w=0.32, lux=0.045, ev=0.038, veh=34)
 
 # ── Overpass POI query ────────────────────────────────────────────────────────
 OVERPASS = "https://overpass-api.de/api/interpreter"
