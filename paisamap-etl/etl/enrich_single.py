@@ -22,9 +22,23 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+REF  = ROOT / "data" / "reference"
 RAW  = ROOT / "data" / "raw"
 OUT  = ROOT / "data" / "output"
 APP  = ROOT.parent           # /paisa-map/
+
+STATE_NAMES = {
+    "DL": "Delhi",             "MH": "Maharashtra",       "KA": "Karnataka",
+    "HR": "Haryana",           "TS": "Telangana",         "AP": "Andhra Pradesh",
+    "TN": "Tamil Nadu",        "GJ": "Gujarat",           "WB": "West Bengal",
+    "PB": "Punjab",            "RJ": "Rajasthan",         "MP": "Madhya Pradesh",
+    "KL": "Kerala",            "UP": "Uttar Pradesh",     "HP": "Himachal Pradesh",
+    "CH": "Chandigarh",        "JK": "Jammu & Kashmir",   "CG": "Chhattisgarh",
+    "OD": "Odisha",            "AS": "Assam",             "BR": "Bihar",
+    "JH": "Jharkhand",         "GA": "Goa",               "MN": "Manipur",
+    "ML": "Meghalaya",         "TR": "Tripura",           "NL": "Nagaland",
+    "AR": "Arunachal Pradesh", "MZ": "Mizoram",           "SK": "Sikkim",
+}
 
 # ── Pincode → state (first two digits of Indian pincode) ─────────────────────
 PREFIX_STATE: dict[str, str] = {
@@ -131,6 +145,66 @@ def scale_from_poi(poi: float, prior: dict, city_poi_median: float = 15.0) -> di
     }
 
 
+def detect_district(lat: float, lng: float):
+    """Nominatim reverse geocode → (district_name, locality_name). Returns ('','') on failure."""
+    try:
+        url = (
+            f"https://nominatim.openstreetmap.org/reverse"
+            f"?lat={lat}&lon={lng}&format=json&addressdetails=1&zoom=10"
+        )
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "PaisaMap-Enrich/1.0", "Accept-Language": "en"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            addr = json.loads(r.read()).get("address", {})
+        district = (addr.get("county") or addr.get("state_district") or
+                    addr.get("district") or "").strip()
+        locality  = (addr.get("city") or addr.get("town") or addr.get("suburb") or district).strip()
+        return district, locality
+    except Exception as e:
+        print(f"  WARN district lookup failed: {e}", flush=True)
+        return "", ""
+
+
+def register_in_district_map(pc: str, name: str, lat: float, lng: float, state: str) -> None:
+    """
+    Add new pin-dropped pincode to pincode_district_map.csv so the next
+    Phase 1 ETL run (VAHAN/RBI) automatically covers this pincode.
+    """
+    map_file = REF / "pincode_district_map.csv"
+    if not map_file.exists():
+        return
+    df = pd.read_csv(map_file, dtype={"pincode": str}).set_index("pincode")
+    if pc in df.index:
+        return
+
+    time.sleep(1.2)  # Nominatim 1 req/s
+    district, locality = detect_district(lat, lng)
+    if not district:
+        print(f"  WARN could not detect district for {pc} — skipping district map", flush=True)
+        return
+
+    # Pull district population from VAHAN reference if available
+    pop_lakh = 10.0
+    try:
+        vahan = pd.read_csv(REF / "vahan_district_2024.csv")
+        kw = district.lower().split()[0]
+        match = vahan[vahan["district"].str.lower().str.contains(kw, na=False)]
+        if not match.empty and "district_pop_lakh" in vahan.columns:
+            pop_lakh = float(match.iloc[0]["district_pop_lakh"])
+    except Exception:
+        pass
+
+    df.loc[pc] = {
+        "name":             name or locality or pc,
+        "district":         district,
+        "state_code":       state,
+        "state_name":       STATE_NAMES.get(state, state),
+        "district_pop_lakh": pop_lakh,
+    }
+    df.to_csv(map_file)
+    print(f"  Registered {pc} → {district}, {STATE_NAMES.get(state, state)}", flush=True)
+
+
 def main():
     if len(sys.argv) < 4:
         print("Usage: python3 enrich_single.py <pincode> <lat> <lng> [<name>]")
@@ -232,6 +306,10 @@ def main():
 
     n_total = len(pd.read_csv(RAW / "pincode_coords.csv"))
     print(f"  Dataset: {n_total} pincodes")
+
+    # Auto-register in district map so Phase 1 ETL picks up this pincode next run
+    if not already_in_raw:
+        register_in_district_map(pc, name, lat, lng, state)
 
     # ── Spatial interpolation from the stable ML baseline ─────────────────────
     # We do NOT re-train the ML model (that would destabilise all 72 pincodes).
