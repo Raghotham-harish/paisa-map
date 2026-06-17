@@ -745,6 +745,7 @@ youMarker.on("dragend", async e=>{
   // Auto-enrich pin location + surrounding ring of pincodes if area is sparse
   autoEnrichIfNew(center[0], center[1]);
   bulkEnrichNearby(center[0], center[1]);
+  prefetchHexNeighbors(center[0], center[1]);
 });
 
 /* ---------- CSS-only locality pin (no external images) ---------- */
@@ -916,6 +917,7 @@ async function applyPlace(r){
   if(nearby.length===0) toast("No data for this area yet — showing synthetic demo clusters.");
   autoEnrichIfNew(center[0], center[1]);
   bulkEnrichNearby(center[0], center[1]);
+  prefetchHexNeighbors(center[0], center[1]);
 }
 
 // ── On-demand enrichment flow ─────────────────────────────────────────────────
@@ -1119,6 +1121,60 @@ async function bulkEnrichNearby(lat, lng){
   }
   // Timed out
   hideLoader();
+}
+
+// ── Hex prefetch — silently warm adjacent areas before user gets there ────────
+// Fires 60s after pin drop. Discovers 1 pincode in each of 6 hex directions
+// (at current radius distance) and queues enrichment with no UI feedback.
+// By the time user moves the pin there, data is already partially cooked.
+let _prefetchGen = 0;
+
+async function prefetchHexNeighbors(lat, lng){
+  if(!IS_SERVER) return;
+  const myGen = ++_prefetchGen;
+
+  // Wait for immediate enrichment to get a head start, then prefetch quietly
+  await new Promise(r => setTimeout(r, 60000));
+  if(_prefetchGen !== myGen) return;
+
+  const stepKm = Math.max(radiusKm, 20); // at least 20 km out in each direction
+  const knownPincodes = new Set(Object.keys(pincodeMap));
+  // also track what bulkEnrichNearby already queued (avoid double-firing)
+  const queued = new Set();
+
+  for(let i = 0; i < 6; i++){
+    if(_prefetchGen !== myGen) return;
+
+    const ang = (i / 6) * 2 * Math.PI;
+    const dLat = (stepKm / 111) * Math.cos(ang);
+    const dLng = (stepKm / (111 * Math.cos(lat * Math.PI / 180))) * Math.sin(ang);
+    const hLat = lat + dLat;
+    const hLng = lng + dLng;
+
+    // Stagger to respect Nominatim 1 req/s
+    await new Promise(r => setTimeout(r, 1400));
+    if(_prefetchGen !== myGen) return;
+
+    try{
+      const rev = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${hLat}&lon=${hLng}&zoom=14&format=json&addressdetails=1`,
+        {headers:{"Accept-Language":"en"}}
+      ).then(r => r.json());
+
+      const pc   = (rev?.address?.postcode || "").replace(/\s/g, "");
+      const name = rev?.address?.suburb || rev?.address?.neighbourhood ||
+                   rev?.address?.village || rev?.address?.town || pc;
+
+      if(!/^\d{6}$/.test(pc)) continue;
+      if(knownPincodes.has(pc) || pincodeMap[pc] || queued.has(pc)) continue;
+
+      queued.add(pc);
+      // Fire-and-forget — no loader, no status polling, purely speculative
+      fetch(`/api/enrich?pincode=${pc}&lat=${hLat}&lng=${hLng}&name=${encodeURIComponent(name||pc)}`)
+        .catch(() => {});
+      console.debug(`[hex-prefetch] queued ${pc} (${name}) dir=${Math.round(ang*180/Math.PI)}°`);
+    }catch(e){}
+  }
 }
 
 document.getElementById("searchBtn").addEventListener("click",runSearch);
