@@ -685,8 +685,9 @@ youMarker.on("dragend", async e=>{
   // If no static data in radius, fetch live OSM data immediately
   const hasStatic = ncrData.some(d => haversine(center[0],center[1],d[1],d[2]) <= radiusKm);
   if(!hasStatic) loadLiveAreaData(center[0], center[1]);
-  // Auto-enrich if pin lands on an unknown pincode (persists to dataset on local server)
+  // Auto-enrich pin location + surrounding ring of pincodes if area is sparse
   autoEnrichIfNew(center[0], center[1]);
+  bulkEnrichNearby(center[0], center[1]);
 });
 
 /* ---------- CSS-only locality pin (no external images) ---------- */
@@ -857,6 +858,7 @@ async function applyPlace(r){
   render();
   if(nearby.length===0) toast("No data for this area yet — showing synthetic demo clusters.");
   autoEnrichIfNew(center[0], center[1]);
+  bulkEnrichNearby(center[0], center[1]);
 }
 
 // ── On-demand enrichment flow ─────────────────────────────────────────────────
@@ -949,6 +951,89 @@ async function autoEnrichIfNew(lat, lng){
     toast("Enrichment is taking longer than expected",4000);
   }catch(e){
     toast("Enrichment failed \u2014 is the server running?",5000);
+  }
+}
+
+// \u2500\u2500 Bulk-enrich a ring of pincodes around the pin when area is sparse \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Samples 8 points at ~10 km, reverse-geocodes each (1.2s apart to stay within
+// Nominatim rate limit), queues unknown pincodes for enrichment, then polls
+// every 20 s and re-renders as each one completes.
+let _bulkGen = 0;
+async function bulkEnrichNearby(lat, lng){
+  if(!IS_SERVER) return;
+
+  // Skip if we already have \u22654 data points within 15 km of the pin
+  const nearPin = dataset.filter(d => haversine(lat,lng,d.lat,d.lng) <= 15);
+  if(nearPin.length >= 4) return;
+
+  const myGen = ++_bulkGen;
+
+  // 8 equally-spaced points on a ~10 km ring
+  const points = [];
+  for(let i=0; i<8; i++){
+    const ang = (i/8)*2*Math.PI;
+    const distKm = 10;
+    const dLat = (distKm/111)*Math.cos(ang);
+    const dLng = (distKm/(111*Math.cos(lat*Math.PI/180)))*Math.sin(ang);
+    points.push([lat+dLat, lng+dLng]);
+  }
+
+  // Discover pincodes (staggered to respect Nominatim 1 req/s limit)
+  const toEnrich = [];
+  for(const [pLat,pLng] of points){
+    if(_bulkGen !== myGen) return;
+    await new Promise(r=>setTimeout(r,1200));
+    try{
+      const rev = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${pLat}&lon=${pLng}&zoom=14&format=json&addressdetails=1`,
+        {headers:{"Accept-Language":"en"}}
+      ).then(r=>r.json());
+      const pc   = (rev?.address?.postcode||"").replace(/\s/g,"");
+      const name = rev?.address?.suburb||rev?.address?.neighbourhood||
+                   rev?.address?.village||rev?.address?.town||pc;
+      if(!/^\d{6}$/.test(pc)) continue;
+      if(pincodeMap[pc]) continue;
+      if(toEnrich.some(e=>e.pc===pc)) continue;
+      toEnrich.push({pc, lat:pLat, lng:pLng, name:name||pc, done:false});
+    }catch(e){}
+  }
+
+  if(_bulkGen !== myGen || toEnrich.length === 0) return;
+
+  const etaSec = Math.round(toEnrich.length * 45 / 60);
+  toast(`Mapping ${toEnrich.length} new area${toEnrich.length>1?"s":""} near you\u2026 (~${etaSec} min)`, 90000);
+
+  // Fire all enrichments simultaneously (server threads handle concurrency)
+  for(const e of toEnrich){
+    fetch(`/api/enrich?pincode=${e.pc}&lat=${e.lat}&lng=${e.lng}&name=${encodeURIComponent(e.name)}`).catch(()=>{});
+  }
+
+  // Poll every 20 s \u2014 re-render as each completes
+  const deadline = Date.now() + 360000;
+  while(Date.now() < deadline){
+    if(_bulkGen !== myGen) return;
+    await new Promise(r=>setTimeout(r,20000));
+    if(_bulkGen !== myGen) return;
+
+    let anyNewDone = false, allSettled = true;
+    for(const e of toEnrich){
+      if(e.done){ continue; }
+      try{
+        const s = await fetch(`/api/status/${e.pc}`).then(r=>r.json());
+        if(s.status==="done"){ e.done=true; anyNewDone=true; }
+        else if(s.status!=="error") allSettled=false;
+      }catch(err){ allSettled=false; }
+    }
+
+    if(anyNewDone){
+      dataPromise = loadPPIData().then(()=>render());
+      await dataPromise;
+    }
+    if(allSettled){
+      const added = toEnrich.filter(e=>pincodeMap[e.pc]).length;
+      if(added>0) toast(`\u2713 ${added} new area${added>1?"s":""} mapped around you`,4000);
+      return;
+    }
   }
 }
 
