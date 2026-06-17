@@ -317,6 +317,56 @@
   }
   .toast.show{opacity:1}
 
+  /* ── enrichment loader bar ───────────────────────────────────── */
+  .enrich-bar{
+    display:flex;align-items:center;gap:9px;
+    padding:8px 14px;
+    background:var(--paper-2);
+    border-bottom:1px solid var(--hairline);
+    font-family:var(--mono);font-size:10px;letter-spacing:.05em;
+    color:var(--rupee-deep);
+    position:relative;overflow:hidden;
+    transition:opacity .3s;
+  }
+  .enrich-bar[hidden]{display:none}
+  /* sweep shimmer */
+  .enrich-bar::after{
+    content:'';position:absolute;inset:0;
+    background:linear-gradient(90deg,
+      transparent 0%,
+      rgba(14,122,92,.13) 50%,
+      transparent 100%);
+    animation:enrich-sweep 1.6s ease-in-out infinite;
+    pointer-events:none;
+  }
+  @keyframes enrich-sweep{
+    0%  {transform:translateX(-100%)}
+    100%{transform:translateX(100%)}
+  }
+  /* css-only spinner */
+  .enrich-spinner{
+    width:9px;height:9px;flex-shrink:0;
+    border-radius:50%;
+    border:1.5px solid var(--rupee);
+    border-top-color:transparent;
+    animation:spin .75s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  /* done state — green tick, no shimmer */
+  .enrich-bar.done{color:var(--rupee)}
+  .enrich-bar.done::after{display:none}
+  .enrich-bar.done .enrich-spinner{
+    border-color:var(--rupee);border-top-color:var(--rupee);
+    animation:none;
+  }
+  /* count badge */
+  .enrich-count{
+    margin-left:auto;
+    background:var(--rupee);color:var(--paper);
+    font-size:9px;padding:1px 5px;border-radius:2px;
+    font-weight:600;
+  }
+
   /* popup — clean white rounded card, like leafletjs.com */
   .leaflet-tooltip{
     border-radius:6px;background:#fff;color:var(--ink);
@@ -406,6 +456,13 @@
       <output id="radiusOut">50 km</output>
     </div>
     <p class="drag-hint">Drag the red pin on the map to move your location</p>
+  </div>
+
+  <!-- enrichment status bar — shown during scanning / mapping -->
+  <div class="enrich-bar" id="enrichBar" hidden>
+    <span class="enrich-spinner" id="enrichSpinner"></span>
+    <span id="enrichMsg">Scanning nearby…</span>
+    <span class="enrich-count" id="enrichCount" hidden></span>
   </div>
 
   <div class="headline">
@@ -954,10 +1011,30 @@ async function autoEnrichIfNew(lat, lng){
   }
 }
 
+// \u2500\u2500 Loader bar helpers \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+const _enrichBar   = document.getElementById("enrichBar");
+const _enrichMsg   = document.getElementById("enrichMsg");
+const _enrichCount = document.getElementById("enrichCount");
+let   _enrichTimer = null;
+
+function showLoader(msg, count){
+  _enrichBar.hidden = false;
+  _enrichBar.classList.remove("done");
+  _enrichMsg.textContent = msg;
+  if(count != null){ _enrichCount.hidden=false; _enrichCount.textContent=count; }
+  else              { _enrichCount.hidden=true; }
+}
+function showLoaderDone(msg){
+  _enrichBar.hidden = false;
+  _enrichBar.classList.add("done");
+  _enrichMsg.textContent = msg;
+  _enrichCount.hidden = true;
+  clearTimeout(_enrichTimer);
+  _enrichTimer = setTimeout(()=>{ _enrichBar.hidden=true; _enrichBar.classList.remove("done"); }, 3000);
+}
+function hideLoader(){ _enrichBar.hidden=true; _enrichBar.classList.remove("done"); }
+
 // \u2500\u2500 Bulk-enrich a ring of pincodes around the pin when area is sparse \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
-// Samples 8 points at ~10 km, reverse-geocodes each (1.2s apart to stay within
-// Nominatim rate limit), queues unknown pincodes for enrichment, then polls
-// every 20 s and re-renders as each one completes.
 let _bulkGen = 0;
 async function bulkEnrichNearby(lat, lng){
   if(!IS_SERVER) return;
@@ -967,6 +1044,7 @@ async function bulkEnrichNearby(lat, lng){
   if(nearPin.length >= 4) return;
 
   const myGen = ++_bulkGen;
+  showLoader("Scanning nearby areas\u2026");
 
   // 8 equally-spaced points on a ~10 km ring
   const points = [];
@@ -981,7 +1059,7 @@ async function bulkEnrichNearby(lat, lng){
   // Discover pincodes (staggered to respect Nominatim 1 req/s limit)
   const toEnrich = [];
   for(const [pLat,pLng] of points){
-    if(_bulkGen !== myGen) return;
+    if(_bulkGen !== myGen){ hideLoader(); return; }
     await new Promise(r=>setTimeout(r,1200));
     try{
       const rev = await fetch(
@@ -998,26 +1076,27 @@ async function bulkEnrichNearby(lat, lng){
     }catch(e){}
   }
 
-  if(_bulkGen !== myGen || toEnrich.length === 0) return;
+  if(_bulkGen !== myGen){ hideLoader(); return; }
+  if(toEnrich.length === 0){ hideLoader(); return; }
 
-  const etaSec = Math.round(toEnrich.length * 45 / 60);
-  toast(`Mapping ${toEnrich.length} new area${toEnrich.length>1?"s":""} near you\u2026 (~${etaSec} min)`, 90000);
+  // Switch to "Mapping N areas" state
+  showLoader(`Mapping area${toEnrich.length>1?"s":""} near you\u2026`, toEnrich.length);
 
   // Fire all enrichments simultaneously (server threads handle concurrency)
   for(const e of toEnrich){
     fetch(`/api/enrich?pincode=${e.pc}&lat=${e.lat}&lng=${e.lng}&name=${encodeURIComponent(e.name)}`).catch(()=>{});
   }
 
-  // Poll every 20 s \u2014 re-render as each completes
+  // Poll every 20 s \u2014 re-render and update count as each completes
   const deadline = Date.now() + 360000;
   while(Date.now() < deadline){
-    if(_bulkGen !== myGen) return;
+    if(_bulkGen !== myGen){ hideLoader(); return; }
     await new Promise(r=>setTimeout(r,20000));
-    if(_bulkGen !== myGen) return;
+    if(_bulkGen !== myGen){ hideLoader(); return; }
 
     let anyNewDone = false, allSettled = true;
     for(const e of toEnrich){
-      if(e.done){ continue; }
+      if(e.done) continue;
       try{
         const s = await fetch(`/api/status/${e.pc}`).then(r=>r.json());
         if(s.status==="done"){ e.done=true; anyNewDone=true; }
@@ -1028,13 +1107,18 @@ async function bulkEnrichNearby(lat, lng){
     if(anyNewDone){
       dataPromise = loadPPIData().then(()=>render());
       await dataPromise;
+      const remaining = toEnrich.filter(e=>!e.done).length;
+      if(remaining > 0) showLoader(`Mapping area${remaining>1?"s":""} near you\u2026`, remaining);
     }
     if(allSettled){
       const added = toEnrich.filter(e=>pincodeMap[e.pc]).length;
-      if(added>0) toast(`\u2713 ${added} new area${added>1?"s":""} mapped around you`,4000);
+      if(added > 0) showLoaderDone(`\u2713 ${added} area${added>1?"s":""} mapped`);
+      else hideLoader();
       return;
     }
   }
+  // Timed out
+  hideLoader();
 }
 
 document.getElementById("searchBtn").addEventListener("click",runSearch);
