@@ -373,6 +373,13 @@
     border:1px solid rgba(0,0,0,.15);font-family:var(--sans);font-size:12px;
     padding:4px 9px;box-shadow:0 2px 8px rgba(0,0,0,.18);
   }
+  .choro-tip{
+    padding:6px 11px;font-size:12.5px;line-height:1.55;
+    border-radius:8px;background:var(--paper);
+    border:1px solid var(--hairline);
+  }
+  .choro-tip strong{ font-weight:700;color:var(--ink) }
+  .choro-tip br + *{ color:var(--rupee-deep) }
   .leaflet-popup-content-wrapper{
     border-radius:12px;background:#fff;color:var(--ink);
     border:0;box-shadow:0 3px 14px rgba(0,0,0,.3);
@@ -678,6 +685,7 @@ osmClassic.on("tileerror", ()=>{
 });
 
 let heatLayer = null;
+let choroLayer = null;        // choropleth GeoJSON layer (heat mode)
 let circleLayer = null;
 let polyLayer = L.layerGroup().addTo(map);
 let markerGroup = L.layerGroup().addTo(map);
@@ -686,6 +694,25 @@ let boundaryLayer = null;
 let nearbyOn = false;
 let viewMode = "zones"; // "zones" | "heat"
 const polyCache = new Map(); // locality name → GeoJSON geometry or null
+
+// Pre-fetched pincode boundary polygons: pincode → GeoJSON feature
+let boundariesByPincode = {};
+let boundariesLoaded = false;
+
+async function loadBoundaries(){
+  try{
+    const res = await fetch("data/boundaries.geojson");
+    if(!res.ok) return;
+    const gj = await res.json();
+    gj.features.forEach(f => {
+      const pc = f?.properties?.pincode;
+      if(pc) boundariesByPincode[pc] = f;
+    });
+    boundariesLoaded = true;
+    // If already in heat mode, re-render with real polygons
+    if(viewMode === "heat") render();
+  }catch(e){ /* boundaries optional — zones view still works */ }
+}
 
 async function fetchLocalityBoundary(name, lat, lng){
   if(polyCache.has(name)) return polyCache.get(name);
@@ -1410,6 +1437,7 @@ function render(){
 
   // zones or heat
   if(heatLayer){ heatLayer.remove(); heatLayer = null; }
+  if(choroLayer){ choroLayer.remove(); choroLayer = null; }
   polyLayer.clearLayers();
 
   if(viewMode === "zones"){
@@ -1436,26 +1464,78 @@ function render(){
       }
     });
   } else {
+    // Choropleth heat mode — real pincode boundary polygons colored by metric.
+    // Falls back to blur heatmap for any pincode that has no pre-fetched boundary.
     const heatRange = Math.max(metricMax - metricMin, 1);
-    const pts = [];
-    // prominent anchor cluster at pin so dragging is visually obvious
+    const features = [];
+    const fallbackPts = [];
     const rPin = rng(42);
-    for(let i=0;i<24;i++){
-      pts.push([center[0]+(rPin()-.5)*0.012, center[1]+(rPin()-.5)*0.012, 0.55]);
+    for(let i=0;i<12;i++){
+      fallbackPts.push([center[0]+(rPin()-.5)*0.01, center[1]+(rPin()-.5)*0.01, 0.4]);
     }
+
     rows.forEach(d=>{
-      const baseW = 0.2 + 0.8*((metricValue(d) - metricMin) / heatRange);
-      const distKm = haversine(center[0],center[1],d.lat,d.lng);
-      const prox = Math.exp(-distKm / 10);
-      const w = Math.max(0.04, baseW * prox);
-      const r = rng(d.id*7+3);
-      for(let i=0;i<18;i++){
-        pts.push([d.lat+(r()-.5)*0.025, d.lng+(r()-.5)*0.025, w]);
+      const fill    = zoneColor(d);
+      const distKm  = haversine(center[0],center[1],d.lat,d.lng);
+      const pinProx = Math.exp(-distKm / 14);
+      const fillOp  = 0.18 + 0.55 * pinProx;
+
+      const bf = boundariesByPincode[d.pincode];
+      if(bf && bf.geometry){
+        // Clone feature, inject live metric values + style hint
+        features.push({
+          ...bf,
+          properties: {
+            ...bf.properties,
+            _fill: fill, _fillOp: fillOp,
+            ppi: d.ppi, income: d.income, spend: d.spend,
+            name: d.name,
+          }
+        });
+      } else {
+        // No boundary file yet — add to blur fallback
+        const w = 0.2 + 0.8 * ((metricValue(d) - metricMin) / heatRange);
+        const r = rng(d.id * 7 + 3);
+        for(let i = 0; i < 14; i++){
+          fallbackPts.push([d.lat+(r()-.5)*0.02, d.lng+(r()-.5)*0.02,
+                            Math.max(0.04, w * Math.exp(-distKm/10))]);
+        }
       }
     });
-    lastHeatPts = pts;
-    const hr = heatRadiusForZoom();
-    heatLayer = L.heatLayer(pts,{radius:hr,blur:Math.round(hr*.72),maxZoom:16,minOpacity:0.12,max:1.0,gradient:HEAT_GRADIENTS[metric]}).addTo(map);
+
+    if(features.length){
+      choroLayer = L.geoJSON({type:"FeatureCollection", features}, {
+        style: f => ({
+          color:       "#1B2622",
+          weight:      1,
+          fillColor:   f.properties._fill,
+          fillOpacity: f.properties._fillOp,
+        }),
+        onEachFeature: (f, layer) => {
+          const p = f.properties;
+          layer.bindTooltip(
+            `<strong>${p.name}</strong><br>` +
+            `PPI ${p.ppi} · ₹${Math.round(p.income/1000)}k/mo`,
+            {sticky:true, opacity:0.95, className:"choro-tip"}
+          );
+          layer.on("mouseover", function(){ this.setStyle({weight:2.5, fillOpacity: Math.min(0.9, (f.properties._fillOp||0.4)+0.25)}); });
+          layer.on("mouseout",  function(){ choroLayer && choroLayer.resetStyle(this); });
+          layer.on("click", function(){
+            const d = rows.find(r => r.pincode === p.pincode);
+            if(d) layer.bindPopup(popupHTML(d)).openPopup();
+          });
+        },
+        interactive: true,
+      }).addTo(map);
+    }
+
+    if(fallbackPts.length > 12){
+      const hr = heatRadiusForZoom();
+      heatLayer = L.heatLayer(fallbackPts,{
+        radius:hr, blur:Math.round(hr*.72), maxZoom:16,
+        minOpacity:0.10, max:1.0, gradient:HEAT_GRADIENTS[metric]
+      }).addTo(map);
+    }
   }
 
   // markers
@@ -1711,6 +1791,7 @@ document.getElementById("locateBtn").addEventListener("click", ()=> locateUser(f
 /* ---------- go ---------- */
 render();
 dataPromise = loadPPIData();
+loadBoundaries();   // async — choropleth upgrades from blur to real polygons when ready
 
 // On load: instantly restore last saved location, then refresh from GPS
 (async ()=>{
