@@ -452,8 +452,8 @@
     <!-- Radius one-liner -->
     <div class="radius-row">
       <span>Radius</span>
-      <input type="range" id="radius" min="10" max="80" step="5" value="50" aria-label="Radius km">
-      <output id="radiusOut">50 km</output>
+      <input type="range" id="radius" min="10" max="80" step="5" value="25" aria-label="Radius km">
+      <output id="radiusOut">25 km</output>
     </div>
     <p class="drag-hint">Drag the red pin on the map to move your location</p>
   </div>
@@ -624,7 +624,7 @@ const haversine = (a,b,c,d) => {
 
 /* ---------- state ---------- */
 let center = [...DELHI_CENTER];
-let radiusKm = 50;
+let radiusKm = 25;
 let metric = "ppi";
 let dataset = NCR.map(buildRecord);
 let activeId = null;
