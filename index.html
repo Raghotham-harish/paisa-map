@@ -1290,9 +1290,13 @@ async function loadLiveAreaData(lat, lng){
 
     liveData = pts.map(buildRecord);
     render();
-    toast(`Live OSM data · ${locName}`, 3000);
+    if(count >= 3){
+      toast(`Live data · ${locName}`, 3000);
+    } else {
+      toast(`Estimated coverage · ${locName} — no mapped data yet`, 4000);
+    }
   } catch(e){
-    if(myGen === liveGen) toast("Showing estimated data — OSM query failed", 3000);
+    // OSM/Overpass unavailable for this area — synthetic data already showing, no toast needed
   }
 }
 
@@ -1329,10 +1333,12 @@ function render(){
   let rows = computePPI(withinRadius()).sort((a,b)=>metricValue(b)-metricValue(a));
 
   // No real data within selected radius → show synthetic demo clusters around pin
+  let usingEstimated = false;
   if(rows.length === 0){
     const synth = syntheticAround(center[0], center[1]).map(buildRecord);
     rows = computePPI(synth.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm))
              .sort((a,b)=>metricValue(b)-metricValue(a));
+    usingEstimated = true;
   }
 
   const metricVals = rows.map(metricValue);
@@ -1358,15 +1364,20 @@ function render(){
       const pinProx = Math.exp(-distFromPin / 12);
       const fillOpacity = 0.15 + 0.55 * pinProx;
       const baseStyle = {color:fill,weight:1.5,fillColor:fill,fillOpacity,interactive:false};
-      // L.circle uses meter radius — it auto-scales with zoom so coverage stays geographically correct.
-      // ~2 km avg; wealthier (denser) areas are slightly smaller, suburban areas slightly larger.
-      const coverM = Math.round(Math.max(1200, 2600 - d.ppi * 10));
+      // Estimated/synthetic clusters use a fixed small radius so they don't look like real coverage.
+      // Real localities scale: ~2 km avg, wealthier areas slightly smaller.
+      const coverM = usingEstimated ? 800 : Math.round(Math.max(1200, 2600 - d.ppi * 10));
       const circ = L.circle([d.lat,d.lng],{radius:coverM,...baseStyle}).addTo(polyLayer);
-      fetchLocalityBoundary(d.name, d.lat, d.lng).then(geom=>{
-        if(!geom || gen !== renderGen) return;
-        polyLayer.removeLayer(circ);
-        L.geoJSON(geom,{style:()=>({...baseStyle}),interactive:false}).addTo(polyLayer);
-      });
+      // Skip OSM boundary lookup for synthetic clusters ("East cluster 4") and
+      // live-estimated points ("N · Your Area") — they return wrong large polygons
+      const isEstimated = /cluster\s*\d/i.test(d.name) || d.name.includes(" · ");
+      if(!isEstimated){
+        fetchLocalityBoundary(d.name, d.lat, d.lng).then(geom=>{
+          if(!geom || gen !== renderGen) return;
+          polyLayer.removeLayer(circ);
+          L.geoJSON(geom,{style:()=>({...baseStyle}),interactive:false}).addTo(polyLayer);
+        });
+      }
     });
   } else {
     const heatRange = Math.max(metricMax - metricMin, 1);
