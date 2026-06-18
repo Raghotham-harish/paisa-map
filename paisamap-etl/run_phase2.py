@@ -17,21 +17,25 @@ LLM engine: Ollama (local) — uses llama3.2 by default.
 Pipeline steps:
   1. fetch_npci_upi.py      — UPI transaction density per state → pincode
   2. fetch_nabard_rrb.py    — RRB branch density (rural signal)
-  3. parse_ror.py            — Property rate from land record PDFs (optional)
-  4. parse_rto_cert.py       — EV/luxury signals from RTO PDFs/CSV (optional)
-  5. merge_phase2_signals.py — Merge new signals, print delta, run gates
-  6. ml_refinement.py        — Re-run ML with 4 new signals → ppi_ml_refined.csv
-  7. Copy to app CSV
+  3. fetch_itr_stats.py     — IT Dept ITR filers + income by state (optional PDF)
+  4. parse_bbmp_tax.py      — BBMP property tax zone signal (optional PDFs)
+  5. parse_ror.py            — Property rate from land record PDFs (optional)
+  6. parse_rto_cert.py       — EV/luxury signals from RTO PDFs/CSV (optional)
+  7. merge_phase2_signals.py — Merge new signals, print delta, run gates
+  8. ml_refinement.py        — Re-run ML with new signals → ppi_ml_refined.csv
+  9. Copy to app CSV
 
 Usage:
   cd paisamap-etl
-  python3 run_phase2.py                              # reference data only
-  python3 run_phase2.py --upi-pdf /path/npci.pdf    # supply NPCI PDF
-  python3 run_phase2.py --nabard-pdf /path/rrb.pdf  # supply NABARD PDF
-  python3 run_phase2.py --ror-dir /path/deeds/      # batch land record PDFs
-  python3 run_phase2.py --rto-csv /path/rto.csv     # bulk RTO data CSV
-  python3 run_phase2.py --dry-run                   # don't write files
-  python3 run_phase2.py --skip-ml                   # fetch + merge only
+  python3 run_phase2.py                                  # reference data only
+  python3 run_phase2.py --upi-pdf /path/npci.pdf         # NPCI UPI PDF
+  python3 run_phase2.py --nabard-pdf /path/rrb.pdf       # NABARD report PDF
+  python3 run_phase2.py --itr-pdf /path/itr_stats.pdf    # IT Dept stats PDF
+  python3 run_phase2.py --bbmp-dir /path/receipts/       # BBMP tax receipt PDFs
+  python3 run_phase2.py --ror-dir /path/deeds/           # land record PDFs
+  python3 run_phase2.py --rto-csv /path/rto.csv          # bulk RTO data CSV
+  python3 run_phase2.py --dry-run                        # don't write files
+  python3 run_phase2.py --skip-ml                        # fetch + merge only
 """
 
 import sys
@@ -124,6 +128,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--upi-pdf",    type=Path, default=None, help="NPCI UPI report PDF")
     ap.add_argument("--nabard-pdf", type=Path, default=None, help="NABARD annual report PDF")
+    ap.add_argument("--itr-pdf",    type=Path, default=None, help="IT Dept Annual Statistics PDF")
+    ap.add_argument("--bbmp-dir",   type=Path, default=None, help="Directory of BBMP tax receipt PDFs")
+    ap.add_argument("--bbmp-pdf",   type=Path, default=None, help="Single BBMP tax receipt PDF")
     ap.add_argument("--ror-dir",    type=Path, default=None, help="Directory of land record PDFs")
     ap.add_argument("--ror-pdf",    type=Path, default=None, help="Single land record PDF")
     ap.add_argument("--ror-pc",     default="",  help="Pincode for --ror-pdf")
@@ -147,7 +154,27 @@ def main():
     ok = run_step(ETL / "fetch_nabard_rrb.py", nabard_args, "NABARD RRB rural signal")
     all_ok = all_ok and ok
 
-    # Step 3 — Land record PDFs (optional — skip if no PDFs provided)
+    # Step 3 — IT Dept Annual Statistics (optional)
+    if args.itr_pdf:
+        itr_args = dry_flag + ["--pdf" if False else args.itr_pdf.name]
+        ok = run_step(ETL / "fetch_itr_stats.py", [str(args.itr_pdf)], "IT Dept ITR filer stats")
+        all_ok = all_ok and ok
+    else:
+        log.info("Skipping ITR stats (no --itr-pdf provided — download from incometaxindia.gov.in)")
+
+    # Step 4 — BBMP property tax receipts (optional)
+    if args.bbmp_pdf or args.bbmp_dir:
+        bbmp_args = dry_flag
+        if args.bbmp_dir:
+            bbmp_args += ["--dir", str(args.bbmp_dir)]
+        elif args.bbmp_pdf:
+            bbmp_args += [str(args.bbmp_pdf)]
+        ok = run_step(ETL / "parse_bbmp_tax.py", bbmp_args, "BBMP property tax zone signal")
+        all_ok = all_ok and ok
+    else:
+        log.info("Skipping BBMP tax (no --bbmp-pdf or --bbmp-dir provided)")
+
+    # Step 5 — Land record PDFs (optional — skip if no PDFs provided)
     if args.ror_pdf or args.ror_dir:
         ror_args = dry_flag
         if args.ror_pdf:
