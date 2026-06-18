@@ -991,13 +991,11 @@ async function enrichPincodeFlow(pincode){
 
 // ── Auto-enrich when "You Are Here" pin is dropped on an unknown pincode ────────
 async function autoEnrichIfNew(lat, lng){
-  // Reverse-geocode to detect the Indian pincode at this location
+  if(!IS_SERVER) return;
+  // Reverse-geocode via server proxy (avoids browser Nominatim rate-limit)
   let pc, name;
   try{
-    const rev = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&zoom=14&format=json&addressdetails=1`,
-      {headers:{"Accept-Language":"en"}}
-    ).then(r=>r.json());
+    const rev = await fetch(`/api/reverse?lat=${lat}&lng=${lng}`).then(r=>r.json());
     pc   = (rev?.address?.postcode||"").replace(/\s/g,"");
     name = rev?.address?.suburb||rev?.address?.neighbourhood||
            rev?.address?.village||rev?.address?.city_district||
@@ -1092,10 +1090,8 @@ async function bulkEnrichNearby(lat, lng){
     if(_bulkGen !== myGen){ hideLoader(); return; }
     await new Promise(r=>setTimeout(r,1200));
     try{
-      const rev = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${pLat}&lon=${pLng}&zoom=14&format=json&addressdetails=1`,
-        {headers:{"Accept-Language":"en"}}
-      ).then(r=>r.json());
+      // Route through server proxy — avoids browser Nominatim rate-limit
+      const rev = await fetch(`/api/reverse?lat=${pLat}&lng=${pLng}`).then(r=>r.json());
       const pc   = (rev?.address?.postcode||"").replace(/\s/g,"");
       const name = rev?.address?.suburb||rev?.address?.neighbourhood||
                    rev?.address?.village||rev?.address?.town||pc;
@@ -1184,10 +1180,8 @@ async function prefetchHexNeighbors(lat, lng){
     if(_prefetchGen !== myGen) return;
 
     try{
-      const rev = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${hLat}&lon=${hLng}&zoom=14&format=json&addressdetails=1`,
-        {headers:{"Accept-Language":"en"}}
-      ).then(r => r.json());
+      // Route through server proxy — avoids browser Nominatim rate-limit
+      const rev = await fetch(`/api/reverse?lat=${hLat}&lng=${hLng}`).then(r => r.json());
 
       const pc   = (rev?.address?.postcode || "").replace(/\s/g, "");
       const name = rev?.address?.suburb || rev?.address?.neighbourhood ||

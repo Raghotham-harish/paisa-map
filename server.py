@@ -44,6 +44,30 @@ def serve_data(fname):
 
 
 # ── Nominatim proxy — strips CORS restriction for file:// openers ─────────────
+@app.route("/api/reverse")
+def api_reverse():
+    """Proxy Nominatim reverse geocode through server so browser rate limit is bypassed."""
+    lat = request.args.get("lat", "").strip()
+    lng = request.args.get("lng", request.args.get("lon", "")).strip()
+    if not lat or not lng:
+        return jsonify({"error": "lat and lng required"}), 400
+    try:
+        params = urllib.parse.urlencode({
+            "lat": lat, "lon": lng, "zoom": 14,
+            "format": "json", "addressdetails": 1,
+        })
+        url = f"https://nominatim.openstreetmap.org/reverse?{params}"
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "PaisaMap-Server/1.0",
+                          "Accept-Language": "en",
+                          "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return r.read(), 200, {"Content-Type": "application/json",
+                                   "Access-Control-Allow-Origin": "*"}
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
 @app.route("/api/search")
 def api_search():
     q = request.args.get("q", "").strip()
