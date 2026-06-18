@@ -966,7 +966,7 @@ async function enrichPincodeFlow(pincode){
   map.flyTo(center,14,{duration:.8});
   toast(`Adding ${name} (${pincode}) to PaisaMap — runs in background (~30–60 sec)…`,90000);
   try{
-    await fetch(`/api/enrich?pincode=${pincode}&lat=${lat}&lng=${lng}&name=${encodeURIComponent(name)}`);
+    await fetch(`/api/enrich?pincode=${pincode}&lat=${lat}&lng=${lng}&name=${encodeURIComponent(name)}&source=search`);
     // Poll for completion
     const deadline=Date.now()+120000;
     while(Date.now()<deadline){
@@ -1017,7 +1017,7 @@ async function autoEnrichIfNew(lat, lng){
   }
   toast(`Enriching ${name} (${pc})\u2026 (~30-60 sec)`,90000);
   try{
-    await fetch(`/api/enrich?pincode=${pc}&lat=${lat}&lng=${lng}&name=${encodeURIComponent(name)}`);
+    await fetch(`/api/enrich?pincode=${pc}&lat=${lat}&lng=${lng}&name=${encodeURIComponent(name)}&source=yah`);
     const deadline=Date.now()+120000;
     while(Date.now()<deadline){
       await new Promise(r=>setTimeout(r,5000));
@@ -1110,7 +1110,7 @@ async function bulkEnrichNearby(lat, lng){
 
   // Fire all enrichments simultaneously (server threads handle concurrency)
   for(const e of toEnrich){
-    fetch(`/api/enrich?pincode=${e.pc}&lat=${e.lat}&lng=${e.lng}&name=${encodeURIComponent(e.name)}`).catch(()=>{});
+    fetch(`/api/enrich?pincode=${e.pc}&lat=${e.lat}&lng=${e.lng}&name=${encodeURIComponent(e.name)}&source=yah`).catch(()=>{});
   }
 
   // Poll every 20 s \u2014 re-render and update count as each completes
@@ -1192,7 +1192,7 @@ async function prefetchHexNeighbors(lat, lng){
 
       queued.add(pc);
       // Fire-and-forget — no loader, no status polling, purely speculative
-      fetch(`/api/enrich?pincode=${pc}&lat=${hLat}&lng=${hLng}&name=${encodeURIComponent(name||pc)}`)
+      fetch(`/api/enrich?pincode=${pc}&lat=${hLat}&lng=${hLng}&name=${encodeURIComponent(name||pc)}&source=prefetch`)
         .catch(() => {});
       console.debug(`[hex-prefetch] queued ${pc} (${name}) dir=${Math.round(ang*180/Math.PI)}°`);
     }catch(e){}

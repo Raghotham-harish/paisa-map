@@ -5,21 +5,21 @@ pincode,name,district,state_code,state_name,district_pop_lakh
 110009,Model Town,North Delhi,DL,Delhi,8.87
 110016,Hauz Khas,South Delhi,DL,Delhi,27.34
 110017,Saket / Malviya Nagar,South Delhi,DL,Delhi,27.34
-110021,Chanakyapuri,South West Delhi,DL,Delhi,28.10
+110021,Chanakyapuri,South West Delhi,DL,Delhi,28.1
 110024,Defence Colony / Lajpat,South Delhi,DL,Delhi,27.34
 110026,Punjabi Bagh,West Delhi,DL,Delhi,25.48
-110032,Vivek Vihar,East Delhi,DL,Delhi,17.00
+110032,Vivek Vihar,East Delhi,DL,Delhi,17.0
 110034,Pitampura,North West Delhi,DL,Delhi,36.56
 110040,Narela,North Delhi,DL,Delhi,8.87
 110048,Greater Kailash,South Delhi,DL,Delhi,27.34
-110057,Vasant Vihar,South West Delhi,DL,Delhi,28.10
+110057,Vasant Vihar,South West Delhi,DL,Delhi,28.1
 110058,Janakpuri,West Delhi,DL,Delhi,25.48
 110059,Uttam Nagar,West Delhi,DL,Delhi,25.48
-110070,Vasant Kunj,South West Delhi,DL,Delhi,28.10
-110075,Dwarka,South West Delhi,DL,Delhi,28.10
+110070,Vasant Kunj,South West Delhi,DL,Delhi,28.1
+110075,Dwarka,South West Delhi,DL,Delhi,28.1
 110085,Rohini,North West Delhi,DL,Delhi,36.56
-110091,Mayur Vihar Phase 1,East Delhi,DL,Delhi,17.00
-110092,Preet Vihar,East Delhi,DL,Delhi,17.00
+110091,Mayur Vihar Phase 1,East Delhi,DL,Delhi,17.0
+110092,Preet Vihar,East Delhi,DL,Delhi,17.0
 110093,Shahdara / Nand Nagri,Shahdara,DL,Delhi,17.37
 122002,Gurgaon City,Gurugram,HR,Haryana,15.14
 122022,Gurgaon Golf Course Rd,Gurugram,HR,Haryana,15.14
@@ -47,8 +47,8 @@ pincode,name,district,state_code,state_name,district_pop_lakh
 400080,Mulund West,Mumbai Suburban,MH,Maharashtra,94.36
 400086,Borivali West,Mumbai Suburban,MH,Maharashtra,94.36
 400097,Malad East,Mumbai Suburban,MH,Maharashtra,94.36
-400614,Vashi,Thane,MH,Maharashtra,110.60
-400708,Airoli,Thane,MH,Maharashtra,110.60
+400614,Vashi,Thane,MH,Maharashtra,110.6
+400708,Airoli,Thane,MH,Maharashtra,110.6
 560001,MG Road / Cubbon Pk,Bengaluru Urban,KA,Karnataka,96.21
 560002,Shivajinagar,Bengaluru Urban,KA,Karnataka,96.21
 560003,Chamrajpet,Bengaluru Urban,KA,Karnataka,96.21
@@ -72,3 +72,4 @@ pincode,name,district,state_code,state_name,district_pop_lakh
 560085,Banashankari,Bengaluru Urban,KA,Karnataka,96.21
 560099,Bellandur,Bengaluru Urban,KA,Karnataka,96.21
 560103,Sarjapur Road,Bengaluru Urban,KA,Karnataka,96.21
+141001,Ludhiana City,Ludhiana (West) Tahsil,PB,Punjab,10.0

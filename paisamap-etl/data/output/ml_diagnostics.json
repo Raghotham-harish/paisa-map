@@ -2,36 +2,38 @@
   "model_a": {
     "pca_n_components": 5,
     "variance_explained_pct": [
-      45.7,
-      17.78,
-      13.12,
-      10.91,
-      6.35
+      40.95,
+      17.52,
+      15.75,
+      9.95,
+      6.57
     ],
     "feature_importance": {
-      "rate_per_sqft": 0.1028,
-      "deposits_per_capita": 0.1,
-      "cars_per_1000": 0.0909,
-      "radiance_mean": 0.1209,
-      "filers_per_capita": 0.1065,
-      "premium_poi_per_km2": 0.1351,
-      "car_2w_ratio": 0.1281,
-      "luxury_share": 0.1591,
-      "ev_share": 0.0565
+      "rate_per_sqft": 0.1054,
+      "deposits_per_capita": 0.1051,
+      "cars_per_1000": 0.1174,
+      "radiance_mean": 0.1176,
+      "filers_per_capita": 0.1036,
+      "premium_poi_per_km2": 0.0741,
+      "fin_density_per_km2": 0.1093,
+      "car_2w_ratio": 0.0674,
+      "luxury_share": 0.149,
+      "ev_share": 0.051
     }
   },
   "model_b": {
-    "loo_rmse": 0.408,
+    "loo_rmse": 0.4357,
     "feature_importance": {
-      "rate_per_sqft": 0.0208,
-      "deposits_per_capita": 0.0046,
-      "cars_per_1000": 0.0363,
-      "radiance_mean": 0.0223,
-      "filers_per_capita": 0.8848,
-      "premium_poi_per_km2": 0.0276,
-      "car_2w_ratio": 0.0013,
-      "luxury_share": 0.0003,
-      "ev_share": 0.002
+      "rate_per_sqft": 0.0293,
+      "deposits_per_capita": 0.0053,
+      "cars_per_1000": 0.0428,
+      "radiance_mean": 0.0139,
+      "filers_per_capita": 0.8615,
+      "premium_poi_per_km2": 0.0282,
+      "fin_density_per_km2": 0.0059,
+      "car_2w_ratio": 0.0108,
+      "luxury_share": 0.0008,
+      "ev_share": 0.0016
     }
   },
   "ensemble_weights": {
@@ -39,451 +41,457 @@
     "model_b": 0.35,
     "model_c": 0.2
   },
-  "morans_i": 0.3601,
+  "morans_i": 0.3744,
   "anomalies": {
-    "122022": {
-      "anomaly_score": 0.6115,
-      "is_anomaly": true,
-      "top_deviant_proxy": "luxury_share",
-      "deviation_magnitude": 2.986
-    },
-    "400021": {
-      "anomaly_score": 0.5705,
-      "is_anomaly": true,
-      "top_deviant_proxy": "deposits_per_capita",
-      "deviation_magnitude": 2.23
-    },
-    "110001": {
-      "anomaly_score": 0.5696,
-      "is_anomaly": true,
-      "top_deviant_proxy": "car_2w_ratio",
-      "deviation_magnitude": 2.12
-    },
-    "560025": {
-      "anomaly_score": 0.5665,
+    "560001": {
+      "anomaly_score": 0.5738,
       "is_anomaly": true,
       "top_deviant_proxy": "premium_poi_per_km2",
-      "deviation_magnitude": 2.26
+      "deviation_magnitude": 2.261
     },
     "400060": {
-      "anomaly_score": 0.5659,
+      "anomaly_score": 0.5725,
       "is_anomaly": true,
       "top_deviant_proxy": "deposits_per_capita",
-      "deviation_magnitude": 1.858
+      "deviation_magnitude": 1.823
     },
-    "400050": {
-      "anomaly_score": 0.5598,
+    "110001": {
+      "anomaly_score": 0.5722,
       "is_anomaly": true,
-      "top_deviant_proxy": "premium_poi_per_km2",
-      "deviation_magnitude": 1.5
-    },
-    "560001": {
-      "anomaly_score": 0.5577,
-      "is_anomaly": true,
-      "top_deviant_proxy": "premium_poi_per_km2",
-      "deviation_magnitude": 2.26
-    },
-    "400006": {
-      "anomaly_score": 0.5507,
-      "is_anomaly": true,
-      "top_deviant_proxy": "deposits_per_capita",
-      "deviation_magnitude": 2.23
-    },
-    "110040": {
-      "anomaly_score": 0.5481,
-      "is_anomaly": false,
-      "top_deviant_proxy": "radiance_mean",
-      "deviation_magnitude": 2.026
+      "top_deviant_proxy": "cars_per_1000",
+      "deviation_magnitude": 2.119
     },
     "400049": {
-      "anomaly_score": 0.5464,
-      "is_anomaly": false,
+      "anomaly_score": 0.571,
+      "is_anomaly": true,
       "top_deviant_proxy": "rate_per_sqft",
-      "deviation_magnitude": 1.715
+      "deviation_magnitude": 1.675
     },
-    "400005": {
-      "anomaly_score": 0.5411,
-      "is_anomaly": false,
-      "top_deviant_proxy": "rate_per_sqft",
-      "deviation_magnitude": 1.97
-    },
-    "110003": {
-      "anomaly_score": 0.5335,
-      "is_anomaly": false,
-      "top_deviant_proxy": "deposits_per_capita",
-      "deviation_magnitude": 1.622
-    },
-    "400018": {
-      "anomaly_score": 0.5313,
-      "is_anomaly": false,
-      "top_deviant_proxy": "deposits_per_capita",
-      "deviation_magnitude": 1.679
-    },
-    "110021": {
-      "anomaly_score": 0.5303,
-      "is_anomaly": false,
-      "top_deviant_proxy": "car_2w_ratio",
-      "deviation_magnitude": 1.611
-    },
-    "400051": {
-      "anomaly_score": 0.5256,
-      "is_anomaly": false,
-      "top_deviant_proxy": "premium_poi_per_km2",
-      "deviation_magnitude": 1.403
-    },
-    "400708": {
-      "anomaly_score": 0.5252,
-      "is_anomaly": false,
-      "top_deviant_proxy": "filers_per_capita",
-      "deviation_magnitude": 1.648
+    "122022": {
+      "anomaly_score": 0.5706,
+      "is_anomaly": true,
+      "top_deviant_proxy": "luxury_share",
+      "deviation_magnitude": 2.985
     },
     "560027": {
-      "anomaly_score": 0.5247,
+      "anomaly_score": 0.5652,
+      "is_anomaly": true,
+      "top_deviant_proxy": "premium_poi_per_km2",
+      "deviation_magnitude": 1.758
+    },
+    "560025": {
+      "anomaly_score": 0.564,
+      "is_anomaly": true,
+      "top_deviant_proxy": "premium_poi_per_km2",
+      "deviation_magnitude": 2.261
+    },
+    "400021": {
+      "anomaly_score": 0.5622,
+      "is_anomaly": true,
+      "top_deviant_proxy": "deposits_per_capita",
+      "deviation_magnitude": 2.181
+    },
+    "400005": {
+      "anomaly_score": 0.5617,
+      "is_anomaly": false,
+      "top_deviant_proxy": "rate_per_sqft",
+      "deviation_magnitude": 1.929
+    },
+    "400006": {
+      "anomaly_score": 0.5614,
+      "is_anomaly": false,
+      "top_deviant_proxy": "deposits_per_capita",
+      "deviation_magnitude": 2.181
+    },
+    "110040": {
+      "anomaly_score": 0.5559,
+      "is_anomaly": false,
+      "top_deviant_proxy": "radiance_mean",
+      "deviation_magnitude": 2.014
+    },
+    "400001": {
+      "anomaly_score": 0.5543,
+      "is_anomaly": false,
+      "top_deviant_proxy": "car_2w_ratio",
+      "deviation_magnitude": 1.349
+    },
+    "400018": {
+      "anomaly_score": 0.5527,
+      "is_anomaly": false,
+      "top_deviant_proxy": "deposits_per_capita",
+      "deviation_magnitude": 1.645
+    },
+    "400050": {
+      "anomaly_score": 0.5363,
       "is_anomaly": false,
       "top_deviant_proxy": "premium_poi_per_km2",
-      "deviation_magnitude": 1.743
-    },
-    "560066": {
-      "anomaly_score": 0.5242,
-      "is_anomaly": false,
-      "top_deviant_proxy": "car_2w_ratio",
-      "deviation_magnitude": 1.752
-    },
-    "110057": {
-      "anomaly_score": 0.5215,
-      "is_anomaly": false,
-      "top_deviant_proxy": "car_2w_ratio",
-      "deviation_magnitude": 1.611
-    },
-    "560037": {
-      "anomaly_score": 0.5161,
-      "is_anomaly": false,
-      "top_deviant_proxy": "car_2w_ratio",
-      "deviation_magnitude": 1.752
+      "deviation_magnitude": 1.489
     },
     "110070": {
-      "anomaly_score": 0.5153,
+      "anomaly_score": 0.5334,
       "is_anomaly": false,
       "top_deviant_proxy": "cars_per_1000",
-      "deviation_magnitude": 2.104
-    },
-    "560076": {
-      "anomaly_score": 0.5146,
-      "is_anomaly": false,
-      "top_deviant_proxy": "luxury_share",
-      "deviation_magnitude": 1.292
-    },
-    "560002": {
-      "anomaly_score": 0.5038,
-      "is_anomaly": false,
-      "top_deviant_proxy": "luxury_share",
-      "deviation_magnitude": 1.732
-    },
-    "400013": {
-      "anomaly_score": 0.5027,
-      "is_anomaly": false,
-      "top_deviant_proxy": "luxury_share",
-      "deviation_magnitude": 1.116
-    },
-    "110059": {
-      "anomaly_score": 0.4927,
-      "is_anomaly": false,
-      "top_deviant_proxy": "radiance_mean",
-      "deviation_magnitude": 2.016
-    },
-    "110026": {
-      "anomaly_score": 0.4911,
-      "is_anomaly": false,
-      "top_deviant_proxy": "luxury_share",
-      "deviation_magnitude": 1.679
-    },
-    "400068": {
-      "anomaly_score": 0.4872,
-      "is_anomaly": false,
-      "top_deviant_proxy": "ev_share",
-      "deviation_magnitude": 1.355
+      "deviation_magnitude": 2.119
     },
     "560008": {
-      "anomaly_score": 0.4856,
+      "anomaly_score": 0.532,
       "is_anomaly": false,
       "top_deviant_proxy": "car_2w_ratio",
       "deviation_magnitude": 1.752
     },
-    "560011": {
-      "anomaly_score": 0.4849,
-      "is_anomaly": false,
-      "top_deviant_proxy": "premium_poi_per_km2",
-      "deviation_magnitude": 1.443
-    },
-    "560034": {
-      "anomaly_score": 0.4838,
-      "is_anomaly": false,
-      "top_deviant_proxy": "car_2w_ratio",
-      "deviation_magnitude": 1.752
-    },
-    "560047": {
-      "anomaly_score": 0.4825,
+    "560002": {
+      "anomaly_score": 0.5318,
       "is_anomaly": false,
       "top_deviant_proxy": "luxury_share",
-      "deviation_magnitude": 1.732
+      "deviation_magnitude": 1.731
     },
-    "110085": {
-      "anomaly_score": 0.4792,
+    "400051": {
+      "anomaly_score": 0.5291,
       "is_anomaly": false,
-      "top_deviant_proxy": "ev_share",
-      "deviation_magnitude": 1.493
+      "top_deviant_proxy": "premium_poi_per_km2",
+      "deviation_magnitude": 1.392
     },
-    "110093": {
-      "anomaly_score": 0.479,
+    "110021": {
+      "anomaly_score": 0.5182,
       "is_anomaly": false,
-      "top_deviant_proxy": "radiance_mean",
-      "deviation_magnitude": 2.026
+      "top_deviant_proxy": "car_2w_ratio",
+      "deviation_magnitude": 1.617
     },
-    "110075": {
-      "anomaly_score": 0.4783,
+    "110003": {
+      "anomaly_score": 0.5158,
       "is_anomaly": false,
-      "top_deviant_proxy": "cars_per_1000",
-      "deviation_magnitude": 2.104
+      "top_deviant_proxy": "deposits_per_capita",
+      "deviation_magnitude": 1.616
     },
     "560064": {
-      "anomaly_score": 0.4783,
+      "anomaly_score": 0.5154,
       "is_anomaly": false,
       "top_deviant_proxy": "premium_poi_per_km2",
-      "deviation_magnitude": 1.383
+      "deviation_magnitude": 1.392
     },
-    "560035": {
-      "anomaly_score": 0.4782,
+    "110059": {
+      "anomaly_score": 0.5147,
       "is_anomaly": false,
       "top_deviant_proxy": "radiance_mean",
-      "deviation_magnitude": 1.339
+      "deviation_magnitude": 2.004
+    },
+    "560047": {
+      "anomaly_score": 0.511,
+      "is_anomaly": false,
+      "top_deviant_proxy": "luxury_share",
+      "deviation_magnitude": 1.731
+    },
+    "110057": {
+      "anomaly_score": 0.5107,
+      "is_anomaly": false,
+      "top_deviant_proxy": "car_2w_ratio",
+      "deviation_magnitude": 1.617
+    },
+    "560037": {
+      "anomaly_score": 0.5101,
+      "is_anomaly": false,
+      "top_deviant_proxy": "fin_density_per_km2",
+      "deviation_magnitude": 1.791
+    },
+    "400013": {
+      "anomaly_score": 0.5016,
+      "is_anomaly": false,
+      "top_deviant_proxy": "luxury_share",
+      "deviation_magnitude": 1.158
+    },
+    "560076": {
+      "anomaly_score": 0.4998,
+      "is_anomaly": false,
+      "top_deviant_proxy": "luxury_share",
+      "deviation_magnitude": 1.291
+    },
+    "560066": {
+      "anomaly_score": 0.4989,
+      "is_anomaly": false,
+      "top_deviant_proxy": "car_2w_ratio",
+      "deviation_magnitude": 1.752
     },
     "560068": {
-      "anomaly_score": 0.4749,
+      "anomaly_score": 0.4984,
       "is_anomaly": false,
       "top_deviant_proxy": "cars_per_1000",
-      "deviation_magnitude": 1.782
+      "deviation_magnitude": 1.794
     },
-    "110034": {
-      "anomaly_score": 0.474,
+    "560003": {
+      "anomaly_score": 0.4968,
+      "is_anomaly": false,
+      "top_deviant_proxy": "fin_density_per_km2",
+      "deviation_magnitude": 1.446
+    },
+    "110093": {
+      "anomaly_score": 0.4967,
+      "is_anomaly": false,
+      "top_deviant_proxy": "radiance_mean",
+      "deviation_magnitude": 2.014
+    },
+    "400708": {
+      "anomaly_score": 0.4954,
+      "is_anomaly": false,
+      "top_deviant_proxy": "filers_per_capita",
+      "deviation_magnitude": 1.673
+    },
+    "560035": {
+      "anomaly_score": 0.4949,
+      "is_anomaly": false,
+      "top_deviant_proxy": "fin_density_per_km2",
+      "deviation_magnitude": 1.971
+    },
+    "110026": {
+      "anomaly_score": 0.4927,
+      "is_anomaly": false,
+      "top_deviant_proxy": "luxury_share",
+      "deviation_magnitude": 1.678
+    },
+    "560017": {
+      "anomaly_score": 0.4878,
+      "is_anomaly": false,
+      "top_deviant_proxy": "ev_share",
+      "deviation_magnitude": 1.349
+    },
+    "110085": {
+      "anomaly_score": 0.4873,
       "is_anomaly": false,
       "top_deviant_proxy": "ev_share",
       "deviation_magnitude": 1.493
     },
-    "560017": {
-      "anomaly_score": 0.4692,
+    "110075": {
+      "anomaly_score": 0.4805,
       "is_anomaly": false,
-      "top_deviant_proxy": "ev_share",
-      "deviation_magnitude": 1.35
+      "top_deviant_proxy": "cars_per_1000",
+      "deviation_magnitude": 2.119
     },
-    "560085": {
-      "anomaly_score": 0.4657,
-      "is_anomaly": false,
-      "top_deviant_proxy": "ev_share",
-      "deviation_magnitude": 1.35
-    },
-    "400062": {
-      "anomaly_score": 0.4656,
-      "is_anomaly": false,
-      "top_deviant_proxy": "car_2w_ratio",
-      "deviation_magnitude": 1.108
-    },
-    "110024": {
-      "anomaly_score": 0.4654,
-      "is_anomaly": false,
-      "top_deviant_proxy": "filers_per_capita",
-      "deviation_magnitude": 1.157
-    },
-    "560103": {
-      "anomaly_score": 0.4633,
+    "560011": {
+      "anomaly_score": 0.4791,
       "is_anomaly": false,
       "top_deviant_proxy": "premium_poi_per_km2",
-      "deviation_magnitude": 1.576
+      "deviation_magnitude": 1.456
     },
-    "560032": {
-      "anomaly_score": 0.4615,
+    "560034": {
+      "anomaly_score": 0.4778,
+      "is_anomaly": false,
+      "top_deviant_proxy": "car_2w_ratio",
+      "deviation_magnitude": 1.752
+    },
+    "400028": {
+      "anomaly_score": 0.4765,
       "is_anomaly": false,
       "top_deviant_proxy": "luxury_share",
-      "deviation_magnitude": 1.732
+      "deviation_magnitude": 1.158
     },
-    "400614": {
-      "anomaly_score": 0.4614,
+    "400054": {
+      "anomaly_score": 0.4727,
+      "is_anomaly": false,
+      "top_deviant_proxy": "fin_density_per_km2",
+      "deviation_magnitude": 1.252
+    },
+    "110048": {
+      "anomaly_score": 0.4696,
+      "is_anomaly": false,
+      "top_deviant_proxy": "premium_poi_per_km2",
+      "deviation_magnitude": 1.319
+    },
+    "560032": {
+      "anomaly_score": 0.4693,
+      "is_anomaly": false,
+      "top_deviant_proxy": "luxury_share",
+      "deviation_magnitude": 1.731
+    },
+    "560004": {
+      "anomaly_score": 0.4667,
+      "is_anomaly": false,
+      "top_deviant_proxy": "luxury_share",
+      "deviation_magnitude": 1.291
+    },
+    "110024": {
+      "anomaly_score": 0.4658,
       "is_anomaly": false,
       "top_deviant_proxy": "filers_per_capita",
-      "deviation_magnitude": 1.434
+      "deviation_magnitude": 1.149
     },
-    "110009": {
-      "anomaly_score": 0.4591,
+    "400614": {
+      "anomaly_score": 0.4651,
+      "is_anomaly": false,
+      "top_deviant_proxy": "filers_per_capita",
+      "deviation_magnitude": 1.46
+    },
+    "560103": {
+      "anomaly_score": 0.4618,
+      "is_anomaly": false,
+      "top_deviant_proxy": "premium_poi_per_km2",
+      "deviation_magnitude": 1.587
+    },
+    "400053": {
+      "anomaly_score": 0.4614,
+      "is_anomaly": false,
+      "top_deviant_proxy": "car_2w_ratio",
+      "deviation_magnitude": 1.145
+    },
+    "400068": {
+      "anomaly_score": 0.4607,
+      "is_anomaly": false,
+      "top_deviant_proxy": "ev_share",
+      "deviation_magnitude": 1.283
+    },
+    "110034": {
+      "anomaly_score": 0.4606,
       "is_anomaly": false,
       "top_deviant_proxy": "ev_share",
       "deviation_magnitude": 1.493
     },
     "122002": {
-      "anomaly_score": 0.4588,
+      "anomaly_score": 0.46,
       "is_anomaly": false,
       "top_deviant_proxy": "luxury_share",
       "deviation_magnitude": 0.969
     },
-    "110048": {
-      "anomaly_score": 0.4559,
-      "is_anomaly": false,
-      "top_deviant_proxy": "premium_poi_per_km2",
-      "deviation_magnitude": 1.309
-    },
-    "110032": {
-      "anomaly_score": 0.4538,
-      "is_anomaly": false,
-      "top_deviant_proxy": "cars_per_1000",
-      "deviation_magnitude": 1.055
-    },
-    "400070": {
-      "anomaly_score": 0.4538,
+    "560029": {
+      "anomaly_score": 0.4583,
       "is_anomaly": false,
       "top_deviant_proxy": "ev_share",
-      "deviation_magnitude": 1.355
-    },
-    "110006": {
-      "anomaly_score": 0.4534,
-      "is_anomaly": false,
-      "top_deviant_proxy": "filers_per_capita",
-      "deviation_magnitude": 0.921
-    },
-    "560003": {
-      "anomaly_score": 0.4531,
-      "is_anomaly": false,
-      "top_deviant_proxy": "luxury_share",
-      "deviation_magnitude": 1.292
-    },
-    "400071": {
-      "anomaly_score": 0.4528,
-      "is_anomaly": false,
-      "top_deviant_proxy": "ev_share",
-      "deviation_magnitude": 1.355
-    },
-    "400080": {
-      "anomaly_score": 0.4521,
-      "is_anomaly": false,
-      "top_deviant_proxy": "ev_share",
-      "deviation_magnitude": 1.355
-    },
-    "400074": {
-      "anomaly_score": 0.4518,
-      "is_anomaly": false,
-      "top_deviant_proxy": "ev_share",
-      "deviation_magnitude": 1.355
-    },
-    "400028": {
-      "anomaly_score": 0.4515,
-      "is_anomaly": false,
-      "top_deviant_proxy": "luxury_share",
-      "deviation_magnitude": 1.116
+      "deviation_magnitude": 1.349
     },
     "560099": {
-      "anomaly_score": 0.4486,
+      "anomaly_score": 0.4582,
       "is_anomaly": false,
       "top_deviant_proxy": "premium_poi_per_km2",
-      "deviation_magnitude": 1.199
+      "deviation_magnitude": 1.206
     },
-    "400053": {
-      "anomaly_score": 0.4479,
+    "400062": {
+      "anomaly_score": 0.4569,
       "is_anomaly": false,
       "top_deviant_proxy": "car_2w_ratio",
-      "deviation_magnitude": 1.108
+      "deviation_magnitude": 1.145
     },
     "201301": {
-      "anomaly_score": 0.4467,
+      "anomaly_score": 0.4557,
       "is_anomaly": false,
       "top_deviant_proxy": "rate_per_sqft",
       "deviation_magnitude": 0.0
     },
     "400059": {
-      "anomaly_score": 0.446,
+      "anomaly_score": 0.4556,
       "is_anomaly": false,
       "top_deviant_proxy": "car_2w_ratio",
-      "deviation_magnitude": 1.108
+      "deviation_magnitude": 1.145
     },
-    "400054": {
-      "anomaly_score": 0.4458,
-      "is_anomaly": false,
-      "top_deviant_proxy": "car_2w_ratio",
-      "deviation_magnitude": 1.108
-    },
-    "110058": {
-      "anomaly_score": 0.445,
-      "is_anomaly": false,
-      "top_deviant_proxy": "ev_share",
-      "deviation_magnitude": 1.472
-    },
-    "560029": {
-      "anomaly_score": 0.4439,
-      "is_anomaly": false,
-      "top_deviant_proxy": "ev_share",
-      "deviation_magnitude": 1.35
-    },
-    "560004": {
-      "anomaly_score": 0.4434,
-      "is_anomaly": false,
-      "top_deviant_proxy": "luxury_share",
-      "deviation_magnitude": 1.292
-    },
-    "560078": {
-      "anomaly_score": 0.4346,
-      "is_anomaly": false,
-      "top_deviant_proxy": "ev_share",
-      "deviation_magnitude": 1.35
-    },
-    "110017": {
-      "anomaly_score": 0.4318,
-      "is_anomaly": false,
-      "top_deviant_proxy": "premium_poi_per_km2",
-      "deviation_magnitude": 1.048
-    },
-    "110092": {
-      "anomaly_score": 0.4281,
-      "is_anomaly": false,
-      "top_deviant_proxy": "radiance_mean",
-      "deviation_magnitude": 0.508
-    },
-    "110016": {
-      "anomaly_score": 0.424,
-      "is_anomaly": false,
-      "top_deviant_proxy": "ev_share",
-      "deviation_magnitude": 1.029
-    },
-    "110091": {
-      "anomaly_score": 0.4235,
+    "110006": {
+      "anomaly_score": 0.4547,
       "is_anomaly": false,
       "top_deviant_proxy": "filers_per_capita",
-      "deviation_magnitude": 0.865
+      "deviation_magnitude": 0.914
     },
-    "400063": {
-      "anomaly_score": 0.4171,
+    "560085": {
+      "anomaly_score": 0.4543,
       "is_anomaly": false,
-      "top_deviant_proxy": "luxury_share",
-      "deviation_magnitude": 1.185
+      "top_deviant_proxy": "ev_share",
+      "deviation_magnitude": 1.349
     },
-    "400097": {
-      "anomaly_score": 0.4092,
+    "110016": {
+      "anomaly_score": 0.4537,
       "is_anomaly": false,
-      "top_deviant_proxy": "rate_per_sqft",
+      "top_deviant_proxy": "ev_share",
+      "deviation_magnitude": 1.028
+    },
+    "110058": {
+      "anomaly_score": 0.4533,
+      "is_anomaly": false,
+      "top_deviant_proxy": "ev_share",
+      "deviation_magnitude": 1.471
+    },
+    "110032": {
+      "anomaly_score": 0.4523,
+      "is_anomaly": false,
+      "top_deviant_proxy": "cars_per_1000",
+      "deviation_magnitude": 1.063
+    },
+    "110009": {
+      "anomaly_score": 0.4518,
+      "is_anomaly": false,
+      "top_deviant_proxy": "ev_share",
+      "deviation_magnitude": 1.493
+    },
+    "110017": {
+      "anomaly_score": 0.4487,
+      "is_anomaly": false,
+      "top_deviant_proxy": "premium_poi_per_km2",
+      "deviation_magnitude": 1.056
+    },
+    "400080": {
+      "anomaly_score": 0.4433,
+      "is_anomaly": false,
+      "top_deviant_proxy": "radiance_mean",
+      "deviation_magnitude": 1.305
+    },
+    "560078": {
+      "anomaly_score": 0.4433,
+      "is_anomaly": false,
+      "top_deviant_proxy": "ev_share",
+      "deviation_magnitude": 1.349
+    },
+    "400074": {
+      "anomaly_score": 0.4369,
+      "is_anomaly": false,
+      "top_deviant_proxy": "ev_share",
       "deviation_magnitude": 1.283
     },
-    "400086": {
-      "anomaly_score": 0.407,
+    "400070": {
+      "anomaly_score": 0.4346,
       "is_anomaly": false,
       "top_deviant_proxy": "deposits_per_capita",
-      "deviation_magnitude": 1.226
+      "deviation_magnitude": 1.355
+    },
+    "400071": {
+      "anomaly_score": 0.4259,
+      "is_anomaly": false,
+      "top_deviant_proxy": "ev_share",
+      "deviation_magnitude": 1.283
+    },
+    "110092": {
+      "anomaly_score": 0.4235,
+      "is_anomaly": false,
+      "top_deviant_proxy": "radiance_mean",
+      "deviation_magnitude": 0.505
+    },
+    "400063": {
+      "anomaly_score": 0.4191,
+      "is_anomaly": false,
+      "top_deviant_proxy": "luxury_share",
+      "deviation_magnitude": 1.162
+    },
+    "110091": {
+      "anomaly_score": 0.4176,
+      "is_anomaly": false,
+      "top_deviant_proxy": "filers_per_capita",
+      "deviation_magnitude": 0.859
+    },
+    "400086": {
+      "anomaly_score": 0.4172,
+      "is_anomaly": false,
+      "top_deviant_proxy": "deposits_per_capita",
+      "deviation_magnitude": 1.249
+    },
+    "400097": {
+      "anomaly_score": 0.4164,
+      "is_anomaly": false,
+      "top_deviant_proxy": "filers_per_capita",
+      "deviation_magnitude": 1.309
     }
   },
   "validation_gates": [
-    "PASS  Golf Links > Saket: PPI(110003)=148 vs PPI(110017)=118",
-    "PASS  Saket > Narela: PPI(110017)=118 vs PPI(110040)=57",
-    "PASS  Golf Links > Dwarka: PPI(110003)=148 vs PPI(110075)=81",
-    "PASS  Golf Course Rd > Gurgaon City: PPI(122022)=123 vs PPI(122002)=75",
-    "PASS  Cuffe Parade > Borivali: PPI(400021)=152 vs PPI(400086)=71",
-    "PASS  Malabar Hill > Malad East: PPI(400006)=160 vs PPI(400097)=70",
-    "PASS  Juhu > Vashi: PPI(400060)=139 vs PPI(400614)=69",
-    "PASS  Indiranagar > Electronic City: PPI(560025)=170 vs PPI(560035)=60",
-    "PASS  Indiranagar > Yelahanka: PPI(560025)=170 vs PPI(560064)=54",
-    "PASS  Koramangala > Hebbal: PPI(560027)=157 vs PPI(560047)=66"
+    "PASS  Golf Links > Saket: PPI(110003)=148 vs PPI(110017)=116",
+    "PASS  Saket > Narela: PPI(110017)=116 vs PPI(110040)=57",
+    "PASS  Golf Links > Dwarka: PPI(110003)=148 vs PPI(110075)=84",
+    "PASS  Golf Course Rd > Gurgaon City: PPI(122022)=124 vs PPI(122002)=74",
+    "PASS  Cuffe Parade > Borivali: PPI(400021)=151 vs PPI(400086)=70",
+    "PASS  Malabar Hill > Malad East: PPI(400006)=160 vs PPI(400097)=69",
+    "PASS  Juhu > Vashi: PPI(400060)=137 vs PPI(400614)=69",
+    "PASS  Indiranagar > Electronic City: PPI(560025)=169 vs PPI(560035)=60",
+    "PASS  Indiranagar > Yelahanka: PPI(560025)=169 vs PPI(560064)=53",
+    "PASS  Koramangala > Hebbal: PPI(560027)=158 vs PPI(560047)=66"
   ]
 }
