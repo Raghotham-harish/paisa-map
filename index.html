@@ -563,7 +563,7 @@ const IS_SERVER = !window.location.hostname.includes("github.io")
 
 async function loadPPIData(){
   try{
-    const res = await fetch("data/output/ppi_map_data.csv");
+    const res = await fetch(`data/output/ppi_map_data.csv?t=${Date.now()}`);
     if(!res.ok) return;
     const text = await res.text();
     const lines = text.trim().split("\n");
@@ -1202,6 +1202,14 @@ async function prefetchHexNeighbors(lat, lng){
         .catch(() => {});
       console.debug(`[hex-prefetch] queued ${pc} (${name}) dir=${Math.round(ang*180/Math.PI)}°`);
     }catch(e){}
+  }
+
+  // After all 6 fires, schedule a silent reload ~3 min later to surface any completed enrichments.
+  if(queued.size > 0){
+    await new Promise(r => setTimeout(r, 180000));
+    if(_prefetchGen !== myGen) return;  // user moved pin — abort
+    await loadPPIData();
+    render();
   }
 }
 
