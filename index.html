@@ -398,6 +398,24 @@
   .pp td:last-child{text-align:right;font-family:var(--mono);font-weight:500}
   .pp .ppi-big{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1}
 
+  /* Spider / coverage-radar chart */
+  #spiderBtn{
+    position:absolute;right:14px;bottom:112px;z-index:810;
+    width:36px;height:36px;background:var(--paper);border:1px solid var(--ink);
+    cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;
+    transition:background .15s,color .15s,border-color .15s;padding:0;
+  }
+  #spiderBtn:hover{background:var(--ink);color:var(--paper)}
+  #spiderBtn.active{background:var(--rupee);color:var(--paper);border-color:var(--rupee)}
+  #spiderPanel{
+    position:absolute;right:14px;bottom:156px;z-index:820;
+    background:var(--paper);border:1px solid var(--ink);
+    padding:10px 12px;display:none;width:240px;
+  }
+  #spiderPanel.show{display:block}
+  #spiderPanel .field-label{margin-bottom:4px}
+  #spiderGapInfo{font-family:var(--mono);font-size:10px;color:var(--ink-soft);margin-top:6px;min-height:14px}
+
   /* mobile */
   @media (max-width:760px){
     body{flex-direction:column}
@@ -416,7 +434,7 @@
 
 <aside>
   <div class="brand">
-    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v3.5 · Live</span></div>
+    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v3.6 · Live</span></div>
     <h1>Paisa<span class="tick">/</span>Map</h1>
   </div>
 
@@ -503,6 +521,14 @@
     </div>
     <div class="ticks" id="denomTicks"><span>50</span><span>70</span><span>85</span><span>100</span><span>120</span><span>145+</span></div>
   </div>
+  <button id="spiderBtn" title="Coverage radar — 8-direction data density from YAH pin" aria-pressed="false">
+    <i class="ti ti-chart-radar"></i>
+  </button>
+  <div id="spiderPanel">
+    <div class="field-label"><span>Coverage radar</span><span style="font-size:9px;color:var(--ink-soft)">from YAH pin</span></div>
+    <svg id="spiderSvg" viewBox="0 0 220 220" width="216" height="216" style="display:block;margin:0 auto"></svg>
+    <div id="spiderGapInfo"></div>
+  </div>
   <div class="offline-note" id="offlineNote">
     <b>STREET TILES BLOCKED</b><br>
     This preview can't load map imagery, so you're seeing a grid with locality
@@ -519,7 +545,7 @@
    PaisaMap — demo purchasing-power heat map
    All locality figures below are MODELLED for demonstration.
    ============================================================ */
-const VERSION = "v3.5 · 2026-06-19";
+const VERSION = "v3.6 · 2026-06-19";
 console.log("PaisaMap build", VERSION, "— features: search · boundaries · nearby hubs · CSS pins · offline mode");
 
 // [name, lat, lng, avg monthly household income (INR, modelled)]
@@ -1585,6 +1611,7 @@ function render(){
 
   // sync legend to current metric
   updateLegend();
+  updateSpider();
 }
 
 function setActive(id, fromList){
@@ -1790,6 +1817,152 @@ function locateUser(auto){
   }, {enableHighAccuracy:false, timeout:8000});
 }
 document.getElementById("locateBtn").addEventListener("click", ()=> locateUser(false));
+
+// ── Spider / coverage-radar ─────────────────────────────────────────────────
+const SPIDER_DIRS     = ['N','NE','E','SE','S','SW','W','NW'];
+const SPIDER_BEARINGS = [0, 45, 90, 135, 180, 225, 270, 315];
+const SPIDER_R  = 80;   // max spoke radius in SVG px
+const SPIDER_CX = 110, SPIDER_CY = 110;
+const SPARSE_THRESH = 0.18;  // score below this → red + gap-fill
+
+let spiderActive = false;
+let _spiderGapFiring = false;
+
+function _spiderBearing(lat1, lng1, lat2, lng2){
+  const r = x => x * Math.PI / 180;
+  const dL = r(lng2 - lng1);
+  const y  = Math.sin(dL) * Math.cos(r(lat2));
+  const x  = Math.cos(r(lat1)) * Math.sin(r(lat2)) - Math.sin(r(lat1)) * Math.cos(r(lat2)) * Math.cos(dL);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function _destPoint(lat, lng, bearDeg, distKm){
+  const R = 6371, d = distKm / R, b = bearDeg * Math.PI / 180;
+  const la = lat * Math.PI / 180, lo = lng * Math.PI / 180;
+  const la2 = Math.asin(Math.sin(la)*Math.cos(d) + Math.cos(la)*Math.sin(d)*Math.cos(b));
+  const lo2 = lo + Math.atan2(Math.sin(b)*Math.sin(d)*Math.cos(la), Math.cos(d)-Math.sin(la)*Math.sin(la2));
+  return [la2*180/Math.PI, lo2*180/Math.PI];
+}
+
+function _svgPt(bearing, r){
+  const rad = (bearing - 90) * Math.PI / 180;
+  return [SPIDER_CX + r * Math.cos(rad), SPIDER_CY + r * Math.sin(rad)];
+}
+
+function computeSpiderData(){
+  const pins = Object.values(pincodeMap);
+  const sec = Array(8).fill(null).map(() => ({count:0, ppiSum:0}));
+  for(const p of pins){
+    const dist = haversine(center[0], center[1], p.lat, p.lng);
+    if(dist > 30 || dist < 0.5) continue;
+    const si = Math.round(_spiderBearing(center[0],center[1],p.lat,p.lng) / 45) % 8;
+    sec[si].count++;
+    sec[si].ppiSum += (p.ppi || 100);
+  }
+  return sec.map(s => {
+    const avgPpi = s.count > 0 ? s.ppiSum / s.count : 0;
+    const pinScore = Math.min(s.count, 8) / 8;
+    const ppiScore = s.count > 0 ? Math.max(0, (avgPpi - 50) / 95) : 0;
+    return {count: s.count, avgPpi: Math.round(avgPpi)||0, score: pinScore*0.7 + ppiScore*0.3};
+  });
+}
+
+function drawSpider(sectors){
+  const svg = document.getElementById('spiderSvg');
+  if(!svg) return;
+  let h = '';
+
+  // Grid rings
+  [0.25, 0.5, 0.75, 1].forEach(f =>
+    h += `<circle cx="${SPIDER_CX}" cy="${SPIDER_CY}" r="${(SPIDER_R*f).toFixed(1)}" fill="none" stroke="var(--hairline)" stroke-width="1"/>`
+  );
+
+  // Axis lines + direction labels
+  SPIDER_BEARINGS.forEach((b, i) => {
+    const [x,y]   = _svgPt(b, SPIDER_R+2);
+    const [lx,ly] = _svgPt(b, SPIDER_R+15);
+    h += `<line x1="${SPIDER_CX}" y1="${SPIDER_CY}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--hairline)" stroke-width="1"/>`;
+    h += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-family="var(--mono)" font-size="9" fill="var(--ink-soft)">${SPIDER_DIRS[i]}</text>`;
+  });
+
+  // Compute polygon points
+  const pts = sectors.map((s, i) => _svgPt(SPIDER_BEARINGS[i], Math.max(s.score * SPIDER_R, 3)));
+
+  // Data polygon fill
+  const ptStr = pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  h += `<polygon points="${ptStr}" fill="rgba(39,174,96,0.18)" stroke="var(--rupee)" stroke-width="1.5"/>`;
+
+  // Sparse-direction overlays (red dashed spokes)
+  const sparse = sectors.map((s,i) => s.score < SPARSE_THRESH ? i : -1).filter(i => i >= 0);
+  sparse.forEach(i => {
+    const [x,y]   = _svgPt(SPIDER_BEARINGS[i], SPIDER_R);
+    const [lx,ly] = _svgPt(SPIDER_BEARINGS[i], SPIDER_R+15);
+    h += `<line x1="${SPIDER_CX}" y1="${SPIDER_CY}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#E74C3C" stroke-width="2" stroke-dasharray="4,3"/>`;
+    h += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" font-family="var(--mono)" font-size="9" font-weight="600" fill="#E74C3C">${SPIDER_DIRS[i]}</text>`;
+  });
+
+  // Dots with hover tooltip
+  sectors.forEach((s, i) => {
+    const [px,py] = pts[i];
+    const red = s.score < SPARSE_THRESH;
+    h += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4" fill="${red?'#E74C3C':'var(--rupee)'}" stroke="var(--paper)" stroke-width="1.5"><title>${SPIDER_DIRS[i]}: ${s.count} pin${s.count!==1?'s':''} · avg PPI ${s.avgPpi||'—'}</title></circle>`;
+  });
+
+  svg.innerHTML = h;
+
+  // Info strip below chart
+  const gi = document.getElementById('spiderGapInfo');
+  const total = Object.values(pincodeMap).length;
+  if(sparse.length === 0){
+    gi.textContent = `${total} pincodes · all 8 sectors covered`;
+  } else {
+    const dirs = sparse.map(i => SPIDER_DIRS[i]).join(', ');
+    gi.innerHTML = `<span style="color:#E74C3C">Sparse: ${dirs}</span> · ${total} pincodes · fetching…`;
+    if(IS_SERVER && !_spiderGapFiring) triggerSpiderGapFill(sparse);
+  }
+}
+
+async function triggerSpiderGapFill(sparseSectors){
+  _spiderGapFiring = true;
+  let queued = 0;
+  for(const si of sparseSectors){
+    const [gLat, gLng] = _destPoint(center[0], center[1], SPIDER_BEARINGS[si], 15);
+    try{
+      const rev  = await fetch(`/api/reverse?lat=${gLat}&lng=${gLng}`).then(r=>r.json());
+      const pc   = rev?.address?.postcode?.replace(/\s+/g,'');
+      const name = rev?.address?.suburb || rev?.address?.town || rev?.address?.city || pc;
+      if(!pc || !/^\d{6}$/.test(pc) || pincodeMap[pc]) continue;
+      fetch(`/api/enrich?pincode=${pc}&lat=${gLat}&lng=${gLng}&name=${encodeURIComponent(name||pc)}&source=yah`).catch(()=>{});
+      console.debug(`[spider-gap] ${SPIDER_DIRS[si]} → ${pc} (${name})`);
+      queued++;
+    }catch(e){}
+  }
+  if(queued > 0){
+    await new Promise(r => setTimeout(r, 90000));
+    await loadPPIData();
+    if(spiderActive) updateSpider();
+  }
+  _spiderGapFiring = false;
+}
+
+function updateSpider(){
+  if(!spiderActive) return;
+  drawSpider(computeSpiderData());
+}
+
+document.getElementById('spiderBtn').addEventListener('click', ()=>{
+  spiderActive = !spiderActive;
+  document.getElementById('spiderBtn').setAttribute('aria-pressed', String(spiderActive));
+  document.getElementById('spiderBtn').classList.toggle('active', spiderActive);
+  const panel = document.getElementById('spiderPanel');
+  panel.classList.toggle('show', spiderActive);
+  if(spiderActive){
+    updateSpider();
+  } else {
+    document.getElementById('spiderSvg').innerHTML = '';
+    document.getElementById('spiderGapInfo').textContent = '';
+  }
+});
 
 /* ---------- go ---------- */
 render();
