@@ -1,3 +1,6 @@
 venv/
 __pycache__/
 *.pyc
+# Large data files — download on demand via ETL scripts
+paisamap-etl/data/raw/*.parquet
+paisamap-etl/data/raw/wdi.parquet

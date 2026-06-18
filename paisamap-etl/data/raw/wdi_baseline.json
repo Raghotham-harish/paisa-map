@@ -1,0 +1,73 @@
+{
+  "gdp_per_capita_ppp_usd": {
+    "value": 11159.985647609126,
+    "year": 2024,
+    "description": "India GDP per capita PPP 2024 (current int'l $)"
+  },
+  "hh_consumption_ppp_usd": {
+    "value": 7031.178662196439,
+    "year": 2024,
+    "description": "Household consumption per capita PPP (current int'l $)"
+  },
+  "hh_consumption_usd_2015": {
+    "value": 1423.6663156603568,
+    "year": 2024,
+    "description": "Household consumption per capita (constant 2015 USD)"
+  },
+  "ppp_lcu_per_usd": {
+    "value": 19.8004481525548,
+    "year": 2025,
+    "description": "PPP conversion factor \u20b9 per int'l $ (households)"
+  },
+  "gini_index": {
+    "value": 25.5,
+    "year": 2022,
+    "description": "Gini income inequality index (2022)"
+  },
+  "poverty_3usd_pct": {
+    "value": 5.3,
+    "year": 2022,
+    "description": "% population below $3/day PPP"
+  },
+  "poverty_8usd_pct": {
+    "value": 82.1,
+    "year": 2022,
+    "description": "% population below $8.30/day PPP"
+  },
+  "income_share_bottom20": {
+    "value": 10.4,
+    "year": 2022,
+    "description": "Bottom quintile income share (%)"
+  },
+  "income_share_top20": {
+    "value": 36.1,
+    "year": 2022,
+    "description": "Top quintile income share (%)"
+  },
+  "bank_account_pct": {
+    "value": 89.0248224502547,
+    "year": 2024,
+    "description": "Financial account ownership % (adults)"
+  },
+  "urban_pct": {
+    "value": 35.3788972368389,
+    "year": 2024,
+    "description": "Urban population share (%)"
+  },
+  "wage_workers_pct": {
+    "value": 25.0968991206297,
+    "year": 2025,
+    "description": "Formal wage employment as % of total employment"
+  },
+  "hh_monthly_spend_inr": {
+    "value": 11602.0,
+    "year": 2024,
+    "description": "Estimated avg monthly household spend in \u20b9 (PPP-adjusted)"
+  },
+  "ppi100_monthly_inr": {
+    "value": 17403.0,
+    "description": "Estimated monthly spend \u20b9 for PPI=100 household (1.5\u00d7 national avg)"
+  },
+  "_source": "datonic/world_development_indicators (HuggingFace)",
+  "_country": "IND"
+}

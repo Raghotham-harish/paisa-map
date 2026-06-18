@@ -144,6 +144,22 @@ def main():
     ollama_live = check_ollama()
     all_ok = True
 
+    # Step 0a — WDI national calibration baseline (always runs; uses cached parquet)
+    wdi_parquet = RAW / "wdi.parquet"
+    wdi_args = ["--local", str(wdi_parquet)] if wdi_parquet.exists() else []
+    run_step(ETL / "fetch_wdi_baseline.py", wdi_args, "WDI national calibration baseline")
+    # Non-fatal: WDI is calibration-only, not a gate signal
+
+    # Step 0b — HCES 2023-24 district MPCE (always runs; fetches from GitHub)
+    hces_cached = RAW / "district_fractile_summary.csv"
+    hces_args = ["--local", str(hces_cached)] if hces_cached.exists() else []
+    ok = run_step(ETL / "fetch_hces_mpce.py", hces_args, "HCES 2023-24 district MPCE signal")
+    all_ok = all_ok and ok
+
+    # Step 0c — Join HCES district MPCE to pincodes
+    ok = run_step(ETL / "build_mpce_pincode.py", [], "HCES MPCE → pincode join")
+    all_ok = all_ok and ok
+
     # Step 1 — NPCI UPI stats
     upi_args = dry_flag + (["--pdf", str(args.upi_pdf)] if args.upi_pdf else [])
     ok = run_step(ETL / "fetch_npci_upi.py", upi_args, "NPCI UPI transaction density")
@@ -156,7 +172,6 @@ def main():
 
     # Step 3 — IT Dept Annual Statistics (optional)
     if args.itr_pdf:
-        itr_args = dry_flag + ["--pdf" if False else args.itr_pdf.name]
         ok = run_step(ETL / "fetch_itr_stats.py", [str(args.itr_pdf)], "IT Dept ITR filer stats")
         all_ok = all_ok and ok
     else:

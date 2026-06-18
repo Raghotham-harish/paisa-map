@@ -151,6 +151,16 @@ def load_features() -> pd.DataFrame:
         else:
             print(f"  · {fname:<35} (not present — skipped)")
 
+    # HCES 2023-24 district MPCE (direct government spend signal)
+    mpce_path = RAW / "mpce_district.csv"
+    if mpce_path.exists():
+        mpce = pd.read_csv(mpce_path, dtype={"pincode": str}).set_index("pincode")
+        if "mpce_combined" in mpce.columns:
+            frames["mpce_combined"] = mpce["mpce_combined"]
+            print(f"  ✓ {'mpce_district.csv::mpce_combined':<35} {mpce['mpce_combined'].notna().sum()} rows")
+    else:
+        print(f"  · {'mpce_district.csv':<35} (run build_mpce_pincode.py first)")
+
     # Multi-column RTO enhanced
     rto_path = RAW / "rto_enhanced.csv"
     if rto_path.exists():
