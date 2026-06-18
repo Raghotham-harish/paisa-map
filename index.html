@@ -582,7 +582,7 @@ async function loadPPIData(){
       const ncr_extras = NCR.filter(n =>
         !parsed.some(p => haversine(n[1],n[2],p.lat,p.lng) < 5)
       ).map(n => [n[0], n[1], n[2], Math.round(n[3] / NCR_SCALE)]);
-      ncrData = [...parsed.map(r=>[r.name,r.lat,r.lng,r.income]), ...ncr_extras];
+      ncrData = [...parsed.map(r=>[r.name,r.lat,r.lng,r.income,r.pincode]), ...ncr_extras];
       dataset = ncrData.map(buildRecord);
       render();
     }
@@ -597,12 +597,12 @@ const fmtShort = n => n >= 100000 ? "₹" + (n/100000).toFixed(1).replace(/\.0$/
 // deterministic pseudo-random (so heat jitter is stable per locality)
 function rng(seed){ return () => (seed = (seed*9301+49297)%233280) / 233280; }
 
-// turn raw [name,lat,lng,income] into full record
+// turn raw [name,lat,lng,income,pincode?] into full record
 function buildRecord(d, i){
   const income = d[3];
   const spendRatio = Math.min(.8, Math.max(.45, .85 - income/1e6));
   const spend = income * spendRatio;
-  return { id:i, name:d[0], lat:d[1], lng:d[2], income, spend, annual:spend*12 };
+  return { id:i, name:d[0], lat:d[1], lng:d[2], income, spend, annual:spend*12, pincode: d[4]||null };
 }
 
 // synthetic data generator for non-NCR locations (demo fallback)
@@ -1068,8 +1068,9 @@ let _bulkGen = 0;
 async function bulkEnrichNearby(lat, lng){
   if(!IS_SERVER) return;
 
-  // Skip if we already have \u22654 data points within 15 km of the pin
-  const nearPin = dataset.filter(d => haversine(lat,lng,d.lat,d.lng) <= 15);
+  // Skip if we already have \u22654 REAL enriched pincodes within 15 km.
+  // Use pincodeMap (real data only), not dataset (which includes hardcoded NCR synthetic entries).
+  const nearPin = Object.values(pincodeMap).filter(d => haversine(lat,lng,d.lat,d.lng) <= 15);
   if(nearPin.length >= 4) return;
 
   const myGen = ++_bulkGen;
