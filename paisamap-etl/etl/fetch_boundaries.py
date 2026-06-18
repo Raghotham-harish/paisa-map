@@ -43,8 +43,9 @@ def reverse_geocode(lat: float, lng: float, zoom: int = 12):
         "lat":            lat,
         "lon":            lng,
         "zoom":           zoom,
-        "format":         "geojson",
-        "polygon_geojson": 1,
+        "format":         "json",        # must be json, not geojson
+        "polygon_geojson": 1,            # polygon lands in data["geojson"], not data["geometry"]
+        "addressdetails":  1,
     })
     url = f"{NOMINATIM_REVERSE}?{params}"
     req = urllib.request.Request(url, headers=HEADERS)
@@ -53,10 +54,10 @@ def reverse_geocode(lat: float, lng: float, zoom: int = 12):
         try:
             with urllib.request.urlopen(req, timeout=15) as r:
                 data = json.loads(r.read())
-            geom = data.get("geometry")
+            geom = data.get("geojson")   # polygon_geojson=1 puts boundary here
             if geom and geom.get("type") in ("Polygon", "MultiPolygon"):
                 return geom, data.get("display_name", "")
-            # Point result — try a coarser zoom
+            # No polygon at this zoom — try one level coarser
             if zoom > 10:
                 time.sleep(DELAY)
                 return reverse_geocode(lat, lng, zoom - 1)
