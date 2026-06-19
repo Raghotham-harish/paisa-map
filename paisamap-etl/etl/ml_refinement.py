@@ -137,6 +137,7 @@ def load_features() -> pd.DataFrame:
     for fname, col in [
         ("property_rates.csv",   "rate_per_sqft"),
         ("bank_deposits.csv",    "deposits_per_capita"),
+        ("bank_deposits.csv",    "bank_branches_per_lakh"),
         ("vehicle_density.csv",  "cars_per_1000"),
         ("nightlights.csv",      "radiance_mean"),
         ("itr_filers.csv",       "filers_per_capita"),

@@ -146,9 +146,13 @@ def build_pincode_deposits(bsr: pd.DataFrame, pc_map: pd.DataFrame) -> pd.DataFr
                 scalar = 0.60 + 0.80 * (pc_nl - nl_min) / max(nl_max - nl_min, 0.1)
                 scalar = max(0.60, min(1.40, scalar))
 
+        branches = float(bsr.loc[district, "bank_branches_per_lakh"]) \
+                   if "bank_branches_per_lakh" in bsr.columns else None
+
         rows.append({
-            "pincode"           : pc,
-            "deposits_per_capita": round(dep_base * scalar, 0),
+            "pincode"              : pc,
+            "deposits_per_capita"  : round(dep_base * scalar, 0),
+            "bank_branches_per_lakh": branches,
         })
 
     return pd.DataFrame(rows).set_index("pincode")
@@ -160,8 +164,8 @@ def write_output(deposits: pd.DataFrame, dry_run: bool = False) -> None:
         existing = pd.read_csv(out_path).set_index("pincode")
         existing.index = existing.index.astype(str)
         deposits.index = deposits.index.astype(str)
-        existing.update(deposits)
-        out = existing
+        # combine_first adds new columns + fills missing rows
+        out = deposits.combine_first(existing)
     else:
         out = deposits
 
