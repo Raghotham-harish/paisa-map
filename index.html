@@ -491,8 +491,8 @@
   </div>
 
   <div class="headline">
-    <div class="field-label"><span id="hlLabel">Area purchasing power index</span><span>base 100</span></div>
-    <div class="big"><span id="hlValue">—</span><small> / 200</small></div>
+    <div class="field-label"><span id="hlLabel">Area purchasing power index</span><span id="hlBaseLine">base 100</span></div>
+    <div class="big"><span id="hlValue">—</span><small id="hlDenominator"> / 200</small></div>
     <div class="sub">
       <span>Avg income <b id="hlIncome">—</b>/mo</span>
       <span>Avg spend <b id="hlSpend">—</b>/mo</span>
@@ -1584,9 +1584,24 @@ function render(){
 
   // headline
   const avg = arr => arr.reduce((s,x)=>s+x,0)/(arr.length||1);
-  document.getElementById("hlValue").textContent  = rows.length ? Math.round(avg(rows.map(r=>r.ppi))) : "—";
-  document.getElementById("hlIncome").textContent = rows.length ? fmtShort(avg(rows.map(r=>r.income))) : "—";
-  document.getElementById("hlSpend").textContent  = rows.length ? fmtShort(avg(rows.map(r=>r.spend))) : "—";
+  const avgIncome = rows.length ? avg(rows.map(r=>r.income)) : 0;
+  const avgSpend  = rows.length ? avg(rows.map(r=>r.spend))  : 0;
+  const avgPpi    = rows.length ? Math.round(avg(rows.map(r=>r.ppi))) : 0;
+  if(metric === "income"){
+    document.getElementById("hlValue").textContent     = rows.length ? fmtShort(avgIncome) : "—";
+    document.getElementById("hlDenominator").textContent = "/mo";
+    document.getElementById("hlBaseLine").textContent  = "avg";
+  } else if(metric === "spend"){
+    document.getElementById("hlValue").textContent     = rows.length ? fmtShort(avgSpend) : "—";
+    document.getElementById("hlDenominator").textContent = "/mo";
+    document.getElementById("hlBaseLine").textContent  = "avg";
+  } else {
+    document.getElementById("hlValue").textContent     = rows.length ? avgPpi : "—";
+    document.getElementById("hlDenominator").textContent = " / 200";
+    document.getElementById("hlBaseLine").textContent  = "base 100";
+  }
+  document.getElementById("hlIncome").textContent = rows.length ? fmtShort(avgIncome) : "—";
+  document.getElementById("hlSpend").textContent  = rows.length ? fmtShort(avgSpend)  : "—";
   document.getElementById("hlCount").textContent  = rows.length;
 
   // ledger list
