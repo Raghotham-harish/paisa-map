@@ -523,6 +523,6 @@
     "PASS  Indiranagar > Electronic City: PPI(560025)=167 vs PPI(560035)=56",
     "PASS  Indiranagar > Yelahanka: PPI(560025)=167 vs PPI(560064)=54",
     "PASS  Koramangala > Hebbal: PPI(560027)=156 vs PPI(560047)=75",
-    "PASS  PPI stability: max drift 1.0pt (limit 10)"
+    "PASS  PPI stability: max drift 0.0pt (limit 10)"
   ]
 }

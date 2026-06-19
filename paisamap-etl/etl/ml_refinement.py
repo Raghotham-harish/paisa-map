@@ -613,6 +613,31 @@ def main():
     out_df = income_df[[c for c in cols_out if c in income_df.columns]]
     out_df.sort_values("ppi_ml", ascending=False).to_csv(OUT / "ppi_ml_refined.csv")
 
+    # ppi_map_data.csv — frontend-facing format with poi column
+    poi_path = RAW / "poi_density.csv"
+    poi_raw = pd.read_csv(poi_path, dtype={"pincode": str}).set_index("pincode")["premium_poi_per_km2"] \
+              if poi_path.exists() else pd.Series(dtype=float)
+    poi_p95 = float(poi_raw.quantile(0.95)) if not poi_raw.empty else 1.0
+    poi_norm = (poi_raw / poi_p95 * 100).clip(0, 100).round(1)
+
+    app_df = pd.DataFrame({
+        "name":   out_df["name"],
+        "lat":    out_df["lat"],
+        "lng":    out_df["lng"],
+        "ppi":    out_df["ppi_ml"],
+        "income": out_df["est_monthly_income_hh"],
+        "poi":    poi_norm.reindex(out_df.index),
+    })
+    app_df.index.name = "pincode"
+    app_path = OUT / "ppi_map_data.csv"
+    app_df.sort_values("ppi", ascending=False).to_csv(app_path)
+
+    # Sync to app data dir
+    app_dest = ROOT.parent / "data" / "output" / "ppi_map_data.csv"
+    app_dest.parent.mkdir(parents=True, exist_ok=True)
+    app_df.sort_values("ppi", ascending=False).to_csv(app_dest)
+    print(f"  {app_dest}  ({len(app_df)} pincodes, poi included)")
+
     # ── Feature importance summary ────────────────────────────────────────────
     print("\nFeature importances:")
     print("  Model A (PCA+Ridge):")

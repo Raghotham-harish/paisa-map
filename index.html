@@ -594,8 +594,8 @@ async function loadPPIData(){
     const text = await res.text();
     const lines = text.trim().split("\n");
     const parsed = lines.slice(1).map(line=>{
-      const [pincode,name,lat,lng,ppi,income] = line.split(",");
-      return {pincode, name, lat:+lat, lng:+lng, ppi:+ppi||100, income:+income};
+      const [pincode,name,lat,lng,ppi,income,poi] = line.split(",");
+      return {pincode, name, lat:+lat, lng:+lng, ppi:+ppi||100, income:+income, poi:+poi||0};
     }).filter(r=>r.lat&&r.lng&&r.income);
     if(parsed.length > 0){
       // Build lookup indexes
@@ -1851,19 +1851,26 @@ function _svgPt(bearing, r){
 
 function computeSpiderData(){
   const pins = Object.values(pincodeMap);
-  const sec = Array(8).fill(null).map(() => ({count:0, ppiSum:0}));
+  const sec = Array(8).fill(null).map(() => ({count:0, ppiSum:0, poiSum:0}));
   for(const p of pins){
     const dist = haversine(center[0], center[1], p.lat, p.lng);
     if(dist > 30 || dist < 0.5) continue;
     const si = Math.round(_spiderBearing(center[0],center[1],p.lat,p.lng) / 45) % 8;
     sec[si].count++;
     sec[si].ppiSum += (p.ppi || 100);
+    sec[si].poiSum += (p.poi || 0);
   }
+  const hasPoi = pins.some(p => p.poi > 0);
   return sec.map(s => {
     const avgPpi = s.count > 0 ? s.ppiSum / s.count : 0;
+    const avgPoi = s.count > 0 ? s.poiSum / s.count : 0;
     const pinScore = Math.min(s.count, 8) / 8;
     const ppiScore = s.count > 0 ? Math.max(0, (avgPpi - 50) / 95) : 0;
-    return {count: s.count, avgPpi: Math.round(avgPpi)||0, score: pinScore*0.7 + ppiScore*0.3};
+    const poiScore = hasPoi ? Math.min(avgPoi / 100, 1) : 0;
+    const score = hasPoi
+      ? pinScore*0.4 + ppiScore*0.3 + poiScore*0.3
+      : pinScore*0.7 + ppiScore*0.3;
+    return {count: s.count, avgPpi: Math.round(avgPpi)||0, avgPoi: Math.round(avgPoi)||0, score};
   });
 }
 
@@ -1905,7 +1912,8 @@ function drawSpider(sectors){
   sectors.forEach((s, i) => {
     const [px,py] = pts[i];
     const red = s.score < SPARSE_THRESH;
-    h += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4" fill="${red?'#E74C3C':'var(--rupee)'}" stroke="var(--paper)" stroke-width="1.5"><title>${SPIDER_DIRS[i]}: ${s.count} pin${s.count!==1?'s':''} · avg PPI ${s.avgPpi||'—'}</title></circle>`;
+    const tipPoi = s.avgPoi > 0 ? ` · POI ${s.avgPoi}` : '';
+    h += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="4" fill="${red?'#E74C3C':'var(--rupee)'}" stroke="var(--paper)" stroke-width="1.5"><title>${SPIDER_DIRS[i]}: ${s.count} pin${s.count!==1?'s':''} · avg PPI ${s.avgPpi||'—'}${tipPoi}</title></circle>`;
   });
 
   svg.innerHTML = h;
