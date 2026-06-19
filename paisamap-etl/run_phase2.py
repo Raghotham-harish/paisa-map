@@ -160,6 +160,10 @@ def main():
     ok = run_step(ETL / "build_mpce_pincode.py", [], "HCES MPCE → pincode join")
     all_ok = all_ok and ok
 
+    # Step 0d — Vehicle state trend (RS Session 248)
+    ok = run_step(ETL / "fetch_vehicle_state_trend.py", [], "Vehicle state trend (RS248 → growth_4yr)")
+    all_ok = all_ok and ok
+
     # Step 1 — NPCI UPI stats
     upi_args = dry_flag + (["--pdf", str(args.upi_pdf)] if args.upi_pdf else [])
     ok = run_step(ETL / "fetch_npci_upi.py", upi_args, "NPCI UPI transaction density")

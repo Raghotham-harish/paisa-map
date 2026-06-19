@@ -161,6 +161,36 @@ def load_features() -> pd.DataFrame:
     else:
         print(f"  · {'mpce_district.csv':<35} (run build_mpce_pincode.py first)")
 
+    # Vehicle state trend (RS Session 248 — 4yr growth 2014-2019 as economic dynamism signal)
+    vst_path = RAW / "vehicle_state_trend.csv"
+    if vst_path.exists():
+        vst = pd.read_csv(vst_path)
+        _STATE_NAME_TO_CODE = {
+            "Delhi": "DL", "Haryana": "HR", "Karnataka": "KA",
+            "Maharashtra": "MH", "Punjab": "PB", "Uttar Pradesh": "UP",
+            "Rajasthan": "RJ", "Gujarat": "GJ", "Tamil Nadu": "TN",
+            "West Bengal": "WB", "Telangana": "TS", "Andhra Pradesh": "AP",
+            "Kerala": "KL", "Odisha": "OD", "Assam": "AS", "Bihar": "BR",
+            "Jharkhand": "JH", "Madhya Pradesh": "MP", "Chhattisgarh": "CG",
+            "Uttarakhand": "UK", "Himachal Pradesh": "HP", "Jammu and Kashmir": "JK",
+        }
+        vst["state_code"] = vst["state_name"].map(_STATE_NAME_TO_CODE)
+        vst_map = vst.dropna(subset=["state_code"]).set_index("state_code")["growth_4yr_pct"]
+        # Expand to pincode-level using existing pincodes from other frames
+        all_pincodes = set()
+        for s in frames.values():
+            all_pincodes.update(s.index)
+        growth_series = pd.Series(
+            {pc: vst_map.get(PINCODE_STATE.get(pc) or _PREFIX_STATE.get(str(pc)[:2]))
+             for pc in all_pincodes},
+            name="vehicle_growth_4yr"
+        )
+        frames["vehicle_growth_4yr"] = growth_series
+        n_matched = growth_series.notna().sum()
+        print(f"  ✓ {'vehicle_state_trend.csv::growth_4yr':<35} {n_matched}/{len(all_pincodes)} pincodes matched")
+    else:
+        print(f"  · {'vehicle_state_trend.csv':<35} (run fetch_vehicle_state_trend.py first)")
+
     # Multi-column RTO enhanced
     rto_path = RAW / "rto_enhanced.csv"
     if rto_path.exists():
