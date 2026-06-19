@@ -450,6 +450,14 @@ def estimate_income(z_ensemble: np.ndarray, pincodes: list) -> pd.DataFrame:
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
 
+    # Snapshot existing PPI BEFORE this run so we can check for drift
+    prev_ppi = None
+    prev_ml_path = OUT / "ppi_ml_refined.csv"
+    if prev_ml_path.exists():
+        _prev = pd.read_csv(prev_ml_path, dtype={"pincode": str}).set_index("pincode")
+        if "ppi_ml" in _prev.columns:
+            prev_ppi = _prev["ppi_ml"]
+
     print("Loading proxy features…")
     raw = load_features()
     print(f"  Shape: {raw.shape[0]} pincodes × {raw.shape[1]} features\n")
@@ -575,6 +583,28 @@ def main():
                  f"PPI({hi})={income_df.loc[hi,'ppi_ml']} vs PPI({lo})={income_df.loc[lo,'ppi_ml']}")
             print(f"  {r}")
             gate_results.append(r)
+
+    # ── PPI stability gate: no swing > 10pt vs previous run ──────────────────
+    PPI_SWING_LIMIT = 10
+    if prev_ppi is not None:
+        common_pcs = income_df.index.intersection(prev_ppi.index)
+        delta = (income_df.loc[common_pcs, "ppi_ml"] - prev_ppi.loc[common_pcs]).abs()
+        swings = delta[delta > PPI_SWING_LIMIT].sort_values(ascending=False)
+        print(f"\nPPI stability gate (threshold ±{PPI_SWING_LIMIT}pt):")
+        if swings.empty:
+            print(f"  PASS  All {len(common_pcs)} pincodes within ±{PPI_SWING_LIMIT}pt  "
+                  f"(max swing: {delta.max():.1f}pt @ {delta.idxmax()})")
+            gate_results.append(f"PASS  PPI stability: max drift {delta.max():.1f}pt (limit {PPI_SWING_LIMIT})")
+        else:
+            print(f"  WARN  {len(swings)} pincodes swung > {PPI_SWING_LIMIT}pt:")
+            for pc, d in swings.head(10).items():
+                name = income_df.loc[pc, "name"] if "name" in income_df.columns else pc
+                old  = int(prev_ppi.loc[pc])
+                new  = int(income_df.loc[pc, "ppi_ml"])
+                print(f"    {pc} {name:<25} {old:>3} → {new:>3}  (Δ{d:+.0f})")
+            gate_results.append(f"WARN  PPI stability: {len(swings)} pincodes drifted >{PPI_SWING_LIMIT}pt")
+    else:
+        print("\nPPI stability gate: skipped (no previous run to compare)")
 
     # ── Write outputs ─────────────────────────────────────────────────────────
     cols_out = ["name","lat","lng","ppi_ml","ppi_original",
