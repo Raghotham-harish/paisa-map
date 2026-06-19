@@ -1478,8 +1478,12 @@ function render(){
       const fillOpacity = 0.15 + 0.55 * pinProx;
       const baseStyle = {color:fill,weight:1.5,fillColor:fill,fillOpacity,interactive:false};
       // Estimated/synthetic clusters use a fixed small radius so they don't look like real coverage.
-      // Real localities scale: ~2 km avg, wealthier areas slightly smaller.
-      const coverM = usingEstimated ? 800 : Math.round(Math.max(1200, 2600 - d.ppi * 10));
+      // Real localities scale: ~2 km avg, higher metric = slightly smaller blob (denser/richer areas).
+      // Normalize active metric to 50–200 range so radius formula works for income/spend too.
+      const normVal = (metricMax > metricMin)
+        ? 50 + 150 * (metricValue(d) - metricMin) / (metricMax - metricMin)
+        : 100;
+      const coverM = usingEstimated ? 800 : Math.round(Math.max(1200, 2600 - normVal * 10));
       const circ = L.circle([d.lat,d.lng],{radius:coverM,...baseStyle}).addTo(polyLayer);
       // Skip OSM boundary lookup for synthetic clusters ("East cluster 4") and
       // live-estimated points ("N · Your Area") — they return wrong large polygons
