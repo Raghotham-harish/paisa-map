@@ -114,15 +114,46 @@ def load_bsr_district(excel_path: object = None) -> pd.DataFrame:
     return df.set_index("district")
 
 
+# Our project's district names (pincode_district_map.csv) -> RBI branch-master
+# district names (data/raw/rbi_branch_counts_mh.csv). RBI's field is the pre-2011
+# Mumbai split ("MUMBAI" = Mumbai City); everything else is an uppercase match.
+RBI_DISTRICT_ALIASES = {
+    "Mumbai City":     "MUMBAI",
+    "Mumbai Suburban": "MUMBAI SUBURBAN",
+}
+
+
+def _minmax_scalar(pc_val: float, vals: pd.Series) -> float:
+    """Scale a value to 0.60-1.40 against the min/max of its district peers."""
+    v_min, v_max = vals.min(), vals.max()
+    scalar = 0.60 + 0.80 * (pc_val - v_min) / max(v_max - v_min, 0.1)
+    return max(0.60, min(1.40, scalar))
+
+
 def build_pincode_deposits(bsr: pd.DataFrame, pc_map: pd.DataFrame) -> pd.DataFrame:
     """
-    Map district-level per-capita deposits to pincodes.
+    Map district-level per-capita deposits and branch density to pincodes.
 
-    Within a district, deposits scale with the relative income signal already
-    captured by nightlights (a good proxy for economic density at pincode level).
+    deposits_per_capita  scales within a district using nightlights (proxy for
+                          local economic density — we have no per-pincode deposit
+                          figures to work with directly).
+    bank_branches_per_lakh scales within a district using REAL public-sector-bank
+                          branch counts (data/raw/rbi_branch_counts_mh.csv, parsed
+                          from RBI's branch master) when available for that
+                          district, falling back to the nightlights proxy
+                          elsewhere. PSU branches undercount the true branch
+                          network (no private/cooperative banks in that source),
+                          but their relative distribution across pincodes within
+                          a district is real data, not a modeled proxy.
     """
     nl_path = RAW / "nightlights.csv"
     nl = pd.read_csv(nl_path).set_index("pincode") if nl_path.exists() else pd.DataFrame()
+
+    branch_path = RAW / "rbi_branch_counts_mh.csv"
+    branch_counts = pd.DataFrame()
+    if branch_path.exists():
+        bc = pd.read_csv(branch_path, dtype={"pincode": str})
+        branch_counts = bc.set_index("pincode")["psu_branch_count"]
 
     rows = []
     for _, row in pc_map.iterrows():
@@ -136,22 +167,32 @@ def build_pincode_deposits(bsr: pd.DataFrame, pc_map: pd.DataFrame) -> pd.DataFr
         dep_base = float(bsr.loc[district, "per_capita_deposits"])
 
         # Within-district scale from nightlights (max ±40% swing)
-        scalar = 1.0
+        dep_scalar = 1.0
         if not nl.empty and int(pc) in nl.index:
             district_pincodes = pc_map[pc_map["district"] == district]["pincode"].astype(int).tolist()
             nl_vals = nl.loc[nl.index.isin(district_pincodes), "radiance_mean"]
             if len(nl_vals) >= 2:
-                pc_nl = float(nl.loc[int(pc), "radiance_mean"])
-                nl_min, nl_max = nl_vals.min(), nl_vals.max()
-                scalar = 0.60 + 0.80 * (pc_nl - nl_min) / max(nl_max - nl_min, 0.1)
-                scalar = max(0.60, min(1.40, scalar))
+                dep_scalar = _minmax_scalar(float(nl.loc[int(pc), "radiance_mean"]), nl_vals)
 
-        branches = float(bsr.loc[district, "bank_branches_per_lakh"]) \
-                   if "bank_branches_per_lakh" in bsr.columns else None
+        branches_base = float(bsr.loc[district, "bank_branches_per_lakh"]) \
+                         if "bank_branches_per_lakh" in bsr.columns else None
+
+        # Prefer real branch-count share over the nightlights proxy for
+        # bank_branches_per_lakh, when RBI branch-master data covers this district.
+        branches = branches_base
+        if branches_base is not None and not branch_counts.empty:
+            rbi_district = RBI_DISTRICT_ALIASES.get(district, district.upper())
+            district_pincodes = pc_map[pc_map["district"] == district]["pincode"].astype(str).tolist()
+            bc_vals = branch_counts.loc[branch_counts.index.isin(district_pincodes)]
+            if pc in bc_vals.index and len(bc_vals) >= 2 and bc_vals.nunique() > 1:
+                branch_scalar = _minmax_scalar(float(bc_vals.loc[pc]), bc_vals)
+                branches = round(branches_base * branch_scalar, 1)
+            elif pc in bc_vals.index:
+                log.debug("Only one RBI-covered pincode in %s (%s) — keeping district value", district, rbi_district)
 
         rows.append({
-            "pincode"              : pc,
-            "deposits_per_capita"  : round(dep_base * scalar, 0),
+            "pincode"               : pc,
+            "deposits_per_capita"   : round(dep_base * dep_scalar, 0),
             "bank_branches_per_lakh": branches,
         })
 
