@@ -42,6 +42,18 @@ echo "[deploy] code updated"
 _restore_if_newer "data/output/enrichment_log.csv"
 _restore_if_newer "data/output/ppi_map_data.csv"
 
+# Mirror app files to nginx's static root (serves /data/, frontend assets;
+# /api/ is proxied straight to the Flask service above, not through here).
+sudo rsync -av --delete \
+  --exclude='.git' \
+  --exclude='.github' \
+  --exclude='venv-flask' \
+  --exclude='__pycache__' \
+  --exclude='*.pyc' \
+  "$REPO/" \
+  /var/www/paisamap/
+echo "[deploy] synced to /var/www/paisamap"
+
 # Install any new Python deps for Flask server
 if [ -f venv-flask/bin/activate ]; then
   source venv-flask/bin/activate
