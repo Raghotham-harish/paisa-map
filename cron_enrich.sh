@@ -61,6 +61,7 @@ git add \
     data/output/enrichment_log.csv \
     data/output/ppi_map_data.csv \
     paisamap-etl/data/output/ppi_ml_refined.csv \
+    paisamap-etl/data/output/ppi_map_data.csv \
     paisamap-etl/data/output/batch_enrich_log.csv \
     paisamap-etl/data/raw/pincode_coords.csv \
     paisamap-etl/data/raw/pincode_names.csv \
@@ -87,7 +88,7 @@ else
     #      and manual pushes can land while this script is mid-run ──────────
     echo ""
     echo "Pushing to origin/main..."
-    if git fetch origin main --quiet && git rebase origin/main --quiet; then
+    if git fetch origin main --quiet && git rebase origin/main --quiet --autostash; then
         if git push origin main --quiet; then
             echo "  Pushed."
         else
