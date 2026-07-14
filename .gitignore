@@ -4,3 +4,8 @@ __pycache__/
 # Large data files — download on demand via ETL scripts
 paisamap-etl/data/raw/*.parquet
 paisamap-etl/data/raw/wdi.parquet
+
+# Pan-India RBI branch master export (136MB, exceeds GitHub's file size limit) —
+# manually re-exported from https://data.rbi.org.in/DBIE/#/banking-outlet ;
+# parse_rbi_branch_master.py derives the small committed rbi_branch_counts_india.csv from it.
+paisamap-etl/data/reference/rbi_branch_master_india/

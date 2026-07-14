@@ -138,18 +138,19 @@ def build_pincode_deposits(bsr: pd.DataFrame, pc_map: pd.DataFrame) -> pd.DataFr
                           local economic density — we have no per-pincode deposit
                           figures to work with directly).
     bank_branches_per_lakh scales within a district using REAL public-sector-bank
-                          branch counts (data/raw/rbi_branch_counts_mh.csv, parsed
-                          from RBI's branch master) when available for that
-                          district, falling back to the nightlights proxy
-                          elsewhere. PSU branches undercount the true branch
-                          network (no private/cooperative banks in that source),
-                          but their relative distribution across pincodes within
-                          a district is real data, not a modeled proxy.
+                          branch counts (data/raw/rbi_branch_counts_india.csv,
+                          parsed from RBI's branch master, pan-India) when
+                          available for that district, falling back to the
+                          nightlights proxy elsewhere. PSU branches undercount
+                          the true branch network (no private/cooperative banks
+                          in that source), but their relative distribution
+                          across pincodes within a district is real data, not a
+                          modeled proxy.
     """
     nl_path = RAW / "nightlights.csv"
     nl = pd.read_csv(nl_path).set_index("pincode") if nl_path.exists() else pd.DataFrame()
 
-    branch_path = RAW / "rbi_branch_counts_mh.csv"
+    branch_path = RAW / "rbi_branch_counts_india.csv"
     branch_counts = pd.DataFrame()
     if branch_path.exists():
         bc = pd.read_csv(branch_path, dtype={"pincode": str})
