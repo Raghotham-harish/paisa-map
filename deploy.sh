@@ -31,16 +31,39 @@ _restore_if_newer() {
   fi
 }
 
-_save_if_newer "data/output/enrichment_log.csv"
-_save_if_newer "data/output/ppi_map_data.csv"
+# Every file enrich_single.py / batch_enrich_hces.py can write between
+# deploys. cron_enrich.sh pushes these nightly, but a manual push landing
+# mid-day (or a failed cron push) would otherwise be silently wiped here.
+ENRICHMENT_FILES=(
+  "data/output/enrichment_log.csv"
+  "data/output/ppi_map_data.csv"
+  "paisamap-etl/data/output/ppi_ml_refined.csv"
+  "paisamap-etl/data/output/batch_enrich_log.csv"
+  "paisamap-etl/data/raw/pincode_coords.csv"
+  "paisamap-etl/data/raw/pincode_names.csv"
+  "paisamap-etl/data/raw/property_rates.csv"
+  "paisamap-etl/data/raw/bank_deposits.csv"
+  "paisamap-etl/data/raw/nightlights.csv"
+  "paisamap-etl/data/raw/poi_density.csv"
+  "paisamap-etl/data/raw/itr_filers.csv"
+  "paisamap-etl/data/raw/vehicle_density.csv"
+  "paisamap-etl/data/raw/financial_inclusion.csv"
+  "paisamap-etl/data/raw/rto_enhanced.csv"
+  "paisamap-etl/data/reference/pincode_district_map.csv"
+)
+
+for f in "${ENRICHMENT_FILES[@]}"; do
+  _save_if_newer "$f"
+done
 
 # Pull latest code
 git fetch origin main
 git reset --hard origin/main
 echo "[deploy] code updated"
 
-_restore_if_newer "data/output/enrichment_log.csv"
-_restore_if_newer "data/output/ppi_map_data.csv"
+for f in "${ENRICHMENT_FILES[@]}"; do
+  _restore_if_newer "$f"
+done
 
 # Mirror app files to nginx's static root (serves /data/, frontend assets;
 # /api/ is proxied straight to the Flask service above, not through here).

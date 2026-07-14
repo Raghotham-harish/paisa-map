@@ -9,7 +9,9 @@
 #   1. Pull latest code from GitHub (enrichment_log may have been synced back by Actions)
 #   2. Enrich user-visited pincodes from last 7 days that aren't in the ML output
 #   3. Pre-enrich up to 30 HCES districts per day (batch fills coverage map)
-#   4. Git-add any new data files so the next GitHub Actions sync picks them up
+#   4. Commit and push all touched data files directly — nothing else pushes
+#      these on our behalf, so a missed push here means the next `deploy.sh`
+#      hard-reset silently erases the night's work (see 2026-07-14 incident).
 
 set -euo pipefail
 
@@ -62,6 +64,15 @@ git add \
     paisamap-etl/data/output/batch_enrich_log.csv \
     paisamap-etl/data/raw/pincode_coords.csv \
     paisamap-etl/data/raw/pincode_names.csv \
+    paisamap-etl/data/raw/property_rates.csv \
+    paisamap-etl/data/raw/bank_deposits.csv \
+    paisamap-etl/data/raw/nightlights.csv \
+    paisamap-etl/data/raw/poi_density.csv \
+    paisamap-etl/data/raw/itr_filers.csv \
+    paisamap-etl/data/raw/vehicle_density.csv \
+    paisamap-etl/data/raw/financial_inclusion.csv \
+    paisamap-etl/data/raw/rto_enhanced.csv \
+    paisamap-etl/data/reference/pincode_district_map.csv \
     2>/dev/null || true
 
 if git diff --staged --quiet; then
@@ -71,6 +82,21 @@ else
     git commit -m "cron: daily enrich ${DATE} — ${TOTAL} pincodes total [skip ci]" \
         --author "PaisaMap Cron <noreply@cooterlabs.com>" --quiet
     echo "  Committed. Total pincodes: $TOTAL"
+
+    # ── 5. Push — rebase onto origin first since the 6h GitHub Actions sync
+    #      and manual pushes can land while this script is mid-run ──────────
+    echo ""
+    echo "Pushing to origin/main..."
+    if git fetch origin main --quiet && git rebase origin/main --quiet; then
+        if git push origin main --quiet; then
+            echo "  Pushed."
+        else
+            echo "  Push rejected — commit stays local, will retry next run."
+        fi
+    else
+        echo "  Rebase onto origin/main failed — commit stays local, will retry next run."
+        git rebase --abort 2>/dev/null || true
+    fi
 fi
 
 echo ""
