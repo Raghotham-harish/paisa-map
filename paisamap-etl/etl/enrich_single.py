@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from _filelock import write_lock
+
 ROOT = Path(__file__).resolve().parents[1]
 REF  = ROOT / "data" / "reference"
 RAW  = ROOT / "data" / "raw"
@@ -247,13 +249,25 @@ def main():
         print(f"  State: {state}  prior: ₹{prior['rate']:,}/sqft")
 
     # ── Fetch POI density (our best live signal) ──────────────────────────────
-    if not already_in_raw:
-        print(f"  Querying Overpass POI density…", flush=True)
-    poi = fetch_poi(lat, lng) if not already_in_raw else None
+    # already_in_raw is only checked against pincode_coords.csv (above), so a
+    # pincode can be "already in raw" there while missing from poi_density.csv
+    # specifically — e.g. a pre-existing row lost to an unlocked concurrent
+    # write before write_lock() existed. Don't assume the other file has it too.
+    poi_in_density = False
+    if already_in_raw:
+        poi_density_df = pd.read_csv(RAW / "poi_density.csv", dtype={"pincode": str}).set_index("pincode")
+        poi_in_density = pc in poi_density_df.index
+
+    if not (already_in_raw and poi_in_density):
+        if already_in_raw:
+            print(f"  WARN: {pc} in raw CSVs but missing from poi_density.csv — re-fetching POI", flush=True)
+        else:
+            print(f"  Querying Overpass POI density…", flush=True)
+    poi = fetch_poi(lat, lng) if not (already_in_raw and poi_in_density) else None
 
     # Fallback / skip when already_in_raw
-    if already_in_raw:
-        poi = pd.read_csv(RAW / "poi_density.csv", dtype={"pincode": str}).set_index("pincode").at[pc, "premium_poi_per_km2"]
+    if already_in_raw and poi_in_density:
+        poi = poi_density_df.at[pc, "premium_poi_per_km2"]
     elif poi is None:
         poi = round(prior["nl"] * 0.38, 1)
         print(f"  WARN: Overpass failed — using estimated POI={poi}")
@@ -286,107 +300,116 @@ def main():
             df.to_csv(RAW / fname)
         return df
 
-    print("\n  Updating raw CSVs…")
+    # Everything below reads-then-writes the shared raw/output CSVs. Hold one
+    # cross-process lock for the whole cycle — server.py can have up to ~15
+    # of these subprocesses running concurrently from a single pin-drop
+    # (bulkEnrichNearby + prefetchHexNeighbors), plus the nightly cron. A
+    # lock only around individual to_csv() calls wouldn't help: a process
+    # that already read a stale snapshot before acquiring the lock would
+    # still write that stale snapshot back and erase whatever the other
+    # process just committed. So lock first, then read.
+    with write_lock():
+        print("\n  Updating raw CSVs…")
 
-    coords_df = pd.read_csv(RAW / "pincode_coords.csv", dtype={"pincode": str}).set_index("pincode")
-    coords_df.loc[pc] = {"lat": lat, "lng": lng}
-    coords_df.to_csv(RAW / "pincode_coords.csv")
+        coords_df = pd.read_csv(RAW / "pincode_coords.csv", dtype={"pincode": str}).set_index("pincode")
+        coords_df.loc[pc] = {"lat": lat, "lng": lng}
+        coords_df.to_csv(RAW / "pincode_coords.csv")
 
-    names_df = (pd.read_csv(RAW / "pincode_names.csv", dtype={"pincode": str}).set_index("pincode")
-                if (RAW / "pincode_names.csv").exists() else pd.DataFrame())
-    names_df.loc[pc] = {"name": name}
-    names_df.to_csv(RAW / "pincode_names.csv")
+        names_df = (pd.read_csv(RAW / "pincode_names.csv", dtype={"pincode": str}).set_index("pincode")
+                    if (RAW / "pincode_names.csv").exists() else pd.DataFrame())
+        names_df.loc[pc] = {"name": name}
+        names_df.to_csv(RAW / "pincode_names.csv")
 
-    _append("property_rates.csv",      "rate_per_sqft",         signals["rate_per_sqft"])
-    _append("bank_deposits.csv",       "deposits_per_capita",   signals["deposits_per_capita"])
-    _append("nightlights.csv",         "radiance_mean",         signals["radiance_mean"])
-    _append("poi_density.csv",         "premium_poi_per_km2",   signals["premium_poi_per_km2"])
-    _append("itr_filers.csv",          "filers_per_capita",     signals["filers_per_capita"])
-    _append("vehicle_density.csv",     "cars_per_1000",         signals["cars_per_1000"])
-    if (RAW / "financial_inclusion.csv").exists():
-        _append("financial_inclusion.csv", "fin_density_per_km2",   signals["fin_density_per_km2"])
+        _append("property_rates.csv",      "rate_per_sqft",         signals["rate_per_sqft"])
+        _append("bank_deposits.csv",       "deposits_per_capita",   signals["deposits_per_capita"])
+        _append("nightlights.csv",         "radiance_mean",         signals["radiance_mean"])
+        _append("poi_density.csv",         "premium_poi_per_km2",   signals["premium_poi_per_km2"])
+        _append("itr_filers.csv",          "filers_per_capita",     signals["filers_per_capita"])
+        _append("vehicle_density.csv",     "cars_per_1000",         signals["cars_per_1000"])
+        if (RAW / "financial_inclusion.csv").exists():
+            _append("financial_inclusion.csv", "fin_density_per_km2",   signals["fin_density_per_km2"])
 
-    # rto_enhanced — 4 columns
-    rto_df = pd.read_csv(RAW / "rto_enhanced.csv", dtype={"pincode": str}).set_index("pincode")
-    if pc not in rto_df.index:
-        rto_df.loc[pc, "lmv_per_1000"]  = signals["cars_per_1000"]
-        rto_df.loc[pc, "car_2w_ratio"]  = signals["car_2w_ratio"]
-        rto_df.loc[pc, "luxury_share"]  = signals["luxury_share"]
-        rto_df.loc[pc, "ev_share"]      = signals["ev_share"]
-        rto_df.to_csv(RAW / "rto_enhanced.csv")
+        # rto_enhanced — 4 columns
+        rto_df = pd.read_csv(RAW / "rto_enhanced.csv", dtype={"pincode": str}).set_index("pincode")
+        if pc not in rto_df.index:
+            rto_df.loc[pc, "lmv_per_1000"]  = signals["cars_per_1000"]
+            rto_df.loc[pc, "car_2w_ratio"]  = signals["car_2w_ratio"]
+            rto_df.loc[pc, "luxury_share"]  = signals["luxury_share"]
+            rto_df.loc[pc, "ev_share"]      = signals["ev_share"]
+            rto_df.to_csv(RAW / "rto_enhanced.csv")
 
-    n_total = len(pd.read_csv(RAW / "pincode_coords.csv"))
-    print(f"  Dataset: {n_total} pincodes")
+        n_total = len(pd.read_csv(RAW / "pincode_coords.csv"))
+        print(f"  Dataset: {n_total} pincodes")
 
-    # Auto-register in district map so Phase 1 ETL picks up this pincode next run
-    if not already_in_raw:
-        register_in_district_map(pc, name, lat, lng, state)
+        # Auto-register in district map so Phase 1 ETL picks up this pincode next run
+        if not already_in_raw:
+            register_in_district_map(pc, name, lat, lng, state)
 
-    # ── Spatial interpolation from the stable ML baseline ─────────────────────
-    # We do NOT re-train the ML model (that would destabilise all 72 pincodes).
-    # Instead we use inverse-distance weighting over the 5 nearest trusted pincodes
-    # to estimate PPI and income for this new pincode.
-    print("\n  Computing PPI via spatial interpolation from ML baseline…")
-    ml_df = pd.read_csv(OUT / "ppi_ml_refined.csv", dtype={"pincode": str}).set_index("pincode")
+        # ── Spatial interpolation from the stable ML baseline ─────────────────
+        # We do NOT re-train the ML model (that would destabilise all 72 pincodes).
+        # Instead we use inverse-distance weighting over the 5 nearest trusted
+        # pincodes to estimate PPI and income for this new pincode.
+        print("\n  Computing PPI via spatial interpolation from ML baseline…")
+        ml_df = pd.read_csv(OUT / "ppi_ml_refined.csv", dtype={"pincode": str}).set_index("pincode")
 
-    def haversine(lat1, lng1, lat2s, lng2s):
-        R = 6371.0
-        p = math.pi / 180
-        dlat = (lat2s - lat1) * p
-        dlng = (lng2s - lng1) * p
-        a = (dlat / 2).apply(lambda x: math.sin(x) ** 2) + \
-            math.cos(lat1 * p) * \
-            (lat2s * p).apply(math.cos) * \
-            (dlng / 2).apply(lambda x: math.sin(x) ** 2)
-        return (2 * R * a.apply(lambda x: math.asin(math.sqrt(max(0, x))))).round(3)
+        def haversine(lat1, lng1, lat2s, lng2s):
+            R = 6371.0
+            p = math.pi / 180
+            dlat = (lat2s - lat1) * p
+            dlng = (lng2s - lng1) * p
+            a = (dlat / 2).apply(lambda x: math.sin(x) ** 2) + \
+                math.cos(lat1 * p) * \
+                (lat2s * p).apply(math.cos) * \
+                (dlng / 2).apply(lambda x: math.sin(x) ** 2)
+            return (2 * R * a.apply(lambda x: math.asin(math.sqrt(max(0, x))))).round(3)
 
-    dists = haversine(lat, lng, ml_df["lat"], ml_df["lng"])
+        dists = haversine(lat, lng, ml_df["lat"], ml_df["lng"])
 
-    # Use same-state neighbours preferentially; fall back to global if too few
-    same_state = ml_df[[state_from_pincode(idx) == state for idx in ml_df.index]]
-    pool = same_state if len(same_state) >= 3 else ml_df
-    pool_dists = dists.reindex(pool.index)
+        # Use same-state neighbours preferentially; fall back to global if too few
+        same_state = ml_df[[state_from_pincode(idx) == state for idx in ml_df.index]]
+        pool = same_state if len(same_state) >= 3 else ml_df
+        pool_dists = dists.reindex(pool.index)
 
-    k = min(5, len(pool))
-    nearest = pool_dists.nsmallest(k)
-    inv_w = 1.0 / nearest.clip(lower=0.5)   # cap minimum distance at 0.5 km
-    ppi_ml_new    = round(float((pool.loc[nearest.index, "ppi_ml"] * inv_w).sum() / inv_w.sum()))
-    income_ml_new = round(float((pool.loc[nearest.index, "est_monthly_income_hh"] * inv_w).sum() / inv_w.sum()), -2)
-    spend_ml_new  = round(float((pool.loc[nearest.index, "est_monthly_spend_hh"] * inv_w).sum() / inv_w.sum()), -2)
+        k = min(5, len(pool))
+        nearest = pool_dists.nsmallest(k)
+        inv_w = 1.0 / nearest.clip(lower=0.5)   # cap minimum distance at 0.5 km
+        ppi_ml_new    = round(float((pool.loc[nearest.index, "ppi_ml"] * inv_w).sum() / inv_w.sum()))
+        income_ml_new = round(float((pool.loc[nearest.index, "est_monthly_income_hh"] * inv_w).sum() / inv_w.sum()), -2)
+        spend_ml_new  = round(float((pool.loc[nearest.index, "est_monthly_spend_hh"] * inv_w).sum() / inv_w.sum()), -2)
 
-    nearest_names = pool.loc[nearest.index, "name"].tolist()
-    print(f"  Nearest: {nearest_names}")
-    print(f"  Interpolated PPI: {ppi_ml_new}  income: ₹{int(income_ml_new):,}/mo")
+        nearest_names = pool.loc[nearest.index, "name"].tolist()
+        print(f"  Nearest: {nearest_names}")
+        print(f"  Interpolated PPI: {ppi_ml_new}  income: ₹{int(income_ml_new):,}/mo")
 
-    # Append single row to the stable ML output (no re-train)
-    ml_df.loc[pc] = {
-        "name":                  name,
-        "lat":                   lat,
-        "lng":                   lng,
-        "ppi_ml":                ppi_ml_new,
-        "ppi_original":          None,
-        "est_monthly_income_hh": income_ml_new,
-        "est_monthly_spend_hh":  spend_ml_new,
-    }
-    ml_df.sort_values("ppi_ml", ascending=False).to_csv(OUT / "ppi_ml_refined.csv")
+        # Append single row to the stable ML output (no re-train)
+        ml_df.loc[pc] = {
+            "name":                  name,
+            "lat":                   lat,
+            "lng":                   lng,
+            "ppi_ml":                ppi_ml_new,
+            "ppi_original":          None,
+            "est_monthly_income_hh": income_ml_new,
+            "est_monthly_spend_hh":  spend_ml_new,
+        }
+        ml_df.sort_values("ppi_ml", ascending=False).to_csv(OUT / "ppi_ml_refined.csv")
 
-    # ── Copy output to app directory ──────────────────────────────────────────
-    print("  Updating app data…")
-    names_all  = pd.read_csv(RAW / "pincode_names.csv",   dtype={"pincode": str}).set_index("pincode")
-    coords_all = pd.read_csv(RAW / "pincode_coords.csv",  dtype={"pincode": str}).set_index("pincode")
+        # ── Copy output to app directory ───────────────────────────────────────
+        print("  Updating app data…")
+        names_all  = pd.read_csv(RAW / "pincode_names.csv",   dtype={"pincode": str}).set_index("pincode")
+        coords_all = pd.read_csv(RAW / "pincode_coords.csv",  dtype={"pincode": str}).set_index("pincode")
 
-    app_out = APP / "data" / "output"
-    app_out.mkdir(parents=True, exist_ok=True)
+        app_out = APP / "data" / "output"
+        app_out.mkdir(parents=True, exist_ok=True)
 
-    combined = pd.DataFrame({
-        "name":   names_all["name"].reindex(ml_df.index).combine_first(ml_df.get("name")),
-        "lat":    coords_all["lat"].reindex(ml_df.index).combine_first(ml_df.get("lat")),
-        "lng":    coords_all["lng"].reindex(ml_df.index).combine_first(ml_df.get("lng")),
-        "ppi":    ml_df["ppi_ml"],
-        "income": ml_df["est_monthly_income_hh"],
-    })
-    combined.index.name = "pincode"
-    combined.sort_values("ppi", ascending=False).to_csv(app_out / "ppi_map_data.csv")
+        combined = pd.DataFrame({
+            "name":   names_all["name"].reindex(ml_df.index).combine_first(ml_df.get("name")),
+            "lat":    coords_all["lat"].reindex(ml_df.index).combine_first(ml_df.get("lat")),
+            "lng":    coords_all["lng"].reindex(ml_df.index).combine_first(ml_df.get("lng")),
+            "ppi":    ml_df["ppi_ml"],
+            "income": ml_df["est_monthly_income_hh"],
+        })
+        combined.index.name = "pincode"
+        combined.sort_values("ppi", ascending=False).to_csv(app_out / "ppi_map_data.csv")
 
     # ── Print result ──────────────────────────────────────────────────────────
     if pc in ml_df.index:

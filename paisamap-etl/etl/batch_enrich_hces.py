@@ -34,6 +34,7 @@ from pathlib import Path
 import pandas as pd
 
 from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, PREFIX_STATE, scale_from_poi
+from _filelock import write_lock
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW  = ROOT / "data" / "raw"
@@ -216,23 +217,27 @@ def backfill_raw_proxies(pincode: str, state: str):
             df.loc[pincode, col] = val
             df.to_csv(p)
 
-    _append("property_rates.csv",      "rate_per_sqft",       signals["rate_per_sqft"])
-    _append("bank_deposits.csv",       "deposits_per_capita", signals["deposits_per_capita"])
-    _append("nightlights.csv",         "radiance_mean",       signals["radiance_mean"])
-    _append("poi_density.csv",         "premium_poi_per_km2", signals["premium_poi_per_km2"])
-    _append("itr_filers.csv",          "filers_per_capita",   signals["filers_per_capita"])
-    _append("vehicle_density.csv",     "cars_per_1000",       signals["cars_per_1000"])
-    _append("financial_inclusion.csv", "fin_density_per_km2", signals["fin_density_per_km2"])
+    # Same shared raw CSVs enrich_single.py writes (live pin-drops) — lock the
+    # whole read-modify-write cycle so a concurrent live enrichment can't lose
+    # this row or vice versa. See _filelock.py / enrich_single.py.
+    with write_lock():
+        _append("property_rates.csv",      "rate_per_sqft",       signals["rate_per_sqft"])
+        _append("bank_deposits.csv",       "deposits_per_capita", signals["deposits_per_capita"])
+        _append("nightlights.csv",         "radiance_mean",       signals["radiance_mean"])
+        _append("poi_density.csv",         "premium_poi_per_km2", signals["premium_poi_per_km2"])
+        _append("itr_filers.csv",          "filers_per_capita",   signals["filers_per_capita"])
+        _append("vehicle_density.csv",     "cars_per_1000",       signals["cars_per_1000"])
+        _append("financial_inclusion.csv", "fin_density_per_km2", signals["fin_density_per_km2"])
 
-    rto_path = RAW / "rto_enhanced.csv"
-    if rto_path.exists():
-        rto_df = pd.read_csv(rto_path, dtype={"pincode": str}).set_index("pincode")
-        if pincode not in rto_df.index:
-            rto_df.loc[pincode, "lmv_per_1000"] = signals["cars_per_1000"]
-            rto_df.loc[pincode, "car_2w_ratio"] = signals["car_2w_ratio"]
-            rto_df.loc[pincode, "luxury_share"] = signals["luxury_share"]
-            rto_df.loc[pincode, "ev_share"]     = signals["ev_share"]
-            rto_df.to_csv(rto_path)
+        rto_path = RAW / "rto_enhanced.csv"
+        if rto_path.exists():
+            rto_df = pd.read_csv(rto_path, dtype={"pincode": str}).set_index("pincode")
+            if pincode not in rto_df.index:
+                rto_df.loc[pincode, "lmv_per_1000"] = signals["cars_per_1000"]
+                rto_df.loc[pincode, "car_2w_ratio"] = signals["car_2w_ratio"]
+                rto_df.loc[pincode, "luxury_share"] = signals["luxury_share"]
+                rto_df.loc[pincode, "ev_share"]     = signals["ev_share"]
+                rto_df.to_csv(rto_path)
 
 
 def load_already_done() -> set:
@@ -266,30 +271,47 @@ def append_batch_log(row: dict):
         w.writerow(row)
 
 
-def write_to_app(ml_df: pd.DataFrame):
-    """Write ppi_ml_refined.csv and sync ppi_map_data.csv."""
-    ml_df.sort_values("ppi_ml", ascending=False).to_csv(OUT / "ppi_ml_refined.csv")
+def write_to_app(new_rows: pd.DataFrame) -> int:
+    """Merge this run's newly-added rows into ppi_ml_refined.csv and sync
+    ppi_map_data.csv. `new_rows` is only the rows this run added — the
+    current on-disk state is re-read fresh under the lock rather than
+    trusting the in-memory ml_df carried from the start of the run (a batch
+    run can take many minutes across hundreds of districts; a concurrent
+    live enrichment via enrich_single.py could add rows in that window, and
+    blindly overwriting with a stale snapshot would silently erase them —
+    the same class of bug documented in backfill_raw_proxies() above)."""
+    with write_lock():
+        ml_path = OUT / "ppi_ml_refined.csv"
+        current = (pd.read_csv(ml_path, dtype={"pincode": str}).set_index("pincode")
+                   if ml_path.exists() else pd.DataFrame())
+        # Don't clobber a pincode a concurrent live enrichment already added
+        # (real Overpass-sourced data) with this run's cruder IDW estimate.
+        truly_new = new_rows[~new_rows.index.isin(current.index)]
+        ml_df = pd.concat([current, truly_new])
+        ml_df.sort_values("ppi_ml", ascending=False).to_csv(ml_path)
 
-    names_path  = RAW / "pincode_names.csv"
-    coords_path = RAW / "pincode_coords.csv"
-    names_all   = pd.read_csv(names_path,  dtype={"pincode": str}).set_index("pincode") \
-                  if names_path.exists() else pd.DataFrame()
-    coords_all  = pd.read_csv(coords_path, dtype={"pincode": str}).set_index("pincode") \
-                  if coords_path.exists() else pd.DataFrame()
+        names_path  = RAW / "pincode_names.csv"
+        coords_path = RAW / "pincode_coords.csv"
+        names_all   = pd.read_csv(names_path,  dtype={"pincode": str}).set_index("pincode") \
+                      if names_path.exists() else pd.DataFrame()
+        coords_all  = pd.read_csv(coords_path, dtype={"pincode": str}).set_index("pincode") \
+                      if coords_path.exists() else pd.DataFrame()
 
-    combined = pd.DataFrame({
-        "name":   names_all["name"].reindex(ml_df.index).combine_first(ml_df.get("name", pd.Series(dtype=str))),
-        "lat":    coords_all["lat"].reindex(ml_df.index).combine_first(ml_df.get("lat", pd.Series(dtype=float))),
-        "lng":    coords_all["lng"].reindex(ml_df.index).combine_first(ml_df.get("lng", pd.Series(dtype=float))),
-        "ppi":    ml_df["ppi_ml"],
-        "income": ml_df["est_monthly_income_hh"],
-    })
-    combined.index.name = "pincode"
-    combined.sort_values("ppi", ascending=False).to_csv(OUT / "ppi_map_data.csv")
+        combined = pd.DataFrame({
+            "name":   names_all["name"].reindex(ml_df.index).combine_first(ml_df.get("name", pd.Series(dtype=str))),
+            "lat":    coords_all["lat"].reindex(ml_df.index).combine_first(ml_df.get("lat", pd.Series(dtype=float))),
+            "lng":    coords_all["lng"].reindex(ml_df.index).combine_first(ml_df.get("lng", pd.Series(dtype=float))),
+            "ppi":    ml_df["ppi_ml"],
+            "income": ml_df["est_monthly_income_hh"],
+        })
+        combined.index.name = "pincode"
+        combined.sort_values("ppi", ascending=False).to_csv(OUT / "ppi_map_data.csv")
 
-    # Sync to app data dir
-    APP.mkdir(parents=True, exist_ok=True)
-    combined.sort_values("ppi", ascending=False).to_csv(APP / "ppi_map_data.csv")
+        # Sync to app data dir
+        APP.mkdir(parents=True, exist_ok=True)
+        combined.sort_values("ppi", ascending=False).to_csv(APP / "ppi_map_data.csv")
+
+        return len(truly_new)
 
 
 def main():
@@ -331,6 +353,7 @@ def main():
 
     added = 0
     skipped = 0
+    new_rows: dict[str, dict] = {}   # this run's additions only — see write_to_app()
 
     for i, row in enumerate(districts.itertuples(), 1):
         district = row.district
@@ -387,9 +410,11 @@ def main():
 
         print(f"  IDW PPI: {ppi_raw:.1f}  MPCE adj: ×{adj:.3f}  → PPI {ppi_final}")
 
-        # 6. Append to ML output
+        # 6. Append to ML output (kept in-memory only for this run's own
+        # interpolation source below — the authoritative on-disk merge
+        # happens in write_to_app() against a fresh read, not this snapshot)
         name = f"{district.title()}, {state.title()}"
-        ml_df.loc[pincode] = {
+        new_row = {
             "name":                  name,
             "lat":                   lat,
             "lng":                   lng,
@@ -398,23 +423,30 @@ def main():
             "est_monthly_income_hh": income_adj,
             "est_monthly_spend_hh":  spend_adj,
         }
+        ml_df.loc[pincode] = new_row
+        new_rows[pincode] = new_row
         done_pincodes.add(pincode)
 
-        # 7. Also update raw coords/names CSVs so enrich_single finds it
-        for fname, col, val in [
-            ("pincode_coords.csv", None, {"lat": lat, "lng": lng}),
-            ("pincode_names.csv",  None, {"name": name}),
-        ]:
-            p = RAW / fname
-            if p.exists():
-                df = pd.read_csv(p, dtype={"pincode": str}).set_index("pincode")
-                if pincode not in df.index:
-                    if col is None:
-                        for k, v in val.items():
-                            df.loc[pincode, k] = v
-                    else:
-                        df.loc[pincode, col] = val
-                    df.to_csv(p)
+        # 7. Also update raw coords/names CSVs so enrich_single finds it.
+        # Same shared files enrich_single.py writes on live pin-drops — lock
+        # the read-modify-write cycle (separate acquisition from the one
+        # inside backfill_raw_proxies() below; sequential, not nested, to
+        # avoid a self-deadlock on the non-reentrant flock).
+        with write_lock():
+            for fname, col, val in [
+                ("pincode_coords.csv", None, {"lat": lat, "lng": lng}),
+                ("pincode_names.csv",  None, {"name": name}),
+            ]:
+                p = RAW / fname
+                if p.exists():
+                    df = pd.read_csv(p, dtype={"pincode": str}).set_index("pincode")
+                    if pincode not in df.index:
+                        if col is None:
+                            for k, v in val.items():
+                                df.loc[pincode, k] = v
+                        else:
+                            df.loc[pincode, col] = val
+                        df.to_csv(p)
 
         # 7b. Backfill raw proxy CSVs (property_rates, bank_deposits, etc.)
         # so this pincode survives a full ml_refinement.py rerun.
@@ -435,14 +467,19 @@ def main():
         })
         added += 1
 
-    # Write outputs once at end
+    # Write outputs once at end — merge just this run's new rows into a fresh
+    # read of ppi_ml_refined.csv, not the in-memory ml_df (see write_to_app).
     if added > 0 and not args.dry_run:
-        write_to_app(ml_df)
-
-    print(f"\n{'DRY-RUN — ' if args.dry_run else ''}Done.")
-    print(f"  Added:   {added}")
-    print(f"  Skipped: {skipped}")
-    print(f"  Total in ML: {len(ml_df)} pincodes")
+        new_rows_df = pd.DataFrame.from_dict(new_rows, orient="index")
+        new_rows_df.index.name = "pincode"
+        merged_new = write_to_app(new_rows_df)
+        print(f"\n{'DRY-RUN — ' if args.dry_run else ''}Done.")
+        print(f"  Added:   {added}  (merged into current output: {merged_new})")
+        print(f"  Skipped: {skipped}")
+    else:
+        print(f"\n{'DRY-RUN — ' if args.dry_run else ''}Done.")
+        print(f"  Added:   {added}")
+        print(f"  Skipped: {skipped}")
 
 
 if __name__ == "__main__":

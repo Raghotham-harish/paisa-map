@@ -1,6 +1,10 @@
 venv/
 __pycache__/
 *.pyc
+
+# Cross-process write lock for enrich_single.py / batch_enrich_hces.py
+# (see paisamap-etl/etl/_filelock.py) — auto-created on demand, empty file.
+paisamap-etl/data/.write.lock
 # Large data files — download on demand via ETL scripts
 paisamap-etl/data/raw/*.parquet
 paisamap-etl/data/raw/wdi.parquet
