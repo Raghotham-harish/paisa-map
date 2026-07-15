@@ -275,6 +275,26 @@ CENSUS_DISTRICT_ALIASES = {
     "BADGAM": "BUDGAM",
     "AHILYANAGAR": "AHMEDNAGAR",
     "ALAPUZHA": "ALAPPUZHA",
+    # Added for fetch_phonepe_pulse.py (2026-07-16) — same shared normalized
+    # space, so these also apply wherever CENSUS_DISTRICT_ALIASES is already
+    # used (branches, deposits).
+    "BANGALORE": "BANGALORE URBAN",  # pincode_district_state_india.csv doesn't split Urban/Rural; nearly all known Bangalore pincodes are Urban
+    "GURGAON": "GURUGRAM",
+    "RAIGARH MH": "RAIGAD",  # pincode file disambiguates vs Chhattisgarh's Raigarh; actual Maharashtra district is spelled/renamed "Raigad"
+    "CHHATRAPATI SAMBHAJI NAGAR": "AURANGABAD",  # PhonePe Pulse spells the 2023 rename with a space before "Nagar"; branch-master's version (no space) is already aliased above
+    "GAUTAMBUDDHA NAGAR": "GAUTAM BUDDHA NAGAR",  # PhonePe Pulse spelling
+    "THE NILGIRIS": "NILGIRIS",  # PhonePe Pulse spelling
+    "JHUJHUNU": "JHUNJHUNU",  # pincode file typo
+    "HAMIRPUR HP": "HAMIRPUR",  # pincode file disambiguates HP's Hamirpur from UP's; Census has both as plain "Hamirpur", disambiguated only by state
+    "HAMIRPUR UP": "HAMIRPUR",
+    "PONDICHERRY": "PUDUCHERRY",  # UT's district-level self-name row in pincode file uses the old name
+    # Sikkim's 4 old districts were reorganized into 6 in 2022 (not a clean
+    # 1:1 split) — approximate mapping to the nearest new district by name/
+    # geography rather than leaving these unmatched entirely.
+    "NORTH SIKKIM": "MANGAN",
+    "SOUTH SIKKIM": "NAMCHI",
+    "EAST SIKKIM": "GANGTOK",
+    "WEST SIKKIM": "GYALSHING",
 }
 
 
@@ -296,6 +316,7 @@ STATE_NAME_ALIASES = {
     # dropped all 28 Delhi pincodes from credit_deposit_ratio, which has no such
     # baseline to fall back behind.
     "NCT OF DELHI": "DELHI",
+    "PONDICHERRY": "PUDUCHERRY",  # pincode_district_state_india.csv uses the old UT name
 }
 
 
