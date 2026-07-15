@@ -33,6 +33,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, PREFIX_STATE, scale_from_poi
+
 ROOT = Path(__file__).resolve().parents[1]
 RAW  = ROOT / "data" / "raw"
 OUT  = ROOT / "data" / "output"
@@ -176,6 +178,61 @@ def mpce_adj_factor(mpce: float, state_median: float) -> float:
         return 1.0
     ratio = mpce / state_median
     return ratio ** 0.35
+
+
+def _city_poi_median(state: str) -> float:
+    """Median premium_poi_per_km2 among existing pincodes in this state.
+    Same fallback logic as enrich_single.py's inline version."""
+    poi_path = RAW / "poi_density.csv"
+    if not poi_path.exists():
+        return 15.0
+    poi_df = pd.read_csv(poi_path, dtype={"pincode": str})
+    city_pcs = [p for p in poi_df["pincode"] if PREFIX_STATE.get(str(p)[:2]) == state]
+    med = (poi_df.set_index("pincode").reindex(city_pcs)["premium_poi_per_km2"]
+           .dropna().median())
+    return 15.0 if pd.isna(med) or med < 1 else float(med)
+
+
+def backfill_raw_proxies(pincode: str, state: str):
+    """
+    Batch mode has no Overpass POI query (that's the whole point — see module
+    docstring), so unlike enrich_single.py we can't scale off a live POI
+    reading. Use the state prior directly (ratio=1.0 in scale_from_poi terms)
+    so this pincode still gets *some* raw-proxy row -- without this, a full
+    ml_refinement.py rerun only knows pincodes with raw CSV rows and silently
+    drops every batch-enriched district (discovered 2026-07-15: dropped
+    ppi_map_data.csv from 172 to 121 rows on a full rerun).
+    """
+    prior = CITY_PRIORS.get(state, _DEFAULT_PRIOR)
+    poi_med = _city_poi_median(state)
+    signals = scale_from_poi(poi_med, prior, poi_med)
+
+    def _append(fname, col, val):
+        p = RAW / fname
+        if not p.exists():
+            return
+        df = pd.read_csv(p, dtype={"pincode": str}).set_index("pincode")
+        if pincode not in df.index:
+            df.loc[pincode, col] = val
+            df.to_csv(p)
+
+    _append("property_rates.csv",      "rate_per_sqft",       signals["rate_per_sqft"])
+    _append("bank_deposits.csv",       "deposits_per_capita", signals["deposits_per_capita"])
+    _append("nightlights.csv",         "radiance_mean",       signals["radiance_mean"])
+    _append("poi_density.csv",         "premium_poi_per_km2", signals["premium_poi_per_km2"])
+    _append("itr_filers.csv",          "filers_per_capita",   signals["filers_per_capita"])
+    _append("vehicle_density.csv",     "cars_per_1000",       signals["cars_per_1000"])
+    _append("financial_inclusion.csv", "fin_density_per_km2", signals["fin_density_per_km2"])
+
+    rto_path = RAW / "rto_enhanced.csv"
+    if rto_path.exists():
+        rto_df = pd.read_csv(rto_path, dtype={"pincode": str}).set_index("pincode")
+        if pincode not in rto_df.index:
+            rto_df.loc[pincode, "lmv_per_1000"] = signals["cars_per_1000"]
+            rto_df.loc[pincode, "car_2w_ratio"] = signals["car_2w_ratio"]
+            rto_df.loc[pincode, "luxury_share"] = signals["luxury_share"]
+            rto_df.loc[pincode, "ev_share"]     = signals["ev_share"]
+            rto_df.to_csv(rto_path)
 
 
 def load_already_done() -> set:
@@ -358,6 +415,10 @@ def main():
                     else:
                         df.loc[pincode, col] = val
                     df.to_csv(p)
+
+        # 7b. Backfill raw proxy CSVs (property_rates, bank_deposits, etc.)
+        # so this pincode survives a full ml_refinement.py rerun.
+        backfill_raw_proxies(pincode, PREFIX_STATE.get(prefix, ""))
 
         append_batch_log({
             "timestamp":       datetime.now(timezone.utc).isoformat(),

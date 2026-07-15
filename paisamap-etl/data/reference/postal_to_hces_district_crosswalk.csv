@@ -1,0 +1,621 @@
+postal_district,state,hces_district,match_method,score
+Central Delhi,DELHI,CENTRAL,exact,1.0
+South Delhi,DELHI,SOUTH,exact,1.0
+North Delhi,DELHI,NORTH,exact,1.0
+North West Delhi,DELHI,NORTH WEST,exact,1.0
+South West Delhi,DELHI,SOUTH WEST,exact,1.0
+West Delhi,DELHI,WEST,exact,1.0
+East Delhi,DELHI,EAST,exact,1.0
+Faridabad,HARYANA,FARIDABAD,exact,1.0
+Gurgaon,HARYANA,GURGAON,exact,1.0
+Mahendragarh,HARYANA,MAHENDRAGARH,exact,1.0
+Rewari,HARYANA,REWARI,exact,1.0
+Rohtak,HARYANA,ROHTAK,exact,1.0
+Jhajjar,HARYANA,JHAJJAR,exact,1.0
+Hisar,HARYANA,HISAR,exact,1.0
+Fatehabad,HARYANA,FATEHABAD,exact,1.0
+Sirsa,HARYANA,SIRSA,exact,1.0
+Jind,HARYANA,JIND,exact,1.0
+Bhiwani,HARYANA,BHIWANI,exact,1.0
+Sonipat,HARYANA,SONIPAT,exact,1.0
+Karnal,HARYANA,KARNAL,exact,1.0
+Panipat,HARYANA,PANIPAT,exact,1.0
+Ambala,HARYANA,AMBALA,exact,1.0
+Yamuna Nagar,HARYANA,YAMUNANAGAR,fuzzy,0.957
+Panchkula,HARYANA,PANCHKULA,exact,1.0
+Kaithal,HARYANA,KAITHAL,exact,1.0
+Kurukshetra,HARYANA,KURUKSHETRA,exact,1.0
+Rupnagar,PUNJAB,RUPNAGAR,exact,1.0
+Ropar,PUNJAB,,unmatched,0.0
+Mohali,PUNJAB,,unmatched,0.0
+Patiala,PUNJAB,PATIALA,exact,1.0
+Fatehgarh Sahib,PUNJAB,FATEHGARH SAHIB,exact,1.0
+Ludhiana,PUNJAB,LUDHIANA,exact,1.0
+Moga,PUNJAB,MOGA,exact,1.0
+Firozpur,PUNJAB,FIROZPUR,exact,1.0
+Amritsar,PUNJAB,AMRITSAR,exact,1.0
+Tarn Taran,PUNJAB,TARN TARAN,exact,1.0
+Gurdaspur,PUNJAB,GURDASPUR,exact,1.0
+Jalandhar,PUNJAB,JALANDHAR,exact,1.0
+Hoshiarpur,PUNJAB,HOSHIARPUR,exact,1.0
+Kapurthala,PUNJAB,KAPURTHALA,exact,1.0
+Nawanshahr,PUNJAB,,unmatched,0.0
+Sangrur,PUNJAB,SANGRUR,exact,1.0
+Barnala,PUNJAB,,unmatched,0.0
+Bathinda,PUNJAB,BATHINDA,exact,1.0
+Faridkot,PUNJAB,FARIDKOT,exact,1.0
+Muktsar,PUNJAB,MUKTSAR,exact,1.0
+Mansa,PUNJAB,MANSA,exact,1.0
+Fazilka,PUNJAB,,unmatched,0.0
+Chandigarh,CHANDIGARH,CHANDIGARH DISTRICT,exact,1.0
+Shimla,HIMACHAL PRADESH,SHIMLA,exact,1.0
+Solan,HIMACHAL PRADESH,SOLAN,exact,1.0
+Kullu,HIMACHAL PRADESH,KULLU,exact,1.0
+Kinnaur,HIMACHAL PRADESH,KINNAUR,exact,1.0
+Lahul & Spiti,HIMACHAL PRADESH,LAHUL & SPITI,exact,1.0
+Sirmaur,HIMACHAL PRADESH,SIRMAUR,exact,1.0
+Bilaspur (HP),HIMACHAL PRADESH,BILASPUR,fuzzy,0.842
+Una,HIMACHAL PRADESH,UNA,exact,1.0
+Hamirpur(HP),HIMACHAL PRADESH,HAMIRPUR,fuzzy,0.842
+Mandi,HIMACHAL PRADESH,MANDI,exact,1.0
+Kangra,HIMACHAL PRADESH,KANGRA,exact,1.0
+Chamba,HIMACHAL PRADESH,CHAMBA,exact,1.0
+Jammu,JAMMU & KASHMIR,,no_hces_state,0.0
+Udhampur,JAMMU & KASHMIR,,no_hces_state,0.0
+Doda,JAMMU & KASHMIR,,no_hces_state,0.0
+Kathua,JAMMU & KASHMIR,,no_hces_state,0.0
+Poonch,JAMMU & KASHMIR,,no_hces_state,0.0
+Rajauri,JAMMU & KASHMIR,,no_hces_state,0.0
+Srinagar,JAMMU & KASHMIR,,no_hces_state,0.0
+Budgam,JAMMU & KASHMIR,,no_hces_state,0.0
+Ananthnag,JAMMU & KASHMIR,,no_hces_state,0.0
+Pulwama,JAMMU & KASHMIR,,no_hces_state,0.0
+Kulgam,JAMMU & KASHMIR,,no_hces_state,0.0
+Baramulla,JAMMU & KASHMIR,,no_hces_state,0.0
+Kupwara,JAMMU & KASHMIR,,no_hces_state,0.0
+Leh,JAMMU & KASHMIR,,no_hces_state,0.0
+Kargil,JAMMU & KASHMIR,,no_hces_state,0.0
+Ghaziabad,UTTAR PRADESH,GHAZIABAD,exact,1.0
+Gautam Buddha Nagar,UTTAR PRADESH,GAUTAM BUDDHA NAGAR,exact,1.0
+Aligarh,UTTAR PRADESH,ALIGARH,exact,1.0
+Bulandshahr,UTTAR PRADESH,BULANDSHAHR,exact,1.0
+Hathras,UTTAR PRADESH,,unmatched,0.0
+Mainpuri,UTTAR PRADESH,MAINPURI,exact,1.0
+Etawah,UTTAR PRADESH,ETAWAH,exact,1.0
+Auraiya,UTTAR PRADESH,AURAIYA,exact,1.0
+Etah,UTTAR PRADESH,ETAH,exact,1.0
+Kanpur Nagar,UTTAR PRADESH,KANPUR NAGAR,exact,1.0
+Kanpur Dehat,UTTAR PRADESH,KANPUR DEHAT,exact,1.0
+Farrukhabad,UTTAR PRADESH,FARRUKHABAD,exact,1.0
+Kannauj,UTTAR PRADESH,KANNAUJ,exact,1.0
+Unnao,UTTAR PRADESH,UNNAO,exact,1.0
+Banda,UTTAR PRADESH,BANDA,exact,1.0
+Chitrakoot,UTTAR PRADESH,CHITRAKOOT,exact,1.0
+Hamirpur,UTTAR PRADESH,HAMIRPUR,exact,1.0
+Mahoba,UTTAR PRADESH,MAHOBA,exact,1.0
+Allahabad,UTTAR PRADESH,ALLAHABAD,exact,1.0
+Kaushambi,UTTAR PRADESH,KAUSHAMBI,exact,1.0
+Fatehpur,UTTAR PRADESH,FATEHPUR,exact,1.0
+Varanasi,UTTAR PRADESH,VARANASI,exact,1.0
+Chandauli,UTTAR PRADESH,CHANDAULI,exact,1.0
+Sant Ravidas Nagar,UTTAR PRADESH,SANT RAVIDAS NAGAR (BHADOHI),verified_manual,0.818
+Mau,UTTAR PRADESH,MAU,exact,1.0
+Ballia,UTTAR PRADESH,BALLIA,exact,1.0
+Jaunpur,UTTAR PRADESH,JAUNPUR,exact,1.0
+Sultanpur,UTTAR PRADESH,SULTANPUR,exact,1.0
+Azamgarh,UTTAR PRADESH,AZAMGARH,exact,1.0
+Faizabad,UTTAR PRADESH,FAIZABAD,exact,1.0
+Barabanki,UTTAR PRADESH,BARA BANKI,fuzzy,0.947
+Ambedkar Nagar,UTTAR PRADESH,AMBEDKAR NAGAR,exact,1.0
+Lucknow,UTTAR PRADESH,LUCKNOW,exact,1.0
+Raebareli,UTTAR PRADESH,RAE BARELI,fuzzy,0.947
+Pratapgarh,UTTAR PRADESH,PRATAPGARH,exact,1.0
+Mirzapur,UTTAR PRADESH,MIRZAPUR,exact,1.0
+Sonbhadra,UTTAR PRADESH,SONBHADRA,exact,1.0
+Ghazipur,UTTAR PRADESH,GHAZIPUR,exact,1.0
+Hardoi,UTTAR PRADESH,HARDOI,exact,1.0
+Shahjahanpur,UTTAR PRADESH,SHAHJAHANPUR,exact,1.0
+Budaun,UTTAR PRADESH,BUDAUN,exact,1.0
+Bareilly,UTTAR PRADESH,BAREILLY,exact,1.0
+Moradabad,UTTAR PRADESH,MORADABAD,exact,1.0
+Jyotiba Phule Nagar,UTTAR PRADESH,JYOTIBA PHULE NAGAR,exact,1.0
+Rampur,UTTAR PRADESH,RAMPUR,exact,1.0
+Udham Singh Nagar,UTTARAKHAND,,no_hces_state,0.0
+Nainital,UTTARAKHAND,,no_hces_state,0.0
+Meerut,UTTAR PRADESH,MEERUT,exact,1.0
+Pauri Garhwal,UTTARAKHAND,,no_hces_state,0.0
+Rudraprayag,UTTARAKHAND,,no_hces_state,0.0
+Chamoli,UTTARAKHAND,,no_hces_state,0.0
+Bijnor,UTTAR PRADESH,BIJNOR,exact,1.0
+Saharanpur,UTTAR PRADESH,SAHARANPUR,exact,1.0
+Haridwar,UTTARAKHAND,,no_hces_state,0.0
+Muzaffarnagar,UTTAR PRADESH,MUZAFFARNAGAR,exact,1.0
+Dehradun,UTTARAKHAND,,no_hces_state,0.0
+Tehri Garhwal,UTTARAKHAND,,no_hces_state,0.0
+Uttarkashi,UTTARAKHAND,,no_hces_state,0.0
+Bagpat,UTTAR PRADESH,BAGHPAT,fuzzy,0.923
+Sitapur,UTTAR PRADESH,SITAPUR,exact,1.0
+Kheri,UTTAR PRADESH,KHERI,exact,1.0
+Pilibhit,UTTAR PRADESH,PILIBHIT,exact,1.0
+Champawat,UTTARAKHAND,,no_hces_state,0.0
+Pithoragarh,UTTARAKHAND,,no_hces_state,0.0
+Almora,UTTARAKHAND,,no_hces_state,0.0
+Bageshwar,UTTARAKHAND,,no_hces_state,0.0
+Gonda,UTTAR PRADESH,GONDA,exact,1.0
+Balrampur,UTTAR PRADESH,BALRAMPUR,exact,1.0
+Bahraich,UTTAR PRADESH,BAHRAICH,exact,1.0
+Shrawasti,UTTAR PRADESH,SHRAWASTI,exact,1.0
+Basti,UTTAR PRADESH,BASTI,exact,1.0
+Siddharthnagar,UTTAR PRADESH,SIDDHARTHNAGAR,exact,1.0
+Sant Kabir Nagar,UTTAR PRADESH,SANT KABIR NAGAR,exact,1.0
+Gorakhpur,UTTAR PRADESH,GORAKHPUR,exact,1.0
+Maharajganj,UTTAR PRADESH,MAHRAJGANJ,fuzzy,0.952
+Deoria,UTTAR PRADESH,DEORIA,exact,1.0
+Kushinagar,UTTAR PRADESH,KUSHINAGAR,exact,1.0
+Mathura,UTTAR PRADESH,MATHURA,exact,1.0
+Agra,UTTAR PRADESH,AGRA,exact,1.0
+Firozabad,UTTAR PRADESH,FIROZABAD,exact,1.0
+Jhansi,UTTAR PRADESH,JHANSI,exact,1.0
+Lalitpur,UTTAR PRADESH,LALITPUR,exact,1.0
+Jalaun,UTTAR PRADESH,JALAUN,exact,1.0
+Alwar,RAJASTHAN,ALWAR,exact,1.0
+Jaipur,RAJASTHAN,JAIPUR,exact,1.0
+Dausa,RAJASTHAN,DAUSA,exact,1.0
+Tonk,RAJASTHAN,TONK,exact,1.0
+Ajmer,RAJASTHAN,AJMER,exact,1.0
+Nagaur,RAJASTHAN,NAGAUR,exact,1.0
+Rajsamand,RAJASTHAN,RAJSAMAND,exact,1.0
+Pali,RAJASTHAN,PALI,exact,1.0
+Sirohi,RAJASTHAN,SIROHI,exact,1.0
+Udaipur,RAJASTHAN,UDAIPUR,exact,1.0
+Jalor,RAJASTHAN,JALOR,exact,1.0
+Bhilwara,RAJASTHAN,BHILWARA,exact,1.0
+Chittorgarh,RAJASTHAN,CHITTAURGARH,fuzzy,0.87
+Dungarpur,RAJASTHAN,DUNGARPUR,exact,1.0
+Bharatpur,RAJASTHAN,BHARATPUR,exact,1.0
+Karauli,RAJASTHAN,KARAULI,exact,1.0
+Sawai Madhopur,RAJASTHAN,SAWAI MADHOPUR,exact,1.0
+Bundi,RAJASTHAN,BUNDI,exact,1.0
+Kota,RAJASTHAN,KOTA,exact,1.0
+Baran,RAJASTHAN,BARAN,exact,1.0
+Jhalawar,RAJASTHAN,JHALAWAR,exact,1.0
+Banswara,RAJASTHAN,BANSWARA,exact,1.0
+Dholpur,RAJASTHAN,DHAULPUR,verified_manual,0.8
+Churu,RAJASTHAN,CHURU,exact,1.0
+Sikar,RAJASTHAN,SIKAR,exact,1.0
+Jhujhunu,RAJASTHAN,JHUNJHUNUNU,fuzzy,0.842
+Bikaner,RAJASTHAN,BIKANER,exact,1.0
+Ganganagar,RAJASTHAN,GANGANAGAR,exact,1.0
+Hanumangarh,RAJASTHAN,HANUMANGARH,exact,1.0
+Jodhpur,RAJASTHAN,JODHPUR,exact,1.0
+Jaisalmer,RAJASTHAN,JAISALMER,exact,1.0
+Barmer,RAJASTHAN,BARMER,exact,1.0
+Rajkot,GUJARAT,RAJKOT,exact,1.0
+Jamnagar,GUJARAT,JAMNAGAR,exact,1.0
+Porbandar,GUJARAT,PORBANDAR,exact,1.0
+Junagadh,GUJARAT,JUNAGADH,exact,1.0
+Diu,DAMAN & DIU,,no_hces_state,0.0
+Amreli,GUJARAT,AMRELI,exact,1.0
+Surendra Nagar,GUJARAT,SURENDRANAGAR,fuzzy,0.963
+Bhavnagar,GUJARAT,BHAVNAGAR,exact,1.0
+Kachchh,GUJARAT,KACHCHH,exact,1.0
+Ahmedabad,GUJARAT,AHMADABAD,fuzzy,0.889
+Gandhi Nagar,GUJARAT,GANDHINAGAR,fuzzy,0.957
+Mahesana,GUJARAT,MAHESANA,exact,1.0
+Sabarkantha,GUJARAT,SABAR KANTHA,fuzzy,0.957
+Patan,GUJARAT,PATAN,exact,1.0
+Banaskantha,GUJARAT,BANAS KANTHA,fuzzy,0.957
+Kheda,GUJARAT,KHEDA,exact,1.0
+Anand,GUJARAT,ANAND,exact,1.0
+Panch Mahals,GUJARAT,PANCH MAHALS,exact,1.0
+Dahod,GUJARAT,,unmatched,0.0
+Vadodara,GUJARAT,VADODARA,exact,1.0
+Narmada,GUJARAT,NARMADA,exact,1.0
+Bharuch,GUJARAT,BHARUCH,exact,1.0
+Surat,GUJARAT,SURAT,exact,1.0
+The Dangs,GUJARAT,THE DANGS,exact,1.0
+Valsad,GUJARAT,VALSAD,exact,1.0
+Navsari,GUJARAT,NAVSARI,exact,1.0
+Daman,DAMAN & DIU,,no_hces_state,0.0
+Dadra & Nagar Haveli,DADRA & NAGAR HAVELI,,no_hces_state,0.0
+Mumbai,MAHARASHTRA,,unmatched,0.0
+Thane,MAHARASHTRA,THANE,exact,1.0
+Raigarh(MH),MAHARASHTRA,RAIGARH,fuzzy,0.824
+North Goa,GOA,NORTH GOA,exact,1.0
+South Goa,GOA,SOUTH GOA,exact,1.0
+Pune,MAHARASHTRA,PUNE,exact,1.0
+Satara,MAHARASHTRA,SATARA,exact,1.0
+Solapur,MAHARASHTRA,SOLAPUR,exact,1.0
+Ahmed Nagar,MAHARASHTRA,AHMADNAGAR,fuzzy,0.857
+Beed,MAHARASHTRA,,unmatched,0.0
+Osmanabad,MAHARASHTRA,OSMANABAD,exact,1.0
+Latur,MAHARASHTRA,LATUR,exact,1.0
+Kolhapur,MAHARASHTRA,KOLHAPUR,exact,1.0
+Ratnagiri,MAHARASHTRA,RATNAGIRI,exact,1.0
+Sangli,MAHARASHTRA,SANGLI,exact,1.0
+Sindhudurg,MAHARASHTRA,SINDHUDURG,exact,1.0
+Nashik,MAHARASHTRA,NASHIK,exact,1.0
+Aurangabad,MAHARASHTRA,AURANGABAD,exact,1.0
+Dhule,MAHARASHTRA,DHULE,exact,1.0
+Jalgaon,MAHARASHTRA,JALGAON,exact,1.0
+Nandurbar,MAHARASHTRA,NANDURBAR,exact,1.0
+Jalna,MAHARASHTRA,JALNA,exact,1.0
+Parbhani,MAHARASHTRA,PARBHANI,exact,1.0
+Hingoli,MAHARASHTRA,HINGOLI,exact,1.0
+Nanded,MAHARASHTRA,NANDED,exact,1.0
+Nagpur,MAHARASHTRA,NAGPUR,exact,1.0
+Chandrapur,MAHARASHTRA,CHANDRAPUR,exact,1.0
+Gadchiroli,MAHARASHTRA,GADCHIROLI,exact,1.0
+Gondia,MAHARASHTRA,GONDIYA,fuzzy,0.923
+Bhandara,MAHARASHTRA,BHANDARA,exact,1.0
+Wardha,MAHARASHTRA,WARDHA,exact,1.0
+Buldhana,MAHARASHTRA,BULDANA,fuzzy,0.933
+Akola,MAHARASHTRA,AKOLA,exact,1.0
+Washim,MAHARASHTRA,WASHIM,exact,1.0
+Amravati,MAHARASHTRA,AMRAVATI,exact,1.0
+Yavatmal,MAHARASHTRA,YAVATMAL,exact,1.0
+East Nimar,MADHYA PRADESH,EAST NIMAR,exact,1.0
+Khandwa,MADHYA PRADESH,,unmatched,0.0
+West Nimar,MADHYA PRADESH,WEST NIMAR,exact,1.0
+Barwani,MADHYA PRADESH,BARWANI,exact,1.0
+Indore,MADHYA PRADESH,INDORE,exact,1.0
+Dhar,MADHYA PRADESH,DHAR,exact,1.0
+Dewas,MADHYA PRADESH,DEWAS,exact,1.0
+Ujjain,MADHYA PRADESH,UJJAIN,exact,1.0
+Ratlam,MADHYA PRADESH,RATLAM,exact,1.0
+Jhabua,MADHYA PRADESH,JHABUA,exact,1.0
+Mandsaur,MADHYA PRADESH,MANDSAUR,exact,1.0
+Neemuch,MADHYA PRADESH,NEEMUCH,exact,1.0
+Betul,MADHYA PRADESH,BETUL,exact,1.0
+Hoshangabad,MADHYA PRADESH,HOSHANGABAD,exact,1.0
+Harda,MADHYA PRADESH,HARDA,exact,1.0
+Bhopal,MADHYA PRADESH,BHOPAL,exact,1.0
+Vidisha,MADHYA PRADESH,VIDISHA,exact,1.0
+Raisen,MADHYA PRADESH,RAISEN,exact,1.0
+Shajapur,MADHYA PRADESH,SHAJAPUR,exact,1.0
+Rajgarh,MADHYA PRADESH,RAJGARH,exact,1.0
+Sehore,MADHYA PRADESH,SEHORE,exact,1.0
+Sagar,MADHYA PRADESH,SAGAR,exact,1.0
+Damoh,MADHYA PRADESH,DAMOH,exact,1.0
+Chhatarpur,MADHYA PRADESH,CHHATARPUR,exact,1.0
+Tikamgarh,MADHYA PRADESH,TIKAMGARH,exact,1.0
+Guna,MADHYA PRADESH,GUNA,exact,1.0
+Ashok Nagar,MADHYA PRADESH,ASHOKNAGAR,fuzzy,0.952
+Shivpuri,MADHYA PRADESH,SHIVPURI,exact,1.0
+Gwalior,MADHYA PRADESH,GWALIOR,exact,1.0
+Datia,MADHYA PRADESH,DATIA,exact,1.0
+Morena,MADHYA PRADESH,MORENA,exact,1.0
+Sheopur,MADHYA PRADESH,SHEOPUR,exact,1.0
+Bhind,MADHYA PRADESH,BHIND,exact,1.0
+Chhindwara,MADHYA PRADESH,CHHINDWARA,exact,1.0
+Seoni,MADHYA PRADESH,SEONI,exact,1.0
+Balaghat,MADHYA PRADESH,BALAGHAT,exact,1.0
+Mandla,MADHYA PRADESH,MANDLA,exact,1.0
+Dindori,MADHYA PRADESH,DINDORI,exact,1.0
+Jabalpur,MADHYA PRADESH,JABALPUR,exact,1.0
+Katni,MADHYA PRADESH,KATNI,exact,1.0
+Shahdol,MADHYA PRADESH,SHAHDOL,exact,1.0
+Anuppur,MADHYA PRADESH,ANUPPUR,exact,1.0
+Umaria,MADHYA PRADESH,UMARIA,exact,1.0
+Satna,MADHYA PRADESH,SATNA,exact,1.0
+Rewa,MADHYA PRADESH,REWA,exact,1.0
+Sidhi,MADHYA PRADESH,SIDHI,exact,1.0
+Singrauli,MADHYA PRADESH,SINGRAULI,exact,1.0
+Narsinghpur,MADHYA PRADESH,NARSIMHAPUR,verified_manual,0.818
+Panna,MADHYA PRADESH,PANNA,exact,1.0
+Durg,CHHATTISGARH,DURG,exact,1.0
+Rajnandgaon,CHHATTISGARH,RAJNANDGAON,exact,1.0
+Kawardha,CHHATTISGARH,,unmatched,0.0
+Raipur,CHHATTISGARH,RAIPUR,exact,1.0
+Mahasamund,CHHATTISGARH,MAHASAMUND,exact,1.0
+Dhamtari,CHHATTISGARH,DHAMTARI,exact,1.0
+Gariaband,CHHATTISGARH,,unmatched,0.0
+Bastar,CHHATTISGARH,BASTAR,exact,1.0
+Dantewada,CHHATTISGARH,,unmatched,0.0
+Kanker,CHHATTISGARH,,unmatched,0.0
+Bijapur(CGH),CHHATTISGARH,,unmatched,0.0
+Narayanpur,CHHATTISGARH,NARAYANPUR,exact,1.0
+Bilaspur(CGH),CHHATTISGARH,BILASPUR,verified_manual,0.8
+Korba,CHHATTISGARH,KORBA,exact,1.0
+Janjgir-champa,CHHATTISGARH,JANJGIR - CHAMPA,exact,1.0
+Raigarh,CHHATTISGARH,RAIGARH,exact,1.0
+Jashpur,CHHATTISGARH,JASHPUR,exact,1.0
+Surguja,CHHATTISGARH,SURGUJA,exact,1.0
+Koriya,CHHATTISGARH,KORIYA,exact,1.0
+Hyderabad,TELANGANA,HYDERABAD DISTRICT,exact,1.0
+K.V.Rangareddy,TELANGANA,RANGAREDDY,fuzzy,0.833
+Medak,TELANGANA,MEDAK,exact,1.0
+Nizamabad,TELANGANA,NIZAMABAD,exact,1.0
+Adilabad,TELANGANA,ADILABAD,exact,1.0
+Karim Nagar,TELANGANA,KARIMNAGAR,fuzzy,0.952
+Warangal,TELANGANA,WARANGAL,exact,1.0
+Khammam,TELANGANA,KHAMMAM,exact,1.0
+East Godavari,ANDHRA PRADESH,EAST GODAVARI,exact,1.0
+Nalgonda,TELANGANA,NALGONDA,exact,1.0
+Mahabub Nagar,TELANGANA,MAHABUBNAGAR,fuzzy,0.96
+Ananthapur,ANDHRA PRADESH,ANANTHAPUR,exact,1.0
+Cuddapah,ANDHRA PRADESH,,unmatched,0.0
+Chittoor,ANDHRA PRADESH,CHITTOOR,exact,1.0
+Kurnool,ANDHRA PRADESH,KURNOOL,exact,1.0
+Krishna,ANDHRA PRADESH,KRISHNA,exact,1.0
+Guntur,ANDHRA PRADESH,GUNTUR,exact,1.0
+Prakasam,ANDHRA PRADESH,PRAKASAM,exact,1.0
+Nellore,ANDHRA PRADESH,NELLORE,exact,1.0
+Visakhapatnam,ANDHRA PRADESH,VISAKHAPATNAM,exact,1.0
+Srikakulam,ANDHRA PRADESH,SRIKAKULAM,exact,1.0
+West Godavari,ANDHRA PRADESH,WEST GODAVARI,exact,1.0
+Vizianagaram,ANDHRA PRADESH,VIZIANAGARAM,exact,1.0
+Bangalore,KARNATAKA,BANGALORE,exact,1.0
+Bangalore Rural,KARNATAKA,BANGALORE RURAL,exact,1.0
+Ramanagar,KARNATAKA,RAMANAGARA,fuzzy,0.947
+Tumkur,KARNATAKA,TUMKUR,exact,1.0
+Chikkaballapur,KARNATAKA,CHIKKABALLAPURA,fuzzy,0.966
+Kolar,KARNATAKA,KOLAR,exact,1.0
+Mysore,KARNATAKA,MYSORE,exact,1.0
+Chamrajnagar,KARNATAKA,CHAMARAJANAGAR,fuzzy,0.923
+Kodagu,KARNATAKA,KODAGU,exact,1.0
+Mandya,KARNATAKA,MANDYA,exact,1.0
+Hassan,KARNATAKA,HASSAN,exact,1.0
+Udupi,KARNATAKA,UDUPI,exact,1.0
+Dakshina Kannada,KARNATAKA,DAKSHINA KANNADA,exact,1.0
+Davangere,KARNATAKA,DAVANAGERE,fuzzy,0.947
+Chickmagalur,KARNATAKA,CHIKMAGALUR,fuzzy,0.957
+Shimoga,KARNATAKA,SHIMOGA,exact,1.0
+Chitradurga,KARNATAKA,CHITRADURGA,exact,1.0
+Dharwad,KARNATAKA,DHARWAD,exact,1.0
+Haveri,KARNATAKA,HAVERI,exact,1.0
+Uttara Kannada,KARNATAKA,UTTARA KANNADA,exact,1.0
+Gadag,KARNATAKA,GADAG,exact,1.0
+Bellary,KARNATAKA,BELLARY,exact,1.0
+Koppal,KARNATAKA,KOPPAL,exact,1.0
+Raichur,KARNATAKA,RAICHUR,exact,1.0
+Gulbarga,KARNATAKA,GULBARGA,exact,1.0
+Yadgir,KARNATAKA,YADGIR,exact,1.0
+Bidar,KARNATAKA,BIDAR,exact,1.0
+Bijapur(KAR),KARNATAKA,BIJAPUR,verified_manual,0.778
+Bagalkot,KARNATAKA,BAGALKOT,exact,1.0
+Belgaum,KARNATAKA,BELGAUM,exact,1.0
+Chennai,TAMIL NADU,CHENNAI,exact,1.0
+Kanchipuram,TAMIL NADU,KANCHEEPURAM,fuzzy,0.87
+Tiruvallur,TAMIL NADU,THIRUVALLUR,fuzzy,0.952
+Villupuram,TAMIL NADU,VILUPPURAM,fuzzy,0.9
+Tiruvannamalai,TAMIL NADU,TIRUVANNAMALAI,exact,1.0
+Pondicherry,PUDUCHERRY,,unmatched,0.0
+Cuddalore,TAMIL NADU,CUDDALORE,exact,1.0
+Cuddalore,PUDUCHERRY,,unmatched,0.0
+Ariyalur,TAMIL NADU,ARIYALUR,exact,1.0
+Nagapattinam,TAMIL NADU,NAGAPATTINAM,exact,1.0
+Tiruvarur,TAMIL NADU,THIRUVARUR,fuzzy,0.947
+Karaikal,PUDUCHERRY,KARAIKAL,exact,1.0
+Thanjavur,TAMIL NADU,THANJAVUR,exact,1.0
+Pudukkottai,TAMIL NADU,PUDUKKOTTAI,exact,1.0
+Tiruchirappalli,TAMIL NADU,TIRUCHIRAPPALLI,exact,1.0
+Perambalur,TAMIL NADU,PERAMBALUR,exact,1.0
+Karur,TAMIL NADU,KARUR,exact,1.0
+Ramanathapuram,TAMIL NADU,RAMANATHAPURAM,exact,1.0
+Dindigul,TAMIL NADU,DINDIGUL,exact,1.0
+Madurai,TAMIL NADU,MADURAI,exact,1.0
+Theni,TAMIL NADU,THENI,exact,1.0
+Virudhunagar,TAMIL NADU,VIRUDHUNAGAR,exact,1.0
+Tirunelveli,TAMIL NADU,TIRUNELVELI,exact,1.0
+Tuticorin,TAMIL NADU,,unmatched,0.0
+Kanyakumari,TAMIL NADU,KANNIYAKUMARI,fuzzy,0.917
+Sivaganga,TAMIL NADU,SIVAGANGA,exact,1.0
+Vellore,TAMIL NADU,VELLORE,exact,1.0
+Krishnagiri,TAMIL NADU,KRISHNAGIRI,exact,1.0
+Dharmapuri,TAMIL NADU,DHARMAPURI,exact,1.0
+Salem,TAMIL NADU,SALEM,exact,1.0
+Namakkal,TAMIL NADU,NAMAKKAL,exact,1.0
+Erode,TAMIL NADU,ERODE,exact,1.0
+Coimbatore,TAMIL NADU,COIMBATORE,exact,1.0
+Nilgiris,TAMIL NADU,THE NILGIRIS,verified_manual,0.8
+Kannur,KERALA,KANNUR,exact,1.0
+Wayanad,KERALA,WAYANAD,exact,1.0
+Kasargod,KERALA,KASARAGOD,fuzzy,0.941
+Kozhikode,KERALA,KOZHIKODE,exact,1.0
+Mahe,PUDUCHERRY,,unmatched,0.0
+Malappuram,KERALA,MALAPPURAM,exact,1.0
+Palakkad,KERALA,PALAKKAD,exact,1.0
+Thrissur,KERALA,THRISSUR,exact,1.0
+Ernakulam,KERALA,ERNAKULAM,exact,1.0
+Lakshadweep,LAKSHADWEEP,LAKSHADWEEP,exact,1.0
+Idukki,KERALA,IDUKKI,exact,1.0
+Kottayam,KERALA,KOTTAYAM,exact,1.0
+Pathanamthitta,KERALA,PATHANAMTHITTA,exact,1.0
+Alappuzha,KERALA,ALAPPUZHA,exact,1.0
+Kollam,KERALA,KOLLAM,exact,1.0
+Thiruvananthapuram,KERALA,THIRUVANANTHAPURAM,exact,1.0
+Kolkata,WEST BENGAL,KOLKATA,exact,1.0
+South 24 Parganas,WEST BENGAL,,unmatched,0.0
+North 24 Parganas,WEST BENGAL,,unmatched,0.0
+Howrah,WEST BENGAL,HAORA,verified_manual,0.727
+Hooghly,WEST BENGAL,,unmatched,0.0
+Bardhaman,WEST BENGAL,BARDDHAMAN,fuzzy,0.947
+Bankura,WEST BENGAL,BANKURA,exact,1.0
+West Midnapore,WEST BENGAL,,unmatched,0.0
+East Midnapore,WEST BENGAL,,unmatched,0.0
+Puruliya,WEST BENGAL,PURULIYA,exact,1.0
+Birbhum,WEST BENGAL,BIRBHUM,exact,1.0
+Malda,WEST BENGAL,MALDAH,fuzzy,0.909
+South Dinajpur,WEST BENGAL,DAKSHIN DINAJPUR,verified_manual,1.0
+North Dinajpur,WEST BENGAL,,unmatched,0.0
+Darjiling,WEST BENGAL,DARJILING,exact,1.0
+Jalpaiguri,WEST BENGAL,JALPAIGURI,exact,1.0
+Cooch Behar,WEST BENGAL,,unmatched,0.0
+East Sikkim,SIKKIM,EAST DISTRICT,exact,1.0
+West Sikkim,SIKKIM,WEST DISTRICT,exact,1.0
+North Sikkim,SIKKIM,NORTH DISTRICT,exact,1.0
+South Sikkim,SIKKIM,SOUTH DISTRICT,exact,1.0
+Nadia,WEST BENGAL,NADIA,exact,1.0
+Murshidabad,WEST BENGAL,MURSHIDABAD,exact,1.0
+South Andaman,ANDAMAN & NICOBAR ISLANDS,,no_hces_state,0.0
+North And Middle Andaman,ANDAMAN & NICOBAR ISLANDS,,no_hces_state,0.0
+Nicobar,ANDAMAN & NICOBAR ISLANDS,,no_hces_state,0.0
+Khorda,ODISHA,KHORDHA,fuzzy,0.923
+Puri,ODISHA,PURI,exact,1.0
+Nayagarh,ODISHA,NAYAGARH,exact,1.0
+Cuttack,ODISHA,CUTTACK,exact,1.0
+Jajapur,ODISHA,JAJAPUR,exact,1.0
+Jagatsinghapur,ODISHA,JAGATSINGHAPUR,exact,1.0
+Kendrapara,ODISHA,KENDRAPARA,exact,1.0
+Baleswar,ODISHA,BALESHWAR,fuzzy,0.941
+Bhadrak,ODISHA,BHADRAK,exact,1.0
+Mayurbhanj,ODISHA,MAYURBHANJ,exact,1.0
+Kendujhar,ODISHA,KENDUJHAR,exact,1.0
+Dhenkanal,ODISHA,DHENKANAL,exact,1.0
+Angul,ODISHA,ANUGUL,fuzzy,0.909
+Ganjam,ODISHA,GANJAM,exact,1.0
+Gajapati,ODISHA,GAJAPATI,exact,1.0
+Kandhamal,ODISHA,KANDHAMAL,exact,1.0
+Boudh,ODISHA,BAUDH,verified_manual,0.8
+Koraput,ODISHA,KORAPUT,exact,1.0
+Malkangiri,ODISHA,MALKANGIRI,exact,1.0
+Nabarangapur,ODISHA,NABARANGAPUR,exact,1.0
+Rayagada,ODISHA,RAYAGADA,exact,1.0
+Kalahandi,ODISHA,KALAHANDI,exact,1.0
+Nuapada,ODISHA,NUAPADA,exact,1.0
+Balangir,ODISHA,BALANGIR,exact,1.0
+Sonapur,ODISHA,,unmatched,0.0
+Sambalpur,ODISHA,SAMBALPUR,exact,1.0
+Bargarh,ODISHA,BARGARH,exact,1.0
+Debagarh,ODISHA,DEBAGARH,exact,1.0
+Jharsuguda,ODISHA,JHARSUGUDA,exact,1.0
+Sundergarh,ODISHA,SUNDARGARH,fuzzy,0.9
+Kamrup,ASSAM,KAMRUP,exact,1.0
+Nalbari,ASSAM,NALBARI,exact,1.0
+Barpeta,ASSAM,BARPETA,exact,1.0
+Nagaon,ASSAM,NAGAON,exact,1.0
+Marigaon,ASSAM,MORIGAON,fuzzy,0.875
+Karbi Anglong,ASSAM,KARBI ANGLONG,exact,1.0
+Goalpara,ASSAM,GOALPARA,exact,1.0
+Dhubri,ASSAM,DHUBRI,exact,1.0
+Kokrajhar,ASSAM,KOKRAJHAR,exact,1.0
+Bongaigaon,ASSAM,BONGAIGAON,exact,1.0
+Sonitpur,ASSAM,SONITPUR,exact,1.0
+Darrang,ASSAM,DARRANG,exact,1.0
+Lakhimpur,ASSAM,LAKHIMPUR,exact,1.0
+Jorhat,ASSAM,JORHAT,exact,1.0
+Golaghat,ASSAM,GOLAGHAT,exact,1.0
+Sibsagar,ASSAM,SIVASAGAR,fuzzy,0.824
+Dibrugarh,ASSAM,DIBRUGARH,exact,1.0
+Tinsukia,ASSAM,TINSUKIA,exact,1.0
+Dhemaji,ASSAM,DHEMAJI,exact,1.0
+Cachar,ASSAM,CACHAR,exact,1.0
+Hailakandi,ASSAM,HAILAKANDI,exact,1.0
+Karimganj,ASSAM,KARIMGANJ,exact,1.0
+North Cachar Hills,ASSAM,,unmatched,0.0
+West Kameng,ARUNACHAL PRADESH,WEST KAMENG,exact,1.0
+East Kameng,ARUNACHAL PRADESH,EAST KAMENG,exact,1.0
+Tawang,ARUNACHAL PRADESH,TAWANG,exact,1.0
+West Siang,ARUNACHAL PRADESH,WEST SIANG,exact,1.0
+Upper Siang,ARUNACHAL PRADESH,UPPER SIANG,exact,1.0
+East Siang,ARUNACHAL PRADESH,EAST SIANG,exact,1.0
+Papum Pare,ARUNACHAL PRADESH,PAPUM PARE,exact,1.0
+Kurung Kumey,ARUNACHAL PRADESH,KURUNG KUMEY,exact,1.0
+Lower Subansiri,ARUNACHAL PRADESH,LOWER SUBANSIRI,exact,1.0
+Upper Subansiri,ARUNACHAL PRADESH,UPPER SUBANSIRI,exact,1.0
+Lohit,ARUNACHAL PRADESH,LOHIT,exact,1.0
+Changlang,ARUNACHAL PRADESH,CHANGLANG,exact,1.0
+Dibang Valley,ARUNACHAL PRADESH,,unmatched,0.0
+Lower Dibang Valley,ARUNACHAL PRADESH,LOWER DIBANG VALLEY,exact,1.0
+Tirap,ARUNACHAL PRADESH,TIRAP,exact,1.0
+East Khasi Hills,MEGHALAYA,EAST KHASI HILLS,exact,1.0
+Ri Bhoi,MEGHALAYA,RIBHOI,fuzzy,0.923
+Jaintia Hills,MEGHALAYA,JAINTIA HILLS,exact,1.0
+West Khasi Hills,MEGHALAYA,WEST KHASI HILLS,exact,1.0
+West Garo Hills,MEGHALAYA,WEST GARO HILLS,exact,1.0
+South Garo Hills,MEGHALAYA,SOUTH GARO HILLS,exact,1.0
+East Garo Hills,MEGHALAYA,EAST GARO HILLS,exact,1.0
+Imphal West,MANIPUR,IMPHAL WEST,exact,1.0
+Imphal East,MANIPUR,IMPHAL EAST,exact,1.0
+Churachandpur,MANIPUR,CHURACHANDPUR,exact,1.0
+Senapati,MANIPUR,SENAPATI,exact,1.0
+Thoubal,MANIPUR,THOUBAL,exact,1.0
+Chandel,MANIPUR,CHANDEL,exact,1.0
+Bishnupur,MANIPUR,BISHNUPUR,exact,1.0
+Tamenglong,MANIPUR,,unmatched,0.0
+Ukhrul,MANIPUR,UKHRUL,exact,1.0
+Aizawl,MIZORAM,AIZAWL,exact,1.0
+Kolasib,MIZORAM,KOLASIB,exact,1.0
+Serchhip,MIZORAM,SERCHHIP,exact,1.0
+Champhai,MIZORAM,CHAMPHAI,exact,1.0
+Mammit,MIZORAM,MAMIT,fuzzy,0.909
+Lunglei,MIZORAM,LUNGLEI,exact,1.0
+Lawngtlai,MIZORAM,LAWNGTLAI,exact,1.0
+Saiha,MIZORAM,SAIHA,exact,1.0
+Kohima,NAGALAND,KOHIMA,exact,1.0
+Wokha,NAGALAND,WOKHA,exact,1.0
+Peren,NAGALAND,PEREN,exact,1.0
+Phek,NAGALAND,PHEK,exact,1.0
+Dimapur,NAGALAND,DIMAPUR,exact,1.0
+Mokokchung,NAGALAND,MOKOKCHUNG,exact,1.0
+Mon,NAGALAND,MON,exact,1.0
+Kiphire,NAGALAND,KIPHIRE,exact,1.0
+Tuensang,NAGALAND,TUENSANG,exact,1.0
+Zunhebotto,NAGALAND,ZUNHEBOTO,fuzzy,0.947
+Longleng,NAGALAND,LONGLENG,exact,1.0
+West Tripura,TRIPURA,WEST TRIPURA,exact,1.0
+South Tripura,TRIPURA,SOUTH TRIPURA,exact,1.0
+Dhalai,TRIPURA,DHALAI,exact,1.0
+North Tripura,TRIPURA,NORTH TRIPURA,exact,1.0
+Patna,BIHAR,PATNA,exact,1.0
+Nalanda,BIHAR,NALANDA,exact,1.0
+Buxar,BIHAR,BUXAR,exact,1.0
+Kaimur (Bhabua),BIHAR,KAIMUR (BHABUA),exact,1.0
+Bhojpur,BIHAR,BHOJPUR,exact,1.0
+Rohtas,BIHAR,ROHTAS,exact,1.0
+Nawada,BIHAR,NAWADA,exact,1.0
+Arwal,BIHAR,ARWAL,exact,1.0
+Gaya,BIHAR,GAYA,exact,1.0
+Jehanabad,BIHAR,JEHANABAD,exact,1.0
+Sheikhpura,BIHAR,SHEIKHPURA,exact,1.0
+Lakhisarai,BIHAR,LAKHISARAI,exact,1.0
+Munger,BIHAR,MUNGER,exact,1.0
+Jamui,BIHAR,JAMUI,exact,1.0
+Bhagalpur,BIHAR,BHAGALPUR,exact,1.0
+Banka,BIHAR,BANKA,exact,1.0
+Godda,JHARKHAND,GODDA,exact,1.0
+Dumka,JHARKHAND,DUMKA,exact,1.0
+Pakur,JHARKHAND,PAKUR,exact,1.0
+Deoghar,JHARKHAND,DEOGHAR,exact,1.0
+Jamtara,JHARKHAND,JAMTARA,exact,1.0
+Giridh,JHARKHAND,GIRIDIH,fuzzy,0.923
+Sahibganj,JHARKHAND,SAHIBGANJ,exact,1.0
+Palamau,JHARKHAND,PALAMU,fuzzy,0.923
+Latehar,JHARKHAND,LATEHAR,exact,1.0
+Garhwa,JHARKHAND,GARHWA,exact,1.0
+Aurangabad(BH),BIHAR,AURANGABAD,fuzzy,0.87
+Ramgarh,JHARKHAND,RAMGARH,exact,1.0
+Bokaro,JHARKHAND,BOKARO,exact,1.0
+Chatra,JHARKHAND,CHATRA,exact,1.0
+Koderma,JHARKHAND,KODARMA,fuzzy,0.857
+Hazaribag,JHARKHAND,HAZARIBAGH,fuzzy,0.947
+Dhanbad,JHARKHAND,DHANBAD,exact,1.0
+Ranchi,JHARKHAND,RANCHI,exact,1.0
+East Singhbhum,JHARKHAND,PURBI SINGHBHUM,verified_manual,1.0
+West Singhbhum,JHARKHAND,,unmatched,0.0
+Seraikela-kharsawan,JHARKHAND,SARAIKELA-KHARSAWAN,fuzzy,0.947
+Simdega,JHARKHAND,SIMDEGA,exact,1.0
+Gumla,JHARKHAND,GUMLA,exact,1.0
+Lohardaga,JHARKHAND,LOHARDAGA,exact,1.0
+Saran,BIHAR,SARAN,exact,1.0
+Siwan,BIHAR,SIWAN,exact,1.0
+Gopalganj,BIHAR,GOPALGANJ,exact,1.0
+Muzaffarpur,BIHAR,MUZAFFARPUR,exact,1.0
+Vaishali,BIHAR,VAISHALI,exact,1.0
+Sitamarhi,BIHAR,SITAMARHI,exact,1.0
+Sheohar,BIHAR,SHEOHAR,exact,1.0
+West Champaran,BIHAR,,unmatched,0.0
+East Champaran,BIHAR,PURBA CHAMPARAN,verified_manual,0.759
+Darbhanga,BIHAR,DARBHANGA,exact,1.0
+Madhubani,BIHAR,MADHUBANI,exact,1.0
+Supaul,BIHAR,SUPAUL,exact,1.0
+Samastipur,BIHAR,SAMASTIPUR,exact,1.0
+Begusarai,BIHAR,BEGUSARAI,exact,1.0
+Khagaria,BIHAR,KHAGARIA,exact,1.0
+Madhepura,BIHAR,MADHEPURA,exact,1.0
+Saharsa,BIHAR,SAHARSA,exact,1.0
+Katihar,BIHAR,KATIHAR,exact,1.0
+Purnia,BIHAR,PURNIA,exact,1.0
+Araria,BIHAR,ARARIA,exact,1.0
+Kishanganj,BIHAR,KISHANGANJ,exact,1.0

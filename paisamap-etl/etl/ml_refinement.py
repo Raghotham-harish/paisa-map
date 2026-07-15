@@ -53,24 +53,6 @@ ROOT = Path(__file__).resolve().parents[1]
 RAW  = ROOT / "data" / "raw"
 OUT  = ROOT / "data" / "output"
 
-# ── All proxy files and their signal columns ─────────────────────────────────
-# Include both the original 6 proxies + the 4 new RTO-enhanced signals.
-# financial_inclusion is loaded if present (added later).
-PROXY_COLS = {
-    "property_rates.csv":   "rate_per_sqft",
-    "bank_deposits.csv":    "deposits_per_capita",
-    "vehicle_density.csv":  "cars_per_1000",
-    "nightlights.csv":      "radiance_mean",
-    "itr_filers.csv":       "filers_per_capita",
-    "poi_density.csv":      "premium_poi_per_km2",
-    # enhanced RTO signals
-    "rto_enhanced.csv_car_2w_ratio":  None,   # handled below
-    "rto_enhanced.csv_luxury_share":  None,
-    "rto_enhanced.csv_ev_share":      None,
-    # financial inclusion (optional)
-    "financial_inclusion.csv": "fin_density_per_km2",
-}
-
 # ── City-level HCES 2023-24 anchors (urban MPCE ₹/person/month) ─────────────
 # Source: HCES 2023-24 Urban Fact Sheet (NSO, 2024)
 HCES_MPCE_CITY = {
@@ -237,27 +219,60 @@ def _state(pc: str) -> str:
     return PINCODE_STATE.get(pc, _PREFIX_STATE.get(str(pc)[:2], "XX"))
 
 
-def within_city_normalize(df: pd.DataFrame, cols: set) -> pd.DataFrame:
+def load_district_groups() -> dict[str, str]:
+    """
+    pincode -> 'STATE|DISTRICT' from the real HCES join in mpce_district.csv
+    (built by build_mpce_pincode.py, pan-India since 2026-07-15). This is a
+    much finer grouping than _state()'s 2-digit-prefix fallback, which lumps
+    e.g. all of Maharashtra into one "city" group for pincodes outside the
+    ~72-pincode PINCODE_STATE table. Falls back to _state() per-pincode
+    wherever no real district match exists (see _group()).
+    """
+    p = RAW / "mpce_district.csv"
+    if not p.exists():
+        return {}
+    df = pd.read_csv(p, dtype={"pincode": str})
+    if "hces_district" not in df.columns or "hces_state" not in df.columns:
+        return {}
+    df = df.dropna(subset=["hces_district", "hces_state"])
+    return {row.pincode: f"{row.hces_state}|{row.hces_district}" for row in df.itertuples()}
+
+
+def load_district_mpce() -> dict[str, float]:
+    """pincode -> real HCES mpce_combined, for direct per-pincode income anchoring
+    (replaces the 4-state HCES_MPCE_CITY hardcode wherever a real match exists)."""
+    p = RAW / "mpce_district.csv"
+    if not p.exists():
+        return {}
+    df = pd.read_csv(p, dtype={"pincode": str}).dropna(subset=["mpce_combined"])
+    return dict(zip(df["pincode"], df["mpce_combined"]))
+
+
+def _group(pc: str, group_key: dict) -> str:
+    """Real district-level group if we have one, else the coarser state fallback."""
+    return group_key.get(pc) or _state(pc)
+
+
+def within_city_normalize(df: pd.DataFrame, cols: set, group_key: dict | None = None) -> pd.DataFrame:
     """
     For each column in `cols`, subtract the city-group mean and divide by std.
     This removes inter-city policy / denominator effects (e.g. Karnataka EV incentives,
     large-district car/2W denominator) so the feature captures only within-city variation.
-    City groups are determined by PINCODE_STATE (explicit table) for known pincodes;
-    unknown pincodes (dynamically added) fall back to _PREFIX_STATE grouping.
+    Groups come from `group_key` (real HCES district, see load_district_groups())
+    where available, falling back to _state() (explicit table → prefix) otherwise.
     Columns not in `cols` are returned unchanged.
     """
     result = df.copy()
-    # Build per-pincode state using explicit table first, prefix fallback for unknowns
-    pc_state = {pc: PINCODE_STATE.get(pc, _PREFIX_STATE.get(str(pc)[:2], "XX"))
-                for pc in df.index}
+    group_key = group_key or {}
+    pc_group = {pc: _group(pc, group_key) for pc in df.index}
     for col in cols:
         if col not in df.columns:
             continue
-        for state in set(pc_state.values()):
-            mask = [pc_state[pc] == state for pc in df.index]
+        for grp in set(pc_group.values()):
+            mask = [pc_group[pc] == grp for pc in df.index]
             vals = df.loc[mask, col]
             if len(vals) < 2:
-                # Single-pincode city group: set to 0 (no within-city variation to learn)
+                # Single-pincode group: set to 0 (no within-group variation to learn)
                 result.loc[mask, col] = 0.0
                 continue
             std = vals.std()
@@ -359,11 +374,12 @@ def model_c_spatial(z_base: np.ndarray, lats: list, lngs: list,
 
 # ── Isolation Forest anomaly detection ───────────────────────────────────────
 def detect_anomalies(X_scaled: np.ndarray, pincodes: list, feature_names: list,
-                     contamination: float = 0.1):
+                     contamination: float = 0.1, group_key: dict | None = None):
     """
     Flag pincodes where proxies conflict significantly.
     Returns dict: pincode → {score, is_anomaly, top_deviant_proxy}
     """
+    group_key = group_key or {}
     iso = IsolationForest(contamination=contamination, random_state=42)
     iso.fit(X_scaled)
     scores = iso.score_samples(X_scaled)   # more negative = more anomalous
@@ -372,8 +388,8 @@ def detect_anomalies(X_scaled: np.ndarray, pincodes: list, feature_names: list,
     flags = {}
     for i, pc in enumerate(pincodes):
         # Find the proxy furthest from city-group median
-        city = _state(pc)
-        city_mask = np.array([_state(p) == city for p in pincodes])
+        city = _group(pc, group_key)
+        city_mask = np.array([_group(p, group_key) == city for p in pincodes])
         city_mean = X_scaled[city_mask].mean(axis=0)
         deviations = np.abs(X_scaled[i] - city_mean)
         top_feat = feature_names[int(np.argmax(deviations))]
@@ -407,32 +423,47 @@ def morans_i(values: np.ndarray, lats: list, lngs: list,
 
 
 # ── Income / spend estimation ─────────────────────────────────────────────────
-def estimate_income(z_ensemble: np.ndarray, pincodes: list) -> pd.DataFrame:
+def estimate_income(z_ensemble: np.ndarray, pincodes: list,
+                     group_key: dict | None = None,
+                     pincode_mpce: dict | None = None) -> pd.DataFrame:
     """
-    Anchor ₹ estimates to HCES city-level MPCE.
-    Each city's pincode distribution is re-centred on HCES MPCE × HH size.
+    Anchor ₹ estimates to HCES MPCE.
+    Each group's pincode distribution is re-centred on HCES MPCE × HH size.
+    `group_key` gives real HCES-district groups where available (falls back
+    to _state()'s coarser state grouping); `pincode_mpce` gives the real
+    per-pincode HCES MPCE anchor where available (falls back to the 4-state
+    HCES_MPCE_CITY hardcode, then a flat ₹7,000 default).
     """
+    group_key = group_key or {}
+    pincode_mpce = pincode_mpce or {}
     rows = []
     city_groups = {}
     for i, pc in enumerate(pincodes):
-        state = _state(pc)
-        city_groups.setdefault(state, []).append(i)
+        grp = _group(pc, group_key)
+        city_groups.setdefault(grp, []).append(i)
 
-    # Normalise z_ensemble per city so city mean → HCES anchor
+    # Normalise z_ensemble per group so group mean → HCES anchor.
+    # A group with a single pincode has no within-group variation to
+    # standardise against -- re-centring a lone point on itself would
+    # zero it out (PPI forced to exactly 100), discarding its real
+    # signal. Leave those at their already-globally-standardised
+    # z_ensemble value instead.
     z_adj = z_ensemble.copy()
-    for state, idxs in city_groups.items():
+    for grp, idxs in city_groups.items():
+        if len(idxs) < 2:
+            continue
         city_z = z_ensemble[idxs]
-        # Map city mean z → ln(anchor_spend)
+        # Map group mean z → ln(anchor_spend)
         z_mean = city_z.mean()
         z_std  = city_z.std() or 1.0
         for i in idxs:
-            z_adj[i] = (z_ensemble[i] - z_mean) / z_std   # re-standardise within city
+            z_adj[i] = (z_ensemble[i] - z_mean) / z_std   # re-standardise within group
 
     ppi_arr = np.clip(100 + 30 * z_adj, 40, 200).round().astype(int)
 
     for i, pc in enumerate(pincodes):
         state = _state(pc)
-        mpce  = HCES_MPCE_CITY.get(state, 7000)
+        mpce  = pincode_mpce.get(pc) or HCES_MPCE_CITY.get(state, 7000)
         base_spend = mpce * AVG_HH
         lift  = math.exp(0.55 * float(z_adj[i]))
         spend = base_spend * lift
@@ -480,6 +511,18 @@ def main():
 
     print(f"Working with {len(pincodes)} pincodes\n")
 
+    # Real HCES-district groups + per-pincode MPCE (pan-India since 2026-07-15,
+    # see build_mpce_pincode.py) -- finer than _state()'s prefix fallback and
+    # more accurate than the 4-state HCES_MPCE_CITY hardcode.
+    group_key = load_district_groups()
+    pincode_mpce = load_district_mpce()
+    n_grouped = sum(1 for pc in pincodes if pc in group_key)
+    n_mpce    = sum(1 for pc in pincodes if pc in pincode_mpce)
+    print(f"  Real HCES district group: {n_grouped}/{len(pincodes)} pincodes "
+          f"(rest fall back to state-level grouping)")
+    print(f"  Real HCES MPCE anchor:    {n_mpce}/{len(pincodes)} pincodes "
+          f"(rest fall back to HCES_MPCE_CITY / ₹7,000 default)\n")
+
     # ── Feature matrix ────────────────────────────────────────────────────────
     # Step 1: winsorize
     X_df = raw.apply(winsorize)
@@ -487,7 +530,7 @@ def main():
 
     # Step 2: within-city normalize RTO signals so inter-city policy /
     # district-denominator effects don't dominate the ML models.
-    X_df = within_city_normalize(X_df, RTO_FEATURES_WITHIN_CITY)
+    X_df = within_city_normalize(X_df, RTO_FEATURES_WITHIN_CITY, group_key)
 
     feature_names = list(X_df.columns)
     scaler = StandardScaler()
@@ -501,7 +544,7 @@ def main():
     if prop_col_idx is not None:
         prop_raw = within_city_normalize(
             pd.DataFrame({"rate_per_sqft": raw["rate_per_sqft"]}, index=raw.index),
-            {"rate_per_sqft"}
+            {"rate_per_sqft"}, group_key
         )["rate_per_sqft"].reindex(pincodes).values
         y_anchor = (prop_raw - prop_raw.mean()) / (prop_raw.std() or 1.0)
     else:
@@ -539,7 +582,7 @@ def main():
 
     # ── Anomaly detection ─────────────────────────────────────────────────────
     print("\nAnomaly detection (IsolationForest)…")
-    anomaly_flags = detect_anomalies(X_scaled, pincodes, feature_names)
+    anomaly_flags = detect_anomalies(X_scaled, pincodes, feature_names, group_key=group_key)
     n_flagged = sum(1 for v in anomaly_flags.values() if v["is_anomaly"])
     print(f"  {n_flagged}/{len(pincodes)} pincodes flagged as anomalous")
 
@@ -549,7 +592,7 @@ def main():
           f"  ({'positive — expected ✓' if mi > 0 else 'negative — WARN'})")
 
     # ── Income estimation ─────────────────────────────────────────────────────
-    income_df = estimate_income(z_ens, pincodes)
+    income_df = estimate_income(z_ens, pincodes, group_key, pincode_mpce)
 
     # ── Compare with original fixed-weight PPI ───────────────────────────────
     orig_path = OUT / "ppi_pincode.csv"
