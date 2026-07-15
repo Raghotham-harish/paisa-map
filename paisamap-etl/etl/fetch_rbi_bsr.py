@@ -281,6 +281,23 @@ def _norm_district(s: str) -> str:
     return re.sub(r"[^A-Z0-9]+", " ", s).strip()
 
 
+# Census merged Dadra & Nagar Haveli with Daman & Diu into one UT in 2020;
+# Census 2011 (and RBI's tables, which predate the merger) still list them
+# separately — map both pre-merger names to the merged Wikipedia entry.
+STATE_NAME_ALIASES = {
+    "DADRA AND NAGAR HAVELI": "DADRA AND NAGAR HAVELI AND DAMAN AND DIU",
+    "DAMAN AND DIU": "DADRA AND NAGAR HAVELI AND DAMAN AND DIU",
+    "ANDAMAN AND NICOBAR ISLANDS": "ANDAMAN AND NICOBAR",
+}
+
+
+def _norm_state(s: str) -> str:
+    s = str(s).upper().strip().rstrip("*")
+    s = re.sub(r"\s*&\s*", " AND ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return STATE_NAME_ALIASES.get(s, s)
+
+
 def backfill_branches_pan_india(already_covered: set) -> pd.DataFrame:
     """
     Real bank_branches_per_lakh for any currently-known pincode (i.e. already
@@ -349,11 +366,14 @@ def backfill_branches_pan_india(already_covered: set) -> pd.DataFrame:
 # column-median ml_refinement.py falls back to today.
 
 def _find_header_row(df: pd.DataFrame, keyword: str = "state") -> "int | None":
-    # A short label cell like "State" / "State/UT", not a full title sentence
-    # such as "Table 155: State-wise Deposits..." (which also contains the
-    # keyword) — cap length so the title row doesn't match first.
+    # A column-label cell like "Region/State/Union Territory", not a full
+    # title sentence like "TABLE 155: STATE-WISE DEPOSITS BY SCHEDULED
+    # COMMERCIAL BANKS IN INDIA" (which also contains the keyword) — cap
+    # length so the title row doesn't match first. 40 fits the former
+    # (29 chars) but not the latter (71 chars) — verified against real
+    # RBI Handbook of Statistics downloads (Tables 153/155), 2026-07-15.
     for i, row in df.iterrows():
-        if any(keyword in str(v).lower() and len(str(v)) <= 20 for v in row.values):
+        if any(keyword in str(v).lower() and len(str(v)) <= 40 for v in row.values):
             return i
     return None
 
@@ -361,46 +381,63 @@ def _find_header_row(df: pd.DataFrame, keyword: str = "state") -> "int | None":
 def load_handbook_state_table(xlsx_path: Path) -> pd.Series:
     """
     Parse an RBI "Handbook of Statistics on Indian States" table (deposits,
-    or credit-deposit ratio) into a state-name(upper) -> value Series, using
-    whichever column looks like the most recent year found by name (e.g.
-    "2023-24"). NOT yet validated against a real download — RBI's exact
-    column layout/labels for these tables aren't confirmed; inspect the
-    printed match info the first time this runs for real.
+    or credit-deposit ratio) into a state-name(upper) -> value Series.
+
+    Verified against real downloads of Tables 153 and 155 (2026-07-15).
+    RBI splits multi-decade series across two sheets with identical layout
+    (e.g. "T_155(i)" covering 2004-2014, "T_155(ii)" covering 2015-2025) —
+    this scans every sheet and keeps whichever single year column is most
+    recent overall. Year columns are plain 4-digit integers, not "YYYY-YY"
+    fiscal-year strings. The state-name column is literally labelled
+    "Region/State/Union Territory", and region subtotal rows (e.g.
+    "NORTHERN REGION") are interleaved with real state rows — excluded
+    alongside the "ALL INDIA" total and the trailing "Source: ..." row.
+    Missing values are the literal string "-", which pd.to_numeric coerces
+    to NaN and drops.
     """
     import openpyxl  # noqa: F401
     xl = pd.ExcelFile(xlsx_path, engine="openpyxl")
-    sheet = xl.sheet_names[0]
-    raw = xl.parse(sheet, header=None)
 
-    hdr_row = _find_header_row(raw, "state")
-    if hdr_row is None:
-        raise ValueError(f"Could not find a 'State' header row in {xlsx_path.name} "
-                          f"— RBI may have changed the table layout")
+    best_year = None
+    best_series = None
+    for sheet in xl.sheet_names:
+        raw = xl.parse(sheet, header=None)
+        hdr_row = _find_header_row(raw, "state")
+        if hdr_row is None:
+            continue
 
-    raw.columns = raw.iloc[hdr_row]
-    df = raw.iloc[hdr_row + 1:].reset_index(drop=True)
-    df.columns = [str(c).strip() for c in df.columns]
+        raw.columns = raw.iloc[hdr_row]
+        df = raw.iloc[hdr_row + 1:].reset_index(drop=True)
+        df.columns = [str(c).strip() for c in df.columns]
 
-    state_col = next((c for c in df.columns if "state" in c.lower()), None)
-    year_cols = [c for c in df.columns if re.match(r"^\d{4}-\d{2}", str(c))]
-    if not state_col or not year_cols:
+        state_col = next((c for c in df.columns if "state" in c.lower()), None)
+        year_cols = [c for c in df.columns if re.match(r"^\d{4}(-\d{2})?$", str(c).strip())]
+        if not state_col or not year_cols:
+            continue
+
+        for yc in year_cols:
+            year_num = int(str(yc).strip()[:4])
+            if best_year is not None and year_num <= best_year:
+                continue
+            sub = df[[state_col, yc]].dropna()
+            sub[yc] = pd.to_numeric(sub[yc], errors="coerce")
+            sub = sub.dropna(subset=[yc])
+            sub = sub[~sub[state_col].astype(str).str.contains(
+                r"all.india|region\s*$|^total|^note|^source", case=False, regex=True)]
+            if sub.empty:
+                continue
+            sub["state_norm"] = sub[state_col].apply(_norm_state)
+            sub = sub.drop_duplicates("state_norm")
+            best_year, best_series = year_num, sub.set_index("state_norm")[yc]
+
+    if best_series is None:
         raise ValueError(
-            f"Could not identify state/year columns in {xlsx_path.name} — "
-            f"columns found: {list(df.columns)}"
+            f"Could not identify state/year columns in any sheet of {xlsx_path.name} "
+            f"— sheets found: {xl.sheet_names}"
         )
-    value_col = sorted(year_cols)[-1]
-    log.info("Handbook table %s: using column %r (most recent of %d year columns)",
-             xlsx_path.name, value_col, len(year_cols))
-
-    df = df[[state_col, value_col]].dropna()
-    df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
-    df = df.dropna(subset=[value_col])
-    df = df[~df[state_col].astype(str).str.contains(
-        r"all.india|^total|^note|^source|^p\s*:|^r\s*:", case=False, regex=True)]
-
-    df["state_norm"] = df[state_col].astype(str).str.strip().str.upper()
-    df = df.drop_duplicates("state_norm")
-    return df.set_index("state_norm")[value_col]
+    log.info("Handbook table %s: using year %d (%d states, sheets: %s)",
+              xlsx_path.name, best_year, len(best_series), xl.sheet_names)
+    return best_series
 
 
 def backfill_deposits_state_level(deposits_xlsx: Path, already_covered: set) -> pd.DataFrame:
@@ -417,7 +454,7 @@ def backfill_deposits_state_level(deposits_xlsx: Path, already_covered: set) -> 
     state_deposits_cr = load_handbook_state_table(deposits_xlsx)  # ₹ crore
 
     pop = pd.read_csv(POP_REF)
-    state_pop = pop.groupby(pop["state_name"].str.upper())["population"].sum()
+    state_pop = pop.groupby(pop["state_name"].apply(_norm_state))["population"].sum()
 
     common = state_deposits_cr.index.intersection(state_pop.index)
     log.info("State deposits: %d/%d RBI states matched to Census population "
@@ -434,7 +471,7 @@ def backfill_deposits_state_level(deposits_xlsx: Path, already_covered: set) -> 
     if branch.empty:
         return pd.DataFrame()
     branch = branch[branch["pincode"].isin(set(known["pincode"]) - already_covered)]
-    branch["state_norm"] = branch["state"].astype(str).str.strip().str.upper()
+    branch["state_norm"] = branch["state"].apply(_norm_state)
 
     rows = []
     for _, r in branch.iterrows():
@@ -484,8 +521,18 @@ def main():
                  len(branches_pan_india))
 
     if args.deposits_xlsx:
+        # Exclude pincodes that already have a real deposits_per_capita
+        # value specifically — not every pincode with *any* row in
+        # `deposits`, which after the branches backfill above includes
+        # pincodes that only got bank_branches_per_lakh set (a different
+        # column). Using the full index here would wrongly block those
+        # pincodes from ever getting a real deposits figure.
+        already_have_deposits = (
+            set(deposits.index[deposits["deposits_per_capita"].notna()])
+            if "deposits_per_capita" in deposits.columns else set()
+        )
         deposits_state = backfill_deposits_state_level(
-            args.deposits_xlsx, already_covered=set(deposits.index))
+            args.deposits_xlsx, already_covered=already_have_deposits)
         if not deposits_state.empty:
             deposits = deposits.combine_first(deposits_state)
             log.info("State-level Handbook backfill: deposits_per_capita for %d more pincodes",

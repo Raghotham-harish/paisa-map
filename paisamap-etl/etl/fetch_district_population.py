@@ -103,6 +103,16 @@ def parse_district_population(html: str) -> pd.DataFrame:
         i += 2
 
     out = pd.DataFrame(rows)
+    # Population cells can carry a footnote reference and/or comma
+    # thousands-separators (e.g. "64,473[37]") — pd.to_numeric can't parse
+    # either and silently turns the whole row to NaN, which dropna() then
+    # drops entirely. Caught via Lakshadweep/Puducherry vanishing outright
+    # (single-district UTs, so one bad cell = the whole state gone) — but
+    # this format appears inconsistently across state tables generally, so
+    # strip both before conversion rather than special-casing those two.
+    out["population"] = (out["population"].astype(str)
+                          .str.replace(r"\[\d+\]", "", regex=True)
+                          .str.replace(",", "", regex=False))
     out["population"] = pd.to_numeric(out["population"], errors="coerce")
     out = out.dropna(subset=["population"])
     out["population"] = out["population"].astype(int)

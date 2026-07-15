@@ -737,6 +737,8 @@ Andaman and Nicobar,AN,North and Middle Andaman,105597,2011
 Andaman and Nicobar,AN,South Andaman,238142,2011
 Chandigarh,CH,Chandigarh,1055450,2011
 Dadra and Nagar Haveli and Daman and Diu,DD,Dadra and Nagar Haveli,343709,2011
+Dadra and Nagar Haveli and Daman and Diu,DD,Daman,191173,2011
+Dadra and Nagar Haveli and Daman and Diu,DD,Diu,52074,2011
 Jammu and Kashmir,JK,Anantnag,1070144,2011
 Jammu and Kashmir,JK,Budgam,735753,2011
 Jammu and Kashmir,JK,Bandipore,385099,2011
@@ -764,6 +766,7 @@ Ladakh,LA,Zanskar,20000,2011
 Ladakh,LA,Nubra,35000,2011
 Ladakh,LA,Changthang,25000,2011
 Ladakh,LA,Sham,15000,2011
+Lakshadweep,LD,Lakshadweep,64473,2011
 Delhi,DL,Central Delhi,582320,2011
 Delhi,DL,East Delhi,1709346,2011
 Delhi,DL,New Delhi,142004,2011
@@ -775,3 +778,7 @@ Delhi,DL,South Delhi,2731929,2011
 Delhi,DL,South East Delhi,1500636,2011
 Delhi,DL,South West Delhi,2292958,2011
 Delhi,DL,West Delhi,2543243,2011
+Puducherry,PY,Karaikal,200222,2011
+Puducherry,PY,Mahé,41816,2011
+Puducherry,PY,Puducherry,950289,2011
+Puducherry,PY,Yanam,55626,2011
