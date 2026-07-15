@@ -4,6 +4,14 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>PaisaMap — Purchasing Power Index, Near You</title>
+<meta property="og:title" content="PaisaMap — Purchasing Power Index, Near You" />
+<meta property="og:description" content="A purchasing-power heat map of India, pincode by pincode." />
+<meta property="og:image" content="https://paisamap.cooterlabs.com/assets/logo-box.png" />
+<meta name="twitter:card" content="summary" />
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -51,12 +59,9 @@
     text-transform:uppercase;color:var(--rupee-deep);
     display:flex;justify-content:space-between;
   }
-  .brand h1{
-    font-variation-settings:'wdth' 118;
-    font-weight:760;font-size:24px;letter-spacing:-.01em;
-    margin-top:4px;line-height:1;
+  .brand-logo{
+    display:block;margin-top:6px;height:28px;width:auto;
   }
-  .brand h1 .tick{color:var(--rupee)}
 
   .controls{
     padding:10px 14px;border-bottom:1px solid var(--hairline);
@@ -421,7 +426,7 @@
     body{flex-direction:column}
     aside{width:100%;min-width:0;height:46vh;order:2;border-right:0;border-top:1px solid var(--ink)}
     main{height:54vh;order:1}
-    .brand h1{font-size:20px}
+    .brand-logo{height:22px}
     .headline .big{font-size:34px}
     .denom{width:160px;bottom:14px}
   }
@@ -435,7 +440,7 @@
 <aside>
   <div class="brand">
     <div class="eyebrow"><span>Purchasing-power atlas</span><span>v3.6 · Live</span></div>
-    <h1>Paisa<span class="tick">/</span>Map</h1>
+    <img class="brand-logo" src="assets/logo-horizontal.svg" alt="PaisaMap" height="28">
   </div>
 
   <div class="controls">
