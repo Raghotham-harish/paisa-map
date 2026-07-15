@@ -1,0 +1,777 @@
+state_name,state_code,district,population,pop_year
+Andhra Pradesh,AP,Alluri Sitharama Raju,954000,2021
+Andhra Pradesh,AP,Anakapalli,1727000,2021
+Andhra Pradesh,AP,Ananthapuramu,2241100,2021
+Andhra Pradesh,AP,Annamayya,1697300,2021
+Andhra Pradesh,AP,Bapatla,1587000,2021
+Andhra Pradesh,AP,Chittoor,1873000,2021
+Andhra Pradesh,AP,Dr. B.R. Ambedkar Konaseema,1719100,2021
+Andhra Pradesh,AP,East Godavari,1832300,2021
+Andhra Pradesh,AP,Eluru,2071700,2021
+Andhra Pradesh,AP,Guntur,2091000,2021
+Andhra Pradesh,AP,Kakinada,2092300,2021
+Andhra Pradesh,AP,Krishna,1735000,2021
+Andhra Pradesh,AP,Kurnool,2271700,2021
+Andhra Pradesh,AP,Nandyal,1781800,2021
+Andhra Pradesh,AP,Nellore,2469700,2021
+Andhra Pradesh,AP,NTR,2218000,2021
+Andhra Pradesh,AP,Palnadu,2042000,2021
+Andhra Pradesh,AP,Parvathipuram Manyam,925300,2021
+Andhra Pradesh,AP,Prakasam,2288000,2021
+Andhra Pradesh,AP,Srikakulam,2191471,2021
+Andhra Pradesh,AP,Sri Sathya Sai,1840000,2021
+Andhra Pradesh,AP,Tirupati,2197000,2021
+Andhra Pradesh,AP,Visakhapatnam,1959500,2021
+Andhra Pradesh,AP,Vizianagaram,1930800,2021
+Andhra Pradesh,AP,West Godavari,1780000,2021
+Andhra Pradesh,AP,YSR Kadapa,2060700,2021
+Andhra Pradesh,AP,Polavaram,954000,2021
+Andhra Pradesh,AP,Markapuram,1142313,2021
+Arunachal Pradesh,AR,Anjaw,21089,2011
+Arunachal Pradesh,AR,Changlang,147951,2011
+Arunachal Pradesh,AR,East Kameng,78413,2011
+Arunachal Pradesh,AR,East Siang,99019,2011
+Arunachal Pradesh,AR,Kamle,22256,2011
+Arunachal Pradesh,AR,Kra Daadi,22290,2011
+Arunachal Pradesh,AR,Kurung Kumey,89717,2011
+Arunachal Pradesh,AR,Lohit,145538,2011
+Arunachal Pradesh,AR,Longding,60000,2011
+Arunachal Pradesh,AR,Lower Dibang Valley,53986,2011
+Arunachal Pradesh,AR,Lower Siang,22630,2011
+Arunachal Pradesh,AR,Lower Subansiri,82839,2011
+Arunachal Pradesh,AR,Namsai,95950,2011
+Arunachal Pradesh,AR,Pakke-Kessang,15358,2011
+Arunachal Pradesh,AR,Papum Pare,176385,2011
+Arunachal Pradesh,AR,Shi Yomi,13310,2011
+Arunachal Pradesh,AR,Siang,31920,2011
+Arunachal Pradesh,AR,Tawang,49950,2011
+Arunachal Pradesh,AR,Tirap,111997,2011
+Arunachal Pradesh,AR,Upper Dibang Valley,8004,2011
+Arunachal Pradesh,AR,Upper Siang,35289,2011
+Arunachal Pradesh,AR,Upper Subansiri,83205,2011
+Arunachal Pradesh,AR,West Kameng,87013,2011
+Arunachal Pradesh,AR,West Siang,112272,2011
+Arunachal Pradesh,AR,Keyi Panyor,30000,2011
+Arunachal Pradesh,AR,Bichom,9710,2011
+Assam,AS,Baksa,953773,2011
+Assam,AS,Bajali,253816,2011
+Assam,AS,Barpeta,1693622,2011
+Assam,AS,Biswanath,612491,2011
+Assam,AS,Bongaigaon,732639,2011
+Assam,AS,Cachar,1736319,2011
+Assam,AS,Charaideo,471418,2011
+Assam,AS,Chirang,481818,2011
+Assam,AS,Darrang,908090,2011
+Assam,AS,Dhemaji,688077,2011
+Assam,AS,Dhubri,1948632,2011
+Assam,AS,Dibrugarh,1327748,2011
+Assam,AS,Dima Hasao,213529,2011
+Assam,AS,Goalpara,1008959,2011
+Assam,AS,Golaghat,1058674,2011
+Assam,AS,Hailakandi,659260,2011
+Assam,AS,Hojai,931218,2011
+Assam,AS,Jorhat,1091295,2011
+Assam,AS,Kamrup,1517202,2011
+Assam,AS,Kamrup Metropolitan,1260419,2011
+Assam,AS,Karbi Anglong,965280,2011
+Assam,AS,Karimganj,1217002,2011
+Assam,AS,Kokrajhar,886999,2011
+Assam,AS,Lakhimpur,1040644,2011
+Assam,AS,Majuli,167304,2011
+Assam,AS,Morigaon,957853,2011
+Assam,AS,Nagaon,2826006,2011
+Assam,AS,Nalbari,769919,2011
+Assam,AS,Sivasagar,1150253,2011
+Assam,AS,Sonitpur,1925975,2011
+Assam,AS,South Salmara-Mankachar,555114,2011
+Assam,AS,Tamulpur,389150,2011
+Assam,AS,Tinsukia,1316948,2011
+Assam,AS,Udalguri,832769,2011
+Assam,AS,West Karbi Anglong,300320,2011
+Bihar,BR,Araria,2806200,2011
+Bihar,BR,Arwal,700843,2011
+Bihar,BR,Aurangabad,2511243,2011
+Bihar,BR,Banka,2029339,2011
+Bihar,BR,Begusarai,2954367,2011
+Bihar,BR,Bhagalpur,3032226,2011
+Bihar,BR,Bhojpur,2720155,2011
+Bihar,BR,Buxar,1707643,2011
+Bihar,BR,Darbhanga,3921971,2011
+Bihar,BR,East Champaran,5082868,2011
+Bihar,BR,Gaya,4379383,2011
+Bihar,BR,Gopalganj,2558037,2011
+Bihar,BR,Jamui,1756078,2011
+Bihar,BR,Jehanabad,1124176,2011
+Bihar,BR,Kaimur,1626900,2011
+Bihar,BR,Katihar,3068149,2011
+Bihar,BR,Khagaria,1657599,2011
+Bihar,BR,Kishanganj,1690948,2011
+Bihar,BR,Lakhisarai,1000717,2011
+Bihar,BR,Madhepura,1994618,2011
+Bihar,BR,Madhubani,4476044,2011
+Bihar,BR,Munger,1359054,2011
+Bihar,BR,Muzaffarpur,4778610,2011
+Bihar,BR,Nalanda,2872523,2011
+Bihar,BR,Nawada,2216653,2011
+Bihar,BR,Patna,5772804,2011
+Bihar,BR,Purnia,3273127,2011
+Bihar,BR,Rohtas,2962593,2011
+Bihar,BR,Saharsa,1897102,2011
+Bihar,BR,Samastipur,4254782,2011
+Bihar,BR,Saran,3943098,2011
+Bihar,BR,Sheikhpura,634927,2011
+Bihar,BR,Sheohar,656916,2011
+Bihar,BR,Sitamarhi,3419622,2011
+Bihar,BR,Siwan,3318176,2011
+Bihar,BR,Supaul,2228397,2011
+Bihar,BR,Vaishali,3495021,2011
+Bihar,BR,West Champaran,3935042,2011
+Chhattisgarh,CG,Balod,826165,2011
+Chhattisgarh,CG,Baloda Bazar,1305343,2011
+Chhattisgarh,CG,Balrampur-Ramanujganj,730491,2011
+Chhattisgarh,CG,Bastar,834873,2011
+Chhattisgarh,CG,Bemetara,795759,2011
+Chhattisgarh,CG,Bijapur,229832,2011
+Chhattisgarh,CG,Bilaspur,1961922,2011
+Chhattisgarh,CG,Dantewada,533638,2011
+Chhattisgarh,CG,Dhamtari,799199,2011
+Chhattisgarh,CG,Durg,1721726,2011
+Chhattisgarh,CG,Gariaband,597653,2011
+Chhattisgarh,CG,Gaurela-Pendra-Marwahi,336420,2011
+Chhattisgarh,CG,Janjgir-Champa,1620632,2011
+Chhattisgarh,CG,Jashpur,852043,2011
+Chhattisgarh,CG,Kabirdham,584667,2011
+Chhattisgarh,CG,Kanker,748593,2011
+Chhattisgarh,CG,Khairagarh-Chhuikhadan-Gandai,368444,2011
+Chhattisgarh,CG,Kondagaon,578326,2011
+Chhattisgarh,CG,Korba,1206563,2011
+Chhattisgarh,CG,Korea,659039,2011
+Chhattisgarh,CG,Mahasamund,1032275,2011
+Chhattisgarh,CG,Manendragarh-Chirmiri-Bharatpur,381287,2011
+Chhattisgarh,CG,Mohla-Manpur-Ambagarh Chowki,283947,2011
+Chhattisgarh,CG,Mungeli,701707,2011
+Chhattisgarh,CG,Narayanpur,140206,2011
+Chhattisgarh,CG,Raigarh,1493627,2011
+Chhattisgarh,CG,Raipur,2160876,2011
+Chhattisgarh,CG,Rajnandgaon,1537520,2011
+Chhattisgarh,CG,Sarangarh-Bilaigarh,607434,2011
+Chhattisgarh,CG,Sakti,653036,2011
+Chhattisgarh,CG,Sukma,250159,2011
+Chhattisgarh,CG,Surajpur,789043,2011
+Chhattisgarh,CG,Surguja,839661,2011
+Goa,GA,North Goa,817761,2011
+Goa,GA,South Goa,639962,2011
+Goa,GA,Kushavati,220000,2011
+Gujarat,GJ,Ahmedabad,7208200,2011
+Gujarat,GJ,Amreli,1513614,2011
+Gujarat,GJ,Anand,2090276,2011
+Gujarat,GJ,Aravalli,1051746,2011
+Gujarat,GJ,Banaskantha,3116045,2011
+Gujarat,GJ,Bharuch,1550822,2011
+Gujarat,GJ,Bhavnagar,2877961,2011
+Gujarat,GJ,Botad,656005,2011
+Gujarat,GJ,Chhota Udaipur,1071831,2011
+Gujarat,GJ,Dahod,2126558,2011
+Gujarat,GJ,Dang,226769,2011
+Gujarat,GJ,Devbhumi Dwarka,752484,2011
+Gujarat,GJ,Gandhinagar,1387478,2011
+Gujarat,GJ,Gir Somnath,1217477,2011
+Gujarat,GJ,Jamnagar,2159130,2011
+Gujarat,GJ,Junagadh,2742291,2011
+Gujarat,GJ,Kheda,2298934,2011
+Gujarat,GJ,Kutch,2090313,2011
+Gujarat,GJ,Mahisagar,994624,2011
+Gujarat,GJ,Mehsana,2027727,2011
+Gujarat,GJ,Morbi,960329,2011
+Gujarat,GJ,Narmada,590379,2011
+Gujarat,GJ,Navsari,1330711,2011
+Gujarat,GJ,Panchmahal,2388267,2011
+Gujarat,GJ,Patan,1342746,2011
+Gujarat,GJ,Porbandar,586062,2011
+Gujarat,GJ,Rajkot,3157676,2011
+Gujarat,GJ,Sabarkantha,2427346,2011
+Gujarat,GJ,Surat,6081322,2011
+Gujarat,GJ,Surendranagar,1755873,2011
+Gujarat,GJ,Tapi,806489,2011
+Gujarat,GJ,Vadodara,3639775,2011
+Gujarat,GJ,Valsad,1703068,2011
+Gujarat,GJ,Vav-Tharad,1380870,2011
+Haryana,HR,Ambala,1136784,2011
+Haryana,HR,Bhiwani,1629109,2011
+Haryana,HR,Charkhi Dadri,502276,2011
+Haryana,HR,Faridabad,1798954,2011
+Haryana,HR,Fatehabad,941522,2011
+Haryana,HR,Gurugram,1514085,2011
+Haryana,HR,Hisar,1742815,2011
+Haryana,HR,Jhajjar,956907,2011
+Haryana,HR,Jind,1332042,2011
+Haryana,HR,Kaithal,1072861,2011
+Haryana,HR,Karnal,1506323,2011
+Haryana,HR,Kurukshetra,964231,2011
+Haryana,HR,Mahendragarh,921680,2011
+Haryana,HR,Nuh,1089406,2011
+Haryana,HR,Palwal,1040493,2011
+Haryana,HR,Panchkula,558890,2011
+Haryana,HR,Panipat,1202811,2011
+Haryana,HR,Rewari,896129,2011
+Haryana,HR,Rohtak,1058683,2011
+Haryana,HR,Sirsa,1295114,2011
+Haryana,HR,Sonipat,1480080,2011
+Haryana,HR,Yamunanagar,1214162,2011
+Haryana,HR,Hansi,540994,2011
+Himachal Pradesh,HP,Bilaspur,382056,2011
+Himachal Pradesh,HP,Chamba,518844,2011
+Himachal Pradesh,HP,Hamirpur,454293,2011
+Himachal Pradesh,HP,Kangra,1507223,2011
+Himachal Pradesh,HP,Kinnaur,84298,2011
+Himachal Pradesh,HP,Kullu,437474,2011
+Himachal Pradesh,HP,Lahaul and Spiti,18528,2011
+Himachal Pradesh,HP,Mandi,999518,2011
+Himachal Pradesh,HP,Shimla,813384,2011
+Himachal Pradesh,HP,Sirmaur,530164,2011
+Himachal Pradesh,HP,Solan,576670,2011
+Himachal Pradesh,HP,Una,521057,2011
+Jharkhand,JH,Bokaro,2061918,2011
+Jharkhand,JH,Chatra,1042304,2011
+Jharkhand,JH,Deoghar,1491879,2011
+Jharkhand,JH,Dhanbad,2682662,2011
+Jharkhand,JH,Dumka,1321096,2011
+Jharkhand,JH,East Singhbhum,2291032,2011
+Jharkhand,JH,Garhwa,1322387,2011
+Jharkhand,JH,Giridih,2445203,2011
+Jharkhand,JH,Godda,1311382,2011
+Jharkhand,JH,Gumla,1025656,2011
+Jharkhand,JH,Hazaribag,1734495,2011
+Jharkhand,JH,Jamtara,790207,2011
+Jharkhand,JH,Khunti,530299,2011
+Jharkhand,JH,Koderma,716259,2011
+Jharkhand,JH,Latehar,725673,2011
+Jharkhand,JH,Lohardaga,461738,2011
+Jharkhand,JH,Pakur,899200,2011
+Jharkhand,JH,Palamu,1936319,2011
+Jharkhand,JH,Ramgarh,949159,2011
+Jharkhand,JH,Ranchi,2912022,2011
+Jharkhand,JH,Sahibganj,1150038,2011
+Jharkhand,JH,Seraikela-Kharsawan,1063458,2011
+Jharkhand,JH,Simdega,599813,2011
+Jharkhand,JH,West Singhbhum,1501619,2011
+Karnataka,KA,Bagalkot,1890826,2011
+Karnataka,KA,Ballari,1400970,2011
+Karnataka,KA,Belagavi,4778439,2011
+Karnataka,KA,Bangalore Rural,987257,2011
+Karnataka,KA,Bangalore Urban,9588910,2011
+Karnataka,KA,Bidar,1700018,2011
+Karnataka,KA,Chamarajanagar,1020962,2011
+Karnataka,KA,Chikkaballapur,1254377,2011
+Karnataka,KA,Chikmagalur,1137753,2011
+Karnataka,KA,Chitradurga,1660378,2011
+Karnataka,KA,Dakshina Kannada,2083625,2011
+Karnataka,KA,Davanagere,1643494,2011
+Karnataka,KA,Dharwad,1846993,2011
+Karnataka,KA,Gadaga,1065235,2011
+Karnataka,KA,Kalaburagi,2564892,2011
+Karnataka,KA,Hassan,1776221,2011
+Karnataka,KA,Haveri,1598506,2011
+Karnataka,KA,Kodagu,554762,2011
+Karnataka,KA,Kolar,1540231,2011
+Karnataka,KA,Koppal,1391292,2011
+Karnataka,KA,Mandya,1808680,2011
+Karnataka,KA,Mysore,2994744,2011
+Karnataka,KA,Raichur,1924773,2011
+Karnataka,KA,Ramanagara,1082739,2011
+Karnataka,KA,Shimoga,1755512,2011
+Karnataka,KA,Tumakuru,2681449,2011
+Karnataka,KA,Udupi,1177908,2011
+Karnataka,KA,Uttara Kannada,1353299,2011
+Karnataka,KA,Vijayanagara,1353628,2011
+Karnataka,KA,Bijapur,2175102,2011
+Karnataka,KA,Yadgir,1172985,2011
+Kerala,KL,Alappuzha,2121943,2011
+Kerala,KL,Ernakulam,3279860,2011
+Kerala,KL,Idukki,1107453,2011
+Kerala,KL,Kannur,2525637,2011
+Kerala,KL,Kasaragod,1302600,2011
+Kerala,KL,Kollam,2629703,2011
+Kerala,KL,Kottayam,1979384,2011
+Kerala,KL,Kozhikode,3089543,2011
+Kerala,KL,Malappuram,4110956,2011
+Kerala,KL,Palakkad,2810892,2011
+Kerala,KL,Pathanamthitta,1195537,2011
+Kerala,KL,Thiruvananthapuram,3307284,2011
+Kerala,KL,Thrissur,3110327,2011
+Kerala,KL,Wayanad,816558,2011
+Madhya Pradesh,MP,Agar Malwa,571275,2011
+Madhya Pradesh,MP,Alirajpur,728677,2011
+Madhya Pradesh,MP,Anuppur,749521,2011
+Madhya Pradesh,MP,Ashoknagar,844979,2011
+Madhya Pradesh,MP,Balaghat,1701156,2011
+Madhya Pradesh,MP,Barwani,1385659,2011
+Madhya Pradesh,MP,Betul,1575247,2011
+Madhya Pradesh,MP,Bhind,1703562,2011
+Madhya Pradesh,MP,Bhopal,2368145,2011
+Madhya Pradesh,MP,Burhanpur,756993,2011
+Madhya Pradesh,MP,Chhatarpur,1762857,2011
+Madhya Pradesh,MP,Chhindwara,2090306,2011
+Madhya Pradesh,MP,Damoh,1263703,2011
+Madhya Pradesh,MP,Datia,786375,2011
+Madhya Pradesh,MP,Dewas,1563107,2011
+Madhya Pradesh,MP,Dhar,2184672,2011
+Madhya Pradesh,MP,Dindori,704218,2011
+Madhya Pradesh,MP,Guna,1240938,2011
+Madhya Pradesh,MP,Gwalior,2030543,2011
+Madhya Pradesh,MP,Harda,570302,2011
+Madhya Pradesh,MP,Hoshangabad,1240975,2011
+Madhya Pradesh,MP,Indore,3272335,2011
+Madhya Pradesh,MP,Jabalpur,2460714,2011
+Madhya Pradesh,MP,Jhabua,1024091,2011
+Madhya Pradesh,MP,Katni,1291684,2011
+Madhya Pradesh,MP,Khandwa,1309443,2011
+Madhya Pradesh,MP,Khargone,1872413,2011
+Madhya Pradesh,MP,Maihar,856028,2011
+Madhya Pradesh,MP,Mandla,1053522,2011
+Madhya Pradesh,MP,Mandsaur,1339832,2011
+Madhya Pradesh,MP,Mauganj,616645,2011
+Madhya Pradesh,MP,Morena,1965137,2011
+Madhya Pradesh,MP,Narsinghpur,1092141,2011
+Madhya Pradesh,MP,Neemuch,825958,2011
+Madhya Pradesh,MP,Niwari,404807,2011
+Madhya Pradesh,MP,Panna,1016028,2011
+Madhya Pradesh,MP,Pandhurna,374310,2011
+Madhya Pradesh,MP,Raisen,1331699,2011
+Madhya Pradesh,MP,Rajgarh,1546541,2011
+Madhya Pradesh,MP,Ratlam,1454483,2011
+Madhya Pradesh,MP,Rewa,2363744,2011
+Madhya Pradesh,MP,Sagar,2378295,2011
+Madhya Pradesh,MP,Satna,2228619,2011
+Madhya Pradesh,MP,Sehore,1311008,2011
+Madhya Pradesh,MP,Seoni,1378876,2011
+Madhya Pradesh,MP,Shahdol,1064989,2011
+Madhya Pradesh,MP,Shajapur,1512353,2011
+Madhya Pradesh,MP,Sheopur,687952,2011
+Madhya Pradesh,MP,Shivpuri,1725818,2011
+Madhya Pradesh,MP,Sidhi,1126515,2011
+Madhya Pradesh,MP,Singrauli,1178132,2011
+Madhya Pradesh,MP,Tikamgarh,1444920,2011
+Madhya Pradesh,MP,Ujjain,1986864,2011
+Madhya Pradesh,MP,Umaria,643579,2011
+Madhya Pradesh,MP,Vidisha,1458212,2011
+Maharashtra,MH,Ahmednagar,4543083,2011
+Maharashtra,MH,Akola,1818617,2011
+Maharashtra,MH,Amravati,2887826,2011
+Maharashtra,MH,Aurangabad,3695928,2011
+Maharashtra,MH,Beed,2585962,2011
+Maharashtra,MH,Bhandara,1198810,2011
+Maharashtra,MH,Buldhana,2588039,2011
+Maharashtra,MH,Chandrapur,2194262,2011
+Maharashtra,MH,Osmanabad,1660311,2011
+Maharashtra,MH,Dhule,2048781,2011
+Maharashtra,MH,Gadchiroli,1071795,2011
+Maharashtra,MH,Gondia,1322331,2011
+Maharashtra,MH,Hingoli,1178973,2011
+Maharashtra,MH,Jalgaon,4229917,2011
+Maharashtra,MH,Jalna,1958483,2011
+Maharashtra,MH,Kolhapur,3874015,2011
+Maharashtra,MH,Latur,2455543,2011
+Maharashtra,MH,Mumbai City,3145966,2011
+Maharashtra,MH,Mumbai Suburban,9332481,2011
+Maharashtra,MH,Nanded,3356566,2011
+Maharashtra,MH,Nandurbar,1646177,2011
+Maharashtra,MH,Nagpur,4653171,2011
+Maharashtra,MH,Nashik,6109052,2011
+Maharashtra,MH,Palghar,2990116,2011
+Maharashtra,MH,Parbhani,1835982,2011
+Maharashtra,MH,Pune,9426959,2011
+Maharashtra,MH,Raigad,2635394,2011
+Maharashtra,MH,Ratnagiri,1612672,2011
+Maharashtra,MH,Sangli,2820575,2011
+Maharashtra,MH,Satara,3003922,2011
+Maharashtra,MH,Sindhudurg,848868,2011
+Maharashtra,MH,Solapur,4315527,2011
+Maharashtra,MH,Thane,8070032,2011
+Maharashtra,MH,Wardha,1296157,2011
+Maharashtra,MH,Washim,1196714,2011
+Maharashtra,MH,Yavatmal,2775457,2011
+Manipur,MN,Bishnupur,240363,2011
+Manipur,MN,Chandel,144028,2011
+Manipur,MN,Churachandpur,271274,2011
+Manipur,MN,Imphal East,452661,2011
+Manipur,MN,Imphal West,514683,2011
+Manipur,MN,Jiribam,43818,2011
+Manipur,MN,Kakching,135481,2011
+Manipur,MN,Kamjong,45616,2011
+Manipur,MN,Kangpokpi,193744,2011
+Manipur,MN,Pherzawl,47250,2011
+Manipur,MN,Senapati,354772,2011
+Manipur,MN,Tamenglong,140143,2011
+Manipur,MN,Tengnoupal,59110,2011
+Manipur,MN,Thoubal,420517,2011
+Manipur,MN,Ukhrul,183115,2011
+Meghalaya,ML,East Garo Hills,317618,2011
+Meghalaya,ML,East Jaintia Hills,122436,2011
+Meghalaya,ML,East Khasi Hills,824059,2011
+Meghalaya,ML,Eastern West Khasi Hills,131451,2011
+Meghalaya,ML,North Garo Hills,118325,2011
+Meghalaya,ML,Ri Bhoi,258380,2011
+Meghalaya,ML,South Garo Hills,142574,2011
+Meghalaya,ML,South West Garo Hills,172495,2011
+Meghalaya,ML,South West Khasi Hills,110152,2011
+Meghalaya,ML,West Garo Hills,642923,2011
+Meghalaya,ML,West Jaintia Hills,270352,2011
+Meghalaya,ML,West Khasi Hills,385601,2011
+Mizoram,MZ,Aizawl,404054,2011
+Mizoram,MZ,Champhai,125370,2011
+Mizoram,MZ,Hnahthial,28468,2011
+Mizoram,MZ,Khawzawl,41974,2011
+Mizoram,MZ,Kolasib,83054,2011
+Mizoram,MZ,Lawngtlai,117444,2011
+Mizoram,MZ,Lunglei,154094,2011
+Mizoram,MZ,Mamit,85757,2011
+Mizoram,MZ,Saiha,56366,2011
+Mizoram,MZ,Saitual,50575,2011
+Mizoram,MZ,Serchhip,64875,2011
+Nagaland,NL,Chümoukedima,125400,2011
+Nagaland,NL,Dimapur,379769,2011
+Nagaland,NL,Kiphire,74033,2011
+Nagaland,NL,Kohima,270063,2011
+Nagaland,NL,Longleng,50593,2011
+Nagaland,NL,Mokokchung,193171,2011
+Nagaland,NL,Mon,259604,2011
+Nagaland,NL,Niuland,42287,2011
+Nagaland,NL,Noklak,59300,2011
+Nagaland,NL,Peren,163294,2011
+Nagaland,NL,Phek,163294,2011
+Nagaland,NL,Shamator,34223,2011
+Nagaland,NL,Tseminyü,63629,2011
+Nagaland,NL,Tuensang,414801,2011
+Nagaland,NL,Wokha,166239,2011
+Nagaland,NL,Zunheboto,141014,2011
+Odisha,OD,Angul,1271703,2011
+Odisha,OD,Boudh,439917,2011
+Odisha,OD,Bhadrak,1506522,2011
+Odisha,OD,Balangir,1648574,2011
+Odisha,OD,Bargarh,1478833,2011
+Odisha,OD,Balasore,2317419,2011
+Odisha,OD,Cuttack,2618708,2011
+Odisha,OD,Debagarh,312164,2011
+Odisha,OD,Dhenkanal,1192948,2011
+Odisha,OD,Ganjam,3529031,2011
+Odisha,OD,Gajapati,575880,2011
+Odisha,OD,Jharsuguda,579499,2011
+Odisha,OD,Jajpur,1826275,2011
+Odisha,OD,Jagatsinghpur,1136604,2011
+Odisha,OD,Khordha,2251673,2011
+Odisha,OD,Kendujhar,1802777,2011
+Odisha,OD,Kalahandi,1573054,2011
+Odisha,OD,Kandhamal,731952,2011
+Odisha,OD,Koraput,1376934,2011
+Odisha,OD,Kendrapara,1439891,2011
+Odisha,OD,Malkangiri,612727,2011
+Odisha,OD,Mayurbhanj,2513895,2011
+Odisha,OD,Nabarangpur,1218762,2011
+Odisha,OD,Nuapada,606490,2011
+Odisha,OD,Nayagarh,962215,2011
+Odisha,OD,Puri,1697983,2011
+Odisha,OD,Rayagada,961959,2011
+Odisha,OD,Sambalpur,1044410,2011
+Odisha,OD,Subarnapur,652107,2011
+Odisha,OD,Sundargarh,2080664,2011
+Punjab,PB,Amritsar,2490891,2011
+Punjab,PB,Barnala,596294,2011
+Punjab,PB,Bathinda,1388859,2011
+Punjab,PB,Faridkot,618008,2011
+Punjab,PB,Fatehgarh Sahib,599814,2011
+Punjab,PB,Fazilka[a],1180483,2011
+Punjab,PB,Firozpur,2026831,2011
+Punjab,PB,Gurdaspur,2299026,2011
+Punjab,PB,Hoshiarpur,1582793,2011
+Punjab,PB,Jalandhar,2181753,2011
+Punjab,PB,Kapurthala,817668,2011
+Punjab,PB,Ludhiana,3487882,2011
+Punjab,PB,Malerkotla,429754,2011
+Punjab,PB,Mansa,768808,2011
+Punjab,PB,Moga,992289,2011
+Punjab,PB,Pathankot,626154,2011
+Punjab,PB,Patiala,2892282,2011
+Punjab,PB,Rupnagar,683349,2011
+Punjab,PB,Sahibzada Ajit Singh Nagar,986147,2011
+Punjab,PB,Sangrur,1654408,2011
+Punjab,PB,Shahid Bhagat Singh Nagar,614362,2011
+Punjab,PB,Sri Muktsar Sahib,902702,2011
+Punjab,PB,Tarn Taran,1120070,2011
+Rajasthan,RJ,Ajmer,2584913,2011
+Rajasthan,RJ,Alwar,3671999,2011
+Rajasthan,RJ,Balotra,970760,2011
+Rajasthan,RJ,Banswara,1798194,2011
+Rajasthan,RJ,Baran,1223921,2011
+Rajasthan,RJ,Barmer,2604453,2011
+Rajasthan,RJ,Bharatpur,2549121,2011
+Rajasthan,RJ,Bhilwara,2410459,2011
+Rajasthan,RJ,Bikaner,2367745,2011
+Rajasthan,RJ,Bundi,1113725,2011
+Rajasthan,RJ,Chittorgarh,1544392,2011
+Rajasthan,RJ,Churu,2041172,2011
+Rajasthan,RJ,Dausa,1637226,2011
+Rajasthan,RJ,Deeg,1072755,2011
+Rajasthan,RJ,Dholpur,1207293,2011
+Rajasthan,RJ,Didwana Kuchaman,1625837,2011
+Rajasthan,RJ,Dungarpur,1388906,2011
+Rajasthan,RJ,Hanumangarh,1779650,2011
+Rajasthan,RJ,Jaipur,6626178,2011
+Rajasthan,RJ,Jaisalmer,672008,2011
+Rajasthan,RJ,Jalore,1830151,2011
+Rajasthan,RJ,Jhalawar,1411327,2011
+Rajasthan,RJ,Jhunjhunu,2139658,2011
+Rajasthan,RJ,Jodhpur,3685681,2011
+Rajasthan,RJ,Karauli,1458459,2011
+Rajasthan,RJ,Khairthal-Tijara,966821,2011
+Rajasthan,RJ,Kota,1950491,2011
+Rajasthan,RJ,Nagaur,3309234,2011
+Rajasthan,RJ,Pali,2038533,2011
+Rajasthan,RJ,Pratapgarh,867848,2011
+Rajasthan,RJ,Rajsamand,1158283,2011
+Rajasthan,RJ,Salumbar,570775,2011
+Rajasthan,RJ,Sawai Madhopur,1338114,2011
+Rajasthan,RJ,Sikar,2677737,2011
+Rajasthan,RJ,Sirohi,1037185,2011
+Rajasthan,RJ,Sri Ganganagar,1969520,2011
+Rajasthan,RJ,Tonk,1421711,2011
+Rajasthan,RJ,Udaipur,3067549,2011
+Sikkim,SK,Gangtok,281293,2011
+Sikkim,SK,Gyalshing,136299,2011
+Sikkim,SK,Mangan,43354,2011
+Sikkim,SK,Namchi,146742,2011
+Sikkim,SK,Pakyong,74583,2011
+Sikkim,SK,Soreng,64760,2011
+Tamil Nadu,TN,Ariyalur,752481,2011
+Tamil Nadu,TN,Chengalpattu,2556244,2011
+Tamil Nadu,TN,Chennai,7139882,2011
+Tamil Nadu,TN,Coimbatore,3472578,2011
+Tamil Nadu,TN,Cuddalore,2600880,2011
+Tamil Nadu,TN,Dharmapuri,1502900,2011
+Tamil Nadu,TN,Dindigul,2161367,2011
+Tamil Nadu,TN,Erode,2259608,2011
+Tamil Nadu,TN,Kallakurichi,1682687,2011
+Tamil Nadu,TN,Kanchipuram,1166401,2011
+Tamil Nadu,TN,Kanyakumari,1863178,2011
+Tamil Nadu,TN,Karur,1076588,2011
+Tamil Nadu,TN,Krishnagiri,1883731,2011
+Tamil Nadu,TN,Madurai,3191038,2011
+Tamil Nadu,TN,Mayiladuthurai,918356,2011
+Tamil Nadu,TN,Nagapattinam,1614069,2011
+Tamil Nadu,TN,Nilgiris,735071,2011
+Tamil Nadu,TN,Namakkal,1721179,2011
+Tamil Nadu,TN,Perambalur,564511,2011
+Tamil Nadu,TN,Pudukkottai,1918725,2011
+Tamil Nadu,TN,Ramanathapuram,1337560,2011
+Tamil Nadu,TN,Ranipet,1210277,2011
+Tamil Nadu,TN,Salem,3480008,2011
+Tamil Nadu,TN,Sivaganga,1341250,2011
+Tamil Nadu,TN,Tenkasi,1407627,2011
+Tamil Nadu,TN,Tiruppur,2471222,2011
+Tamil Nadu,TN,Tiruchirappalli,2713858,2011
+Tamil Nadu,TN,Theni,1243684,2011
+Tamil Nadu,TN,Tirunelveli,1665253,2011
+Tamil Nadu,TN,Thanjavur,2402781,2011
+Tamil Nadu,TN,Thoothukudi,1738376,2011
+Tamil Nadu,TN,Tirupattur,1111812,2011
+Tamil Nadu,TN,Tiruvallur,3725697,2011
+Tamil Nadu,TN,Tiruvarur,1268094,2011
+Tamil Nadu,TN,Tiruvannamalai,2468965,2011
+Tamil Nadu,TN,Vellore,1614242,2011
+Tamil Nadu,TN,Viluppuram,2093003,2011
+Tamil Nadu,TN,Virudhunagar,1943309,2011
+Telangana,TG,Adilabad,708952,2011
+Telangana,TG,Bhadradri Kothagudem,1304811,2011
+Telangana,TG,Hanamkonda,1135707,2011
+Telangana,TG,Hyderabad,3943323,2011
+Telangana,TG,Jagtial,983414,2011
+Telangana,TG,Jangaon,582457,2011
+Telangana,TG,Jayashankar Bhupalpally,712257,2011
+Telangana,TG,Jogulamba Gadwal,664971,2011
+Telangana,TG,Kamareddy,972625,2011
+Telangana,TG,Karimnagar,1016063,2011
+Telangana,TG,Khammam,1401639,2011
+Telangana,TG,Kumuram Bheem Asifabad,515835,2011
+Telangana,TG,Mahabubabad,770170,2011
+Telangana,TG,Mahbubnagar,1318110,2011
+Telangana,TG,Mancherial,807037,2011
+Telangana,TG,Medak,767428,2011
+Telangana,TG,Medchal–Malkajgiri,2542203,2011
+Telangana,TG,Mulugu,294671,2011
+Telangana,TG,Nalgonda,1631399,2011
+Telangana,TG,Nagarkurnool,893308,2011
+Telangana,TG,Narayanpet,566874,2011
+Telangana,TG,Nirmal,709415,2011
+Telangana,TG,Nizamabad,1534428,2011
+Telangana,TG,Peddapalli,795332,2011
+Telangana,TG,Rajanna Sircilla,546121,2011
+Telangana,TG,Ranga Reddy,2551731,2011
+Telangana,TG,Sangareddy,1527628,2011
+Telangana,TG,Siddipet,993376,2011
+Telangana,TG,Suryapet,1099560,2011
+Telangana,TG,Vikarabad,881250,2011
+Telangana,TG,Wanaparthy,751553,2011
+Telangana,TG,Warangal,716457,2011
+Telangana,TG,Yadadri Bhuvanagiri,726465,2011
+Tripura,TR,Dhalai,377988,2011
+Tripura,TR,Gomati,436868,2011
+Tripura,TR,Khowai[a],327391,2011
+Tripura,TR,North Tripura,415946,2011
+Tripura,TR,Sepahijala[b],484233,2011
+Tripura,TR,South Tripura,433737,2011
+Tripura,TR,Unakoti[c],277335,2011
+Tripura,TR,West Tripura,917534,2011
+Uttar Pradesh,UP,Agra,4380793,2011
+Uttar Pradesh,UP,Aligarh,3673849,2011
+Uttar Pradesh,UP,Ambedkar Nagar,2398709,2011
+Uttar Pradesh,UP,Amethi,2549935,2011
+Uttar Pradesh,UP,Amroha,1838771,2011
+Uttar Pradesh,UP,Auraiya,1372287,2011
+Uttar Pradesh,UP,Ayodhya,2468371,2011
+Uttar Pradesh,UP,Azamgarh,4616509,2011
+Uttar Pradesh,UP,Bagpat,1302156,2011
+Uttar Pradesh,UP,Bahraich,2384239,2011
+Uttar Pradesh,UP,Ballia,3223642,2011
+Uttar Pradesh,UP,Balrampur,2149066,2011
+Uttar Pradesh,UP,Banda,1799541,2011
+Uttar Pradesh,UP,Barabanki,3257983,2011
+Uttar Pradesh,UP,Bareilly,4465344,2011
+Uttar Pradesh,UP,Basti,2461056,2011
+Uttar Pradesh,UP,Bhadohi,1554203,2011
+Uttar Pradesh,UP,Bijnor,3683896,2011
+Uttar Pradesh,UP,Budaun,3712738,2011
+Uttar Pradesh,UP,Bulandshahr,3498507,2011
+Uttar Pradesh,UP,Chandauli,1952713,2011
+Uttar Pradesh,UP,Chitrakoot,990626,2011
+Uttar Pradesh,UP,Deoria,3098637,2011
+Uttar Pradesh,UP,Etah,1761152,2011
+Uttar Pradesh,UP,Etawah,1579160,2011
+Uttar Pradesh,UP,Farrukhabad,1887577,2011
+Uttar Pradesh,UP,Fatehpur,2632684,2011
+Uttar Pradesh,UP,Firozabad,2496761,2011
+Uttar Pradesh,UP,Gautam Buddha Nagar,1674714,2011
+Uttar Pradesh,UP,Ghaziabad,4661452,2011
+Uttar Pradesh,UP,Ghazipur,3622727,2011
+Uttar Pradesh,UP,Gonda,3431386,2011
+Uttar Pradesh,UP,Gorakhpur,4436275,2011
+Uttar Pradesh,UP,Hamirpur,1104021,2011
+Uttar Pradesh,UP,Hapur,1338211,2011
+Uttar Pradesh,UP,Hardoi,4091380,2011
+Uttar Pradesh,UP,Hathras,1565678,2011
+Uttar Pradesh,UP,Jalaun,1670718,2011
+Uttar Pradesh,UP,Jaunpur,4476072,2011
+Uttar Pradesh,UP,Jhansi,2000755,2011
+Uttar Pradesh,UP,Kannauj,1658005,2011
+Uttar Pradesh,UP,Kanpur Dehat,1795092,2011
+Uttar Pradesh,UP,Kanpur Nagar,4572951,2011
+Uttar Pradesh,UP,Kasganj,1438156,2011
+Uttar Pradesh,UP,Kaushambi,1596909,2011
+Uttar Pradesh,UP,Kushinagar,3560830,2011
+Uttar Pradesh,UP,Lakhimpur Kheri,4013634,2011
+Uttar Pradesh,UP,Lalitpur,1218002,2011
+Uttar Pradesh,UP,Lucknow,4588455,2011
+Uttar Pradesh,UP,Maharajganj,2665292,2011
+Uttar Pradesh,UP,Mahoba,876055,2011
+Uttar Pradesh,UP,Mainpuri,1847194,2011
+Uttar Pradesh,UP,Mathura,2541894,2011
+Uttar Pradesh,UP,Mau,2205170,2011
+Uttar Pradesh,UP,Meerut,3447405,2011
+Uttar Pradesh,UP,Mirzapur,2494533,2011
+Uttar Pradesh,UP,Moradabad,4773138,2011
+Uttar Pradesh,UP,Muzaffarnagar,4138605,2011
+Uttar Pradesh,UP,Pilibhit,2037225,2011
+Uttar Pradesh,UP,Pratapgarh,3173752,2011
+Uttar Pradesh,UP,Prayagraj,5959798,2011
+Uttar Pradesh,UP,Raebareli,3404004,2011
+Uttar Pradesh,UP,Rampur,2335398,2011
+Uttar Pradesh,UP,Saharanpur,3464228,2011
+Uttar Pradesh,UP,Sambhal,2217020,2011
+Uttar Pradesh,UP,Sant Kabir Nagar,1714300,2011
+Uttar Pradesh,UP,Shahjahanpur,3002376,2011
+Uttar Pradesh,UP,Shamli,1274815,2011
+Uttar Pradesh,UP,Shravasti,1114615,2011
+Uttar Pradesh,UP,Siddharthnagar,2553526,2011
+Uttar Pradesh,UP,Sitapur,4474446,2011
+Uttar Pradesh,UP,Sonbhadra,1862612,2011
+Uttar Pradesh,UP,Sultanpur,3790922,2011
+Uttar Pradesh,UP,Unnao,3110595,2011
+Uttar Pradesh,UP,Varanasi,3682194,2011
+Uttarakhand,UK,Almora,621927,2011
+Uttarakhand,UK,Bageshwar,259840,2011
+Uttarakhand,UK,Chamoli,391114,2011
+Uttarakhand,UK,Champawat,259315,2011
+Uttarakhand,UK,Dehradun,1698560,2011
+Uttarakhand,UK,Haridwar,1927029,2011
+Uttarakhand,UK,Nainital,955128,2011
+Uttarakhand,UK,Pauri Garhwal,686527,2011
+Uttarakhand,UK,Pithoragarh,485993,2011
+Uttarakhand,UK,Rudraprayag,236857,2011
+Uttarakhand,UK,Tehri Garhwal,616409,2011
+Uttarakhand,UK,Udham Singh Nagar,1648367,2011
+Uttarakhand,UK,Uttarkashi,329686,2011
+West Bengal,WB,Alipurduar,1501983,2011
+West Bengal,WB,Bankura,3596292,2011
+West Bengal,WB,Birbhum,3502387,2011
+West Bengal,WB,Cooch Behar,2822780,2011
+West Bengal,WB,Dakshin Dinajpur,1670931,2011
+West Bengal,WB,Darjeeling,1595181,2011
+West Bengal,WB,Hooghly,5520389,2011
+West Bengal,WB,Howrah,4841638,2011
+West Bengal,WB,Jalpaiguri,3869675,2011
+West Bengal,WB,Jhargram,1136548,2011
+West Bengal,WB,Kalimpong,251642,2011
+West Bengal,WB,Kolkata,4486679,2011
+West Bengal,WB,Maldah,3997970,2011
+West Bengal,WB,Murshidabad,7102430,2011
+West Bengal,WB,Nadia,5168488,2011
+West Bengal,WB,North 24 Parganas,10082852,2011
+West Bengal,WB,Paschim Bardhaman,2882031,2011
+West Bengal,WB,Paschim Medinipur,4776909,2011
+West Bengal,WB,Purba Bardhaman,4835532,2011
+West Bengal,WB,Purba Medinipur,5095875,2011
+West Bengal,WB,Purulia,2927965,2011
+West Bengal,WB,South 24 Parganas,8161961,2011
+West Bengal,WB,Uttar Dinajpur,3000849,2011
+Andaman and Nicobar,AN,Nicobar,36842,2011
+Andaman and Nicobar,AN,North and Middle Andaman,105597,2011
+Andaman and Nicobar,AN,South Andaman,238142,2011
+Chandigarh,CH,Chandigarh,1055450,2011
+Dadra and Nagar Haveli and Daman and Diu,DD,Dadra and Nagar Haveli,343709,2011
+Jammu and Kashmir,JK,Anantnag,1070144,2011
+Jammu and Kashmir,JK,Budgam,735753,2011
+Jammu and Kashmir,JK,Bandipore,385099,2011
+Jammu and Kashmir,JK,Baramulla,1015503,2011
+Jammu and Kashmir,JK,Doda,409576,2011
+Jammu and Kashmir,JK,Ganderbal,297003,2011
+Jammu and Kashmir,JK,Jammu,1526406,2011
+Jammu and Kashmir,JK,Kathua,615711,2011
+Jammu and Kashmir,JK,Kishtwar,230696,2011
+Jammu and Kashmir,JK,Kulgam,422786,2011
+Jammu and Kashmir,JK,Kupwara,875564,2011
+Jammu and Kashmir,JK,Poonch,476820,2011
+Jammu and Kashmir,JK,Pulwama,570060,2011
+Jammu and Kashmir,JK,Rajouri,619266,2011
+Jammu and Kashmir,JK,Ramban,283313,2011
+Jammu and Kashmir,JK,Reasi,314714,2011
+Jammu and Kashmir,JK,Samba,318611,2011
+Jammu and Kashmir,JK,Shopian,265960,2011
+Jammu and Kashmir,JK,Srinagar,1269751,2011
+Jammu and Kashmir,JK,Udhampur,555357,2011
+Ladakh,LA,Kargil,143388,2011
+Ladakh,LA,Leh,133487,2011
+Ladakh,LA,Drass,45000,2011
+Ladakh,LA,Zanskar,20000,2011
+Ladakh,LA,Nubra,35000,2011
+Ladakh,LA,Changthang,25000,2011
+Ladakh,LA,Sham,15000,2011
+National Capital Territory of Delhi,DL,Central Delhi,582320,2011
+National Capital Territory of Delhi,DL,East Delhi,1709346,2011
+National Capital Territory of Delhi,DL,New Delhi,142004,2011
+National Capital Territory of Delhi,DL,North Delhi,887978,2011
+National Capital Territory of Delhi,DL,North East Delhi,2241624,2011
+National Capital Territory of Delhi,DL,North West Delhi,3656539,2011
+National Capital Territory of Delhi,DL,Shahdara,322931,2011
+National Capital Territory of Delhi,DL,South Delhi,2731929,2011
+National Capital Territory of Delhi,DL,South East Delhi,1500636,2011
+National Capital Territory of Delhi,DL,South West Delhi,2292958,2011
+National Capital Territory of Delhi,DL,West Delhi,2543243,2011

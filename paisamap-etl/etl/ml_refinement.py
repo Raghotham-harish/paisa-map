@@ -542,10 +542,18 @@ def main():
     # HCES city anchoring is applied later (in estimate_income) as an additive offset.
     prop_col_idx = feature_names.index("rate_per_sqft") if "rate_per_sqft" in feature_names else None
     if prop_col_idx is not None:
+        # A handful of live-enriched pincodes are missing a property_rates.csv
+        # row entirely (pre-dating the write_lock() fix in enrich_single.py /
+        # batch_enrich_hces.py — see _filelock.py). Same median-fill treatment
+        # already applied to the feature matrix (X_df.fillna(X_df.median())
+        # above) — without it these feed NaN into the Ridge target below and
+        # crash the whole run.
+        rate_raw = raw["rate_per_sqft"].fillna(raw["rate_per_sqft"].median())
         prop_raw = within_city_normalize(
-            pd.DataFrame({"rate_per_sqft": raw["rate_per_sqft"]}, index=raw.index),
+            pd.DataFrame({"rate_per_sqft": rate_raw}, index=raw.index),
             {"rate_per_sqft"}, group_key
         )["rate_per_sqft"].reindex(pincodes).values
+        prop_raw = np.nan_to_num(prop_raw, nan=np.nanmedian(prop_raw))
         y_anchor = (prop_raw - prop_raw.mean()) / (prop_raw.std() or 1.0)
     else:
         # Fallback to HCES city MPCE if property rates unavailable

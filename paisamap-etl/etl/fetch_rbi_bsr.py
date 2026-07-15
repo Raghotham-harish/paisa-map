@@ -21,6 +21,7 @@ Usage:
 import sys
 import argparse
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -34,6 +35,9 @@ REF     = ETL / "data" / "reference"
 RAW     = ETL / "data" / "raw"
 PC_MAP  = REF / "pincode_district_map.csv"
 BSR_REF = REF / "rbi_bsr_district_2023.csv"
+POP_REF = REF / "district_population_census.csv"
+BRANCH_COUNTS = RAW / "rbi_branch_counts_india.csv"
+COORDS  = RAW / "pincode_coords.csv"
 
 # RBI DBIE does not expose a clean REST API; data comes as Excel.
 # The URL below downloads the latest BSR-2 state/district summary when available.
@@ -200,6 +204,114 @@ def build_pincode_deposits(bsr: pd.DataFrame, pc_map: pd.DataFrame) -> pd.DataFr
     return pd.DataFrame(rows).set_index("pincode")
 
 
+# ── Pan-India bank_branches_per_lakh backfill ─────────────────────────────────
+# build_pincode_deposits() above only computes anything for the ~130 pincodes
+# in pincode_district_map.csv whose district also has a base entry in the
+# 14-district rbi_bsr_district_2023.csv. But rbi_branch_counts_india.csv (real
+# PSU branch counts, see parse_rbi_branch_master.py) is genuinely pan-India —
+# 773 districts. The gate was never the branch data; it was having a
+# population figure to convert branch counts into a per-lakh rate. Census
+# district population (fetch_district_population.py) plugs that gap for any
+# district, independent of the BSR/pincode_district_map coverage above.
+#
+# Names differ between RBI's branch-master export and Wikipedia's Census
+# tables often enough to need a small alias list (spelling variants, renamed
+# districts) — checked empirically: normalized exact-match alone resolves
+# ~85% of branch-master districts against the Census table; these aliases
+# for common cases push current live-dataset coverage further. Not
+# exhaustive — anything not listed here just falls back to no branch data
+# for that pincode, same as today.
+CENSUS_DISTRICT_ALIASES = {
+    "BENGALURU URBAN": "BANGALORE URBAN",
+    "BENGALURU RURAL": "BANGALORE RURAL",
+    "BENGALURU SOUTH": "BANGALORE URBAN",   # newly split out, no separate Census row
+    "MYSURU": "MYSORE",
+    "DAKSHIN KANNAD": "DAKSHINA KANNADA",
+    "CHHATRAPATI SAMBHAJINAGAR": "AURANGABAD",
+    "NASIK": "NASHIK",
+    "DEHRA DUN": "DEHRADUN",
+    "KANCHEEPURAM": "KANCHIPURAM",
+    "THIRUVALLUR": "TIRUVALLUR",
+    "SABAR KANTHA": "SABARKANTHA",
+    "BANAS KANTHA": "BANASKANTHA",
+    "MUMBAI": "MUMBAI CITY",
+    "BID": "BEED",
+    "BAGALKOTE": "BAGALKOT",
+    "BARA BANKI": "BARABANKI",
+    "BALESHWAR": "BALASORE",
+    "ANUGUL": "ANGUL",
+    "BADGAM": "BUDGAM",
+    "AHILYANAGAR": "AHMEDNAGAR",
+    "ALAPUZHA": "ALAPPUZHA",
+}
+
+
+def _norm_district(s: str) -> str:
+    s = str(s).upper()
+    return re.sub(r"[^A-Z0-9]+", " ", s).strip()
+
+
+def backfill_branches_pan_india(already_covered: set) -> pd.DataFrame:
+    """
+    Real bank_branches_per_lakh for any currently-known pincode (i.e. already
+    in pincode_coords.csv — we don't pre-populate ahead of the live dataset;
+    see fetch_rbi_bsr.py's caller for why) whose district has both branch
+    data and a Census population match, skipping pincodes build_pincode_deposits()
+    already covered via the higher-quality BSR path.
+
+    Returns a DataFrame indexed by pincode with just bank_branches_per_lakh —
+    caller merges via combine_first so it only fills gaps, never overrides
+    the BSR-sourced values.
+    """
+    if not (BRANCH_COUNTS.exists() and POP_REF.exists() and COORDS.exists()):
+        log.info("Pan-India branch backfill skipped — missing branch counts, "
+                 "population reference, or pincode_coords.csv")
+        return pd.DataFrame()
+
+    known_pincodes = set(pd.read_csv(COORDS, dtype={"pincode": str})["pincode"])
+    bc = pd.read_csv(BRANCH_COUNTS, dtype={"pincode": str})
+    bc = bc[bc["pincode"].isin(known_pincodes) & ~bc["pincode"].isin(already_covered)]
+    if bc.empty:
+        return pd.DataFrame()
+
+    pop = pd.read_csv(POP_REF)
+    pop["norm"] = pop["district"].apply(_norm_district)
+    pop_rate = pop.drop_duplicates("norm").set_index("norm")["population"]
+
+    bc["norm"] = bc["district"].apply(_norm_district)
+    bc["norm"] = bc["norm"].apply(lambda n: CENSUS_DISTRICT_ALIASES.get(n, n))
+    bc = bc[bc["norm"].isin(pop_rate.index)]
+    if bc.empty:
+        return pd.DataFrame()
+
+    # District-level rate: total known PSU branches / Census population.
+    # Uses ALL branch-master rows for that district (not just known
+    # pincodes) for a more representative district total, matching how
+    # rbi_bsr_district_2023.csv's own figures are district-wide totals.
+    all_bc = pd.read_csv(BRANCH_COUNTS, dtype={"pincode": str})
+    all_bc["norm"] = all_bc["district"].apply(_norm_district)
+    all_bc["norm"] = all_bc["norm"].apply(lambda n: CENSUS_DISTRICT_ALIASES.get(n, n))
+    district_totals = all_bc.groupby("norm")["psu_branch_count"].sum()
+    district_rate = (district_totals / pop_rate.reindex(district_totals.index) * 100000)
+
+    rows = []
+    for district_norm, grp in bc.groupby("norm"):
+        base_rate = district_rate.get(district_norm)
+        if base_rate is None or pd.isna(base_rate):
+            continue
+        district_pcs = all_bc[all_bc["norm"] == district_norm].set_index("pincode")["psu_branch_count"]
+        for _, r in grp.iterrows():
+            pc = r["pincode"]
+            if len(district_pcs) >= 2 and district_pcs.nunique() > 1:
+                scalar = _minmax_scalar(float(r["psu_branch_count"]), district_pcs)
+                rate = round(base_rate * scalar, 1)
+            else:
+                rate = round(base_rate, 1)
+            rows.append({"pincode": pc, "bank_branches_per_lakh": rate})
+
+    return pd.DataFrame(rows).set_index("pincode")
+
+
 def write_output(deposits: pd.DataFrame, dry_run: bool = False) -> None:
     out_path = RAW / "bank_deposits.csv"
     if out_path.exists():
@@ -229,6 +341,13 @@ def main():
     bsr      = load_bsr_district(excel_path=args.excel)
     deposits = build_pincode_deposits(bsr, pc_map)
     log.info("RBI BSR deposits computed for %d pincodes", len(deposits))
+
+    branches_pan_india = backfill_branches_pan_india(already_covered=set(deposits.index))
+    if not branches_pan_india.empty:
+        deposits = deposits.combine_first(branches_pan_india)
+        log.info("Pan-India branch backfill: bank_branches_per_lakh for %d more pincodes",
+                 len(branches_pan_india))
+
     write_output(deposits, dry_run=args.dry_run)
 
 
