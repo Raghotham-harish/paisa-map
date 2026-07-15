@@ -39,12 +39,14 @@ printed "Using column" / match-count lines the first time you run it for
 real before trusting the output.
 
 Outputs (written to data/raw/):
-  bank_deposits.csv  — pincode, deposits_per_capita, bank_branches_per_lakh
+  bank_deposits.csv  — pincode, deposits_per_capita, bank_branches_per_lakh,
+                        credit_deposit_ratio
 
 Usage:
   python3 etl/fetch_rbi_bsr.py
   python3 etl/fetch_rbi_bsr.py --excel /path/to/bsr2_2023.xlsx        # district Excel (untested path)
   python3 etl/fetch_rbi_bsr.py --deposits-xlsx /path/to/155T....XLSX  # state-level Handbook fallback
+  python3 etl/fetch_rbi_bsr.py --cdr-xlsx /path/to/153T....XLSX       # state-level credit-deposit ratio
   python3 etl/fetch_rbi_bsr.py --dry-run
 """
 
@@ -288,6 +290,12 @@ STATE_NAME_ALIASES = {
     "DADRA AND NAGAR HAVELI": "DADRA AND NAGAR HAVELI AND DAMAN AND DIU",
     "DAMAN AND DIU": "DADRA AND NAGAR HAVELI AND DAMAN AND DIU",
     "ANDAMAN AND NICOBAR ISLANDS": "ANDAMAN AND NICOBAR",
+    # RBI branch-master labels Delhi "NCT OF DELHI"; the Handbook tables (155/153)
+    # just say "Delhi". Invisible for deposits_per_capita (Delhi is already covered
+    # by the precise 14-district BSR baseline before this fallback runs) but silently
+    # dropped all 28 Delhi pincodes from credit_deposit_ratio, which has no such
+    # baseline to fall back behind.
+    "NCT OF DELHI": "DELHI",
 }
 
 
@@ -482,6 +490,35 @@ def backfill_deposits_state_level(deposits_xlsx: Path, already_covered: set) -> 
     return pd.DataFrame(rows).drop_duplicates("pincode").set_index("pincode")
 
 
+def backfill_credit_deposit_ratio_state_level(cdr_xlsx: Path, already_covered: set) -> pd.DataFrame:
+    """
+    State-level credit_deposit_ratio (RBI Handbook Table 153) for any
+    currently-known pincode. Unlike deposits_per_capita, this is already a
+    ratio (per cent) in the source table — no population division needed,
+    just a direct state -> value lookup via each pincode's branch-master state.
+    """
+    if not (cdr_xlsx.exists() and COORDS.exists()):
+        log.info("Credit-deposit-ratio backfill skipped — missing inputs")
+        return pd.DataFrame()
+
+    state_cdr = load_handbook_state_table(cdr_xlsx)  # per cent
+
+    known = pd.read_csv(COORDS, dtype={"pincode": str})
+    branch = pd.read_csv(BRANCH_COUNTS, dtype={"pincode": str}) if BRANCH_COUNTS.exists() else pd.DataFrame()
+    if branch.empty:
+        return pd.DataFrame()
+    branch = branch[branch["pincode"].isin(set(known["pincode"]) - already_covered)]
+    branch["state_norm"] = branch["state"].apply(_norm_state)
+
+    rows = []
+    for _, r in branch.iterrows():
+        rate = state_cdr.get(r["state_norm"])
+        if rate is not None and not pd.isna(rate):
+            rows.append({"pincode": r["pincode"], "credit_deposit_ratio": rate})
+
+    return pd.DataFrame(rows).drop_duplicates("pincode").set_index("pincode")
+
+
 def write_output(deposits: pd.DataFrame, dry_run: bool = False) -> None:
     out_path = RAW / "bank_deposits.csv"
     if out_path.exists():
@@ -506,6 +543,8 @@ def main():
     ap.add_argument("--excel", type=Path, help="Path to downloaded RBI BSR-2 Excel file")
     ap.add_argument("--deposits-xlsx", type=Path,
                      help="Path to RBI Handbook Table 155 (State-wise Deposits) XLSX")
+    ap.add_argument("--cdr-xlsx", type=Path,
+                     help="Path to RBI Handbook Table 153 (State-wise Credit-Deposit Ratio) XLSX")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -537,6 +576,18 @@ def main():
             deposits = deposits.combine_first(deposits_state)
             log.info("State-level Handbook backfill: deposits_per_capita for %d more pincodes",
                      len(deposits_state))
+
+    if args.cdr_xlsx:
+        already_have_cdr = (
+            set(deposits.index[deposits["credit_deposit_ratio"].notna()])
+            if "credit_deposit_ratio" in deposits.columns else set()
+        )
+        cdr_state = backfill_credit_deposit_ratio_state_level(
+            args.cdr_xlsx, already_covered=already_have_cdr)
+        if not cdr_state.empty:
+            deposits = deposits.combine_first(cdr_state)
+            log.info("State-level Handbook backfill: credit_deposit_ratio for %d more pincodes",
+                     len(cdr_state))
 
     write_output(deposits, dry_run=args.dry_run)
 
