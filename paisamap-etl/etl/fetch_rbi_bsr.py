@@ -7,14 +7,44 @@ Live source : RBI DBIE (Database on Indian Economy)
               Table: BSR-2 — Deposits with Scheduled Commercial Banks
               Both available as Excel downloads (annual, released ~9 months after March)
 
-Fallback    : data/reference/rbi_bsr_district_2023.csv  (BSR March 2023 figures)
+Fallback    : data/reference/rbi_bsr_district_2023.csv  (BSR March 2023 figures,
+              only 14 districts — Delhi x8, Gurugram, Gautam Buddha Nagar,
+              Mumbai City/Suburban, Thane, Bengaluru Urban)
+
+Neither DBIE (dbie.rbi.org.in — unreachable, no DNS response from this
+environment) nor RBI's own document server (rbidocs.rbi.org.in, which
+hosts the "Handbook of Statistics on Indian States" annual publication —
+reachable, but served behind a JavaScript bot-challenge that blocks any
+non-browser client) can be fetched automatically. Confirmed by direct
+testing 2026-07-15, same class of block as the pan-India branch-master
+export (see parse_rbi_branch_master.py) — that one was solved by a human
+exporting from a real browser, which is the only proven path here too.
+
+STATE-level (coarser than the district baseline above, but real data
+rather than a flat imputed median) via a manual export:
+  1. Open https://rbidocs.rbi.org.in/rdocs/Publications/DOCs/155T_11122025BC88547570414295AB088FBCF5C90806.XLSX
+     in a browser — "Table 155: State-wise Deposits by Scheduled Commercial
+     Banks in India". If that link 404s (RBI republishes with a new
+     ID-stamped URL each release), go to rbi.org.in -> Publications ->
+     Handbook of Statistics on Indian States -> find Table 155 in the list.
+  2. Same for Table 153 or 154 ("State-wise Credit-Deposit Ratio... by
+     Place of Sanction / Utilisation" — either is fine, they're close):
+     https://rbidocs.rbi.org.in/rdocs/Publications/DOCs/153T_111220255DEA2A2D23744132BFEDD5768D038648.XLSX
+  3. python3 etl/fetch_rbi_bsr.py --deposits-xlsx /path/to/155T....XLSX
+
+The Excel column layout isn't guaranteed stable release to release and
+this parser hasn't been run against a real download yet — load_handbook_state_table()
+looks up columns by name/keyword rather than position, but check the
+printed "Using column" / match-count lines the first time you run it for
+real before trusting the output.
 
 Outputs (written to data/raw/):
-  bank_deposits.csv  — pincode, deposits_per_capita
+  bank_deposits.csv  — pincode, deposits_per_capita, bank_branches_per_lakh
 
 Usage:
   python3 etl/fetch_rbi_bsr.py
-  python3 etl/fetch_rbi_bsr.py --excel /path/to/bsr2_2023.xlsx   # parse downloaded Excel
+  python3 etl/fetch_rbi_bsr.py --excel /path/to/bsr2_2023.xlsx        # district Excel (untested path)
+  python3 etl/fetch_rbi_bsr.py --deposits-xlsx /path/to/155T....XLSX  # state-level Handbook fallback
   python3 etl/fetch_rbi_bsr.py --dry-run
 """
 
@@ -312,6 +342,109 @@ def backfill_branches_pan_india(already_covered: set) -> pd.DataFrame:
     return pd.DataFrame(rows).set_index("pincode")
 
 
+# ── State-level Handbook of Statistics fallback ───────────────────────────────
+# See module docstring for why this is manual-export-only. STATE-level real
+# data is coarser than the 14-district baseline above, but is layered in as
+# a fallback for every OTHER district — real RBI figures instead of the flat
+# column-median ml_refinement.py falls back to today.
+
+def _find_header_row(df: pd.DataFrame, keyword: str = "state") -> "int | None":
+    # A short label cell like "State" / "State/UT", not a full title sentence
+    # such as "Table 155: State-wise Deposits..." (which also contains the
+    # keyword) — cap length so the title row doesn't match first.
+    for i, row in df.iterrows():
+        if any(keyword in str(v).lower() and len(str(v)) <= 20 for v in row.values):
+            return i
+    return None
+
+
+def load_handbook_state_table(xlsx_path: Path) -> pd.Series:
+    """
+    Parse an RBI "Handbook of Statistics on Indian States" table (deposits,
+    or credit-deposit ratio) into a state-name(upper) -> value Series, using
+    whichever column looks like the most recent year found by name (e.g.
+    "2023-24"). NOT yet validated against a real download — RBI's exact
+    column layout/labels for these tables aren't confirmed; inspect the
+    printed match info the first time this runs for real.
+    """
+    import openpyxl  # noqa: F401
+    xl = pd.ExcelFile(xlsx_path, engine="openpyxl")
+    sheet = xl.sheet_names[0]
+    raw = xl.parse(sheet, header=None)
+
+    hdr_row = _find_header_row(raw, "state")
+    if hdr_row is None:
+        raise ValueError(f"Could not find a 'State' header row in {xlsx_path.name} "
+                          f"— RBI may have changed the table layout")
+
+    raw.columns = raw.iloc[hdr_row]
+    df = raw.iloc[hdr_row + 1:].reset_index(drop=True)
+    df.columns = [str(c).strip() for c in df.columns]
+
+    state_col = next((c for c in df.columns if "state" in c.lower()), None)
+    year_cols = [c for c in df.columns if re.match(r"^\d{4}-\d{2}", str(c))]
+    if not state_col or not year_cols:
+        raise ValueError(
+            f"Could not identify state/year columns in {xlsx_path.name} — "
+            f"columns found: {list(df.columns)}"
+        )
+    value_col = sorted(year_cols)[-1]
+    log.info("Handbook table %s: using column %r (most recent of %d year columns)",
+             xlsx_path.name, value_col, len(year_cols))
+
+    df = df[[state_col, value_col]].dropna()
+    df[value_col] = pd.to_numeric(df[value_col], errors="coerce")
+    df = df.dropna(subset=[value_col])
+    df = df[~df[state_col].astype(str).str.contains(
+        r"all.india|^total|^note|^source|^p\s*:|^r\s*:", case=False, regex=True)]
+
+    df["state_norm"] = df[state_col].astype(str).str.strip().str.upper()
+    df = df.drop_duplicates("state_norm")
+    return df.set_index("state_norm")[value_col]
+
+
+def backfill_deposits_state_level(deposits_xlsx: Path, already_covered: set) -> pd.DataFrame:
+    """
+    State-level deposits_per_capita for any currently-known pincode whose
+    district isn't in the precise BSR baseline. Real RBI Handbook deposits
+    (₹ crore) ÷ Census state population (aggregated from
+    district_population_census.csv).
+    """
+    if not (deposits_xlsx.exists() and POP_REF.exists() and COORDS.exists()):
+        log.info("State-level deposits backfill skipped — missing inputs")
+        return pd.DataFrame()
+
+    state_deposits_cr = load_handbook_state_table(deposits_xlsx)  # ₹ crore
+
+    pop = pd.read_csv(POP_REF)
+    state_pop = pop.groupby(pop["state_name"].str.upper())["population"].sum()
+
+    common = state_deposits_cr.index.intersection(state_pop.index)
+    log.info("State deposits: %d/%d RBI states matched to Census population "
+             "(unmatched: %s)", len(common), len(state_deposits_cr),
+             sorted(set(state_deposits_cr.index) - set(state_pop.index))[:10])
+    if len(common) == 0:
+        return pd.DataFrame()
+
+    # ₹ crore -> ₹, then per person
+    per_capita_by_state = (state_deposits_cr.loc[common] * 1e7 / state_pop.loc[common]).round(0)
+
+    known = pd.read_csv(COORDS, dtype={"pincode": str})
+    branch = pd.read_csv(BRANCH_COUNTS, dtype={"pincode": str}) if BRANCH_COUNTS.exists() else pd.DataFrame()
+    if branch.empty:
+        return pd.DataFrame()
+    branch = branch[branch["pincode"].isin(set(known["pincode"]) - already_covered)]
+    branch["state_norm"] = branch["state"].astype(str).str.strip().str.upper()
+
+    rows = []
+    for _, r in branch.iterrows():
+        rate = per_capita_by_state.get(r["state_norm"])
+        if rate is not None and not pd.isna(rate):
+            rows.append({"pincode": r["pincode"], "deposits_per_capita": rate})
+
+    return pd.DataFrame(rows).drop_duplicates("pincode").set_index("pincode")
+
+
 def write_output(deposits: pd.DataFrame, dry_run: bool = False) -> None:
     out_path = RAW / "bank_deposits.csv"
     if out_path.exists():
@@ -334,6 +467,8 @@ def write_output(deposits: pd.DataFrame, dry_run: bool = False) -> None:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--excel", type=Path, help="Path to downloaded RBI BSR-2 Excel file")
+    ap.add_argument("--deposits-xlsx", type=Path,
+                     help="Path to RBI Handbook Table 155 (State-wise Deposits) XLSX")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -347,6 +482,14 @@ def main():
         deposits = deposits.combine_first(branches_pan_india)
         log.info("Pan-India branch backfill: bank_branches_per_lakh for %d more pincodes",
                  len(branches_pan_india))
+
+    if args.deposits_xlsx:
+        deposits_state = backfill_deposits_state_level(
+            args.deposits_xlsx, already_covered=set(deposits.index))
+        if not deposits_state.empty:
+            deposits = deposits.combine_first(deposits_state)
+            log.info("State-level Handbook backfill: deposits_per_capita for %d more pincodes",
+                     len(deposits_state))
 
     write_output(deposits, dry_run=args.dry_run)
 

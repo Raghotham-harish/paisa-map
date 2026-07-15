@@ -73,7 +73,13 @@ def parse_district_population(html: str) -> pd.DataFrame:
         m = STATE_HEADING_RE.match(heading_text)
         is_delhi = heading_text == "National Capital Territory of Delhi (DL)"
         if m or is_delhi:
-            state_name, code = (m.group(1).strip(), m.group(2)) if m else ("Delhi", "DL")
+            # is_delhi is checked first even though the generic regex also
+            # matches this heading ("National Capital Territory of Delhi"
+            # fits [A-Za-z .&]+) — otherwise state_name ends up as the full
+            # official name instead of "Delhi", which won't match "Delhi"/
+            # "NCT of Delhi" as used elsewhere in this codebase (e.g.
+            # enrich_single.py's STATE_NAMES) or in RBI's own tables.
+            state_name, code = ("Delhi", "DL") if is_delhi else (m.group(1).strip(), m.group(2))
             tbl_m = re.search(
                 r'<table[^>]*class="[^"]*wikitable[^"]*"[^>]*>.*?</table>', content, re.S
             )
