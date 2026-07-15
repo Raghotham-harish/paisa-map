@@ -1821,8 +1821,15 @@ function locateUser(auto){
   navigator.geolocation.getCurrentPosition(async pos=>{
     const {latitude:la, longitude:lo} = pos.coords;
     await applyLocation(la, lo);
-    // Auto-enrich on explicit GPS button tap (not on silent page-load auto-locate)
-    if(!auto) autoEnrichIfNew(la, lo);
+    // Auto-enrich + bulk ring/hex prefetch on explicit GPS button tap
+    // (not on silent page-load auto-locate) — same cascade as dragging the
+    // pin or searching a place, so real "You Are Here" visits build out
+    // coverage too, not just manual pin moves.
+    if(!auto){
+      autoEnrichIfNew(la, lo);
+      bulkEnrichNearby(la, lo);
+      prefetchHexNeighbors(la, lo);
+    }
     else toast(center[0]===la
       ? (dataset.length > 0 ? "Centred on your location · local PPI data" : "Your location · no PPI data here yet")
       : "");
