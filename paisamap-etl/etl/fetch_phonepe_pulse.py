@@ -40,7 +40,7 @@ import pandas as pd
 import requests
 
 sys.path.insert(0, str(Path(__file__).parent))
-from fetch_rbi_bsr import _norm_state, _norm_district, CENSUS_DISTRICT_ALIASES  # noqa: E402
+from fetch_rbi_bsr import _norm_state, _norm_district, _add_delhi_suffix, CENSUS_DISTRICT_ALIASES  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
@@ -95,12 +95,7 @@ def _norm_pulse_district(name: str, state_norm: str = "") -> str:
     n = _norm_district(name)
     if n.endswith(" DISTRICT"):
         n = n[: -len(" DISTRICT")]
-    # Delhi's hover data drops the "Delhi" suffix entirely (e.g. "south west
-    # district", not "south west delhi district"), but Census/pincode-file
-    # names keep it (e.g. "South West Delhi") — except Shahdara and New
-    # Delhi, which already stand alone / already contain "Delhi".
-    if state_norm == "DELHI" and not n.endswith("DELHI") and n != "SHAHDARA":
-        n = f"{n} DELHI"
+    n = _add_delhi_suffix(n, state_norm)
     return CENSUS_DISTRICT_ALIASES.get(n, n)
 
 

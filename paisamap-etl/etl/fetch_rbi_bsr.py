@@ -295,12 +295,58 @@ CENSUS_DISTRICT_ALIASES = {
     "SOUTH SIKKIM": "NAMCHI",
     "EAST SIKKIM": "GANGTOK",
     "WEST SIKKIM": "GYALSHING",
+    # Added for fetch_commercial.py (2026-07-17) — Udyam/MSME district-name
+    # spelling variants, same shared normalized space.
+    "SOUTH SALMARA MANCACHAR": "SOUTH SALMARA MANKACHAR",
+    "DOHAD": "DAHOD",
+    "SAHEBGANJ": "SAHIBGANJ",
+    "CHIKBALLAPUR": "CHIKKABALLAPUR",
+    "DAVANGERE": "DAVANAGERE",
+    "UTTAR KANNAD": "UTTARA KANNADA",
+    "JAJAPUR": "JAJPUR",
+    "MAHABUBNAGAR": "MAHBUBNAGAR",
+    "KHOWAI": "KHOWAI A",  # district_population_census.csv carries a stray "[a]" footnote marker that _norm_district turns into a trailing " A"
+    "COOCHBEHAR": "COOCH BEHAR",
+    "JANGOAN": "JANGAON",
+    "KOMARAM BHEEM ASIFABAD": "KUMURAM BHEEM ASIFABAD",
+    "Y S R": "YSR KADAPA",  # source spelling "Y.S.R" -> normalized "Y S R"; Census: "YSR Kadapa"
+    "CHUMOUKEDIMA": "CH MOUKEDIMA",  # Census carries the diacritic "Chümoukedima"; _norm_district turns ü into a space
+    "NORTH 24 PRAGANAS": "NORTH 24 PARGANAS",  # source typo (letters transposed)
+    "FAZILKA": "FAZILKA A",  # Census carries a stray "[a]" footnote marker, same quirk as KHOWAI above
+    "PASHCHIM CHAMPARAN": "WEST CHAMPARAN",  # Hindi "Paschim" = West; Census uses the English name
+    "LEH LADAKH": "LEH",
+    "NAN DED": "NANDED",  # stray space in the source
+    "RAJNANDAGAON": "RAJNANDGAON",
+    "AHMADABAD": "AHMEDABAD",
+    "CHAMARAJNAGAR": "CHAMARAJANAGAR",
+    "PATHANAMTHIPTA": "PATHANAMTHITTA",
+    "MARIGAON": "MORIGAON",
+    "SOUTH 24 PRAGANAS": "SOUTH 24 PARGANAS",  # same transposition typo as NORTH 24 PRAGANAS above
+    "WEST MEDINIPUR": "PASCHIM MEDINIPUR",  # Hindi/Bengali "Paschim" = West
+    "CHITOOR": "CHITTOOR",
+    "SPSR NELLORE": "NELLORE",  # AP's official rename "Sri Potti Sriramulu Nellore"; Census predates it
+    "MAHESANA": "MEHSANA",
+    "CHHOTAUDEPUR": "CHHOTA UDAIPUR",
+    "DEVBHOOMI DWARKA": "DEVBHUMI DWARKA",
+    "AMBEDAKAR NAGAR": "AMBEDKAR NAGAR",
 }
 
 
 def _norm_district(s: str) -> str:
     s = str(s).upper()
     return re.sub(r"[^A-Z0-9]+", " ", s).strip()
+
+
+def _add_delhi_suffix(district_norm: str, state_norm: str) -> str:
+    """Several sources (PhonePe Pulse, Udyam/MSME) drop the "Delhi" suffix
+    entirely from Delhi's directional districts (e.g. "SOUTH WEST", not
+    "SOUTH WEST DELHI"), while Census/pincode-file names keep it ("South
+    West Delhi") — except Shahdara and New Delhi, which already stand
+    alone / already contain "Delhi". Call after _norm_district, before the
+    CENSUS_DISTRICT_ALIASES lookup."""
+    if state_norm == "DELHI" and not district_norm.endswith("DELHI") and district_norm != "SHAHDARA":
+        return f"{district_norm} DELHI"
+    return district_norm
 
 
 # Census merged Dadra & Nagar Haveli with Daman & Diu into one UT in 2020;
@@ -317,6 +363,7 @@ STATE_NAME_ALIASES = {
     # baseline to fall back behind.
     "NCT OF DELHI": "DELHI",
     "PONDICHERRY": "PUDUCHERRY",  # pincode_district_state_india.csv uses the old UT name
+    "THE DADRA AND NAGAR HAVELI AND DAMAN AND DIU": "DADRA AND NAGAR HAVELI AND DAMAN AND DIU",  # Udyam/MSME spelling, adds a "THE " prefix
 }
 
 
