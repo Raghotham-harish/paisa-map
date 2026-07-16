@@ -68,6 +68,9 @@ EXPORT_SIGNAL_FILES = [
     ("rto_enhanced.csv",        ["lmv_per_1000", "car_2w_ratio", "luxury_share", "ev_share"]),
     ("vehicle_density.csv",     ["cars_per_1000"]),
     ("upi_activity.csv",        ["upi_txn_value_per_capita"]),
+    ("education.csv",           ["schools_per_lakh"]),
+    ("commercial.csv",          ["msme_per_lakh"]),
+    ("agriculture.csv",         ["cropping_intensity_pct"]),
 ]
 EXPORT_ALL_COLUMNS = EXPORT_CORE_FIELDS + [c for _, cols in EXPORT_SIGNAL_FILES for c in cols]
 
