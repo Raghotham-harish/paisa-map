@@ -485,7 +485,7 @@
       <input type="range" id="radius" min="10" max="80" step="5" value="25" aria-label="Radius km">
       <output id="radiusOut">25 km</output>
     </div>
-    <p class="drag-hint">Drag the red pin on the map to move your location</p>
+    <p class="drag-hint">Click anywhere on the map — or drag the red pin — to move your location</p>
   </div>
 
   <!-- enrichment status bar — shown during scanning / mapping -->
@@ -780,9 +780,11 @@ const youIcon = L.divIcon({
 });
 const youMarker = L.marker(center,{icon:youIcon,zIndexOffset:1200,draggable:true}).addTo(map);
 function moveYou(){ youMarker.setLatLng(center); }
-youMarker.on("dragend", async e=>{
-  const ll = e.target.getLatLng();
-  center = [ll.lat, ll.lng];
+
+// Shared relocation logic — fired by dragging the YAH pin OR clicking anywhere on the map.
+async function relocateYou(lat, lng){
+  center = [lat, lng];
+  moveYou();
   if(dataPromise) await dataPromise;
   liveData = []; liveGen++;          // cancel any in-flight live fetch
   const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
@@ -804,6 +806,16 @@ youMarker.on("dragend", async e=>{
   autoEnrichIfNew(center[0], center[1]);
   bulkEnrichNearby(center[0], center[1]);
   prefetchHexNeighbors(center[0], center[1]);
+}
+
+youMarker.on("dragend", async e=>{
+  const ll = e.target.getLatLng();
+  await relocateYou(ll.lat, ll.lng);
+});
+
+// Click anywhere on the base map to drop the YAH pin there.
+map.on("click", async e=>{
+  await relocateYou(e.latlng.lat, e.latlng.lng);
 });
 
 /* ---------- CSS-only locality pin (no external images) ---------- */
@@ -1558,7 +1570,8 @@ function render(){
           );
           layer.on("mouseover", function(){ this.setStyle({weight:2.5, fillOpacity: Math.min(0.9, (f.properties._fillOp||0.4)+0.25)}); });
           layer.on("mouseout",  function(){ choroLayer && choroLayer.resetStyle(this); });
-          layer.on("click", function(){
+          layer.on("click", function(e){
+            L.DomEvent.stopPropagation(e);   // don't also relocate the YAH pin
             const d = rows.find(r => r.pincode === p.pincode);
             if(d) layer.bindPopup(popupHTML(d)).openPopup();
           });
@@ -1586,7 +1599,7 @@ function render(){
     }else{
       m.bindTooltip(d.name,{direction:"top",opacity:.95});
     }
-    m.on("click",()=>setActive(d.id,false));
+    m.on("click",e=>{ L.DomEvent.stopPropagation(e); setActive(d.id,false); });
     m.addTo(markerGroup);
     d._marker = m;
   });
