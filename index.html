@@ -162,6 +162,30 @@
     text-align:center;padding:3px 0 0;
   }
 
+  /* export report */
+  .export-row{position:relative}
+  .export-btn{
+    width:100%;display:flex;align-items:center;justify-content:center;gap:6px;
+    font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+    background:var(--paper-2);border:1px solid var(--hairline);color:var(--ink);
+    padding:8px 10px;cursor:pointer;
+  }
+  .export-btn:hover,.export-btn[aria-expanded="true"]{background:var(--ink);color:var(--paper)}
+  .export-panel{
+    position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:30;
+    background:var(--paper);border:1px solid var(--ink);box-shadow:0 8px 20px rgba(0,0,0,.18);
+    padding:10px;display:flex;flex-direction:column;gap:9px;
+  }
+  .export-panel[hidden]{display:none}
+  .export-panel-section{display:flex;flex-direction:column;gap:4px}
+  .export-panel-label{
+    font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);
+  }
+  .export-panel .mini-seg{width:100%}
+  .export-panel .mini-seg button{flex:1;text-align:center;padding:6px 4px}
+  .export-meta{font-family:var(--mono);font-size:9.5px;color:var(--ink-soft);line-height:1.45}
+  .export-panel button.primary{width:100%}
+
   /* search */
   .search-wrap{display:flex;border:1px solid var(--ink);background:var(--paper)}
   .search-wrap input{
@@ -486,6 +510,38 @@
       <output id="radiusOut">25 km</output>
     </div>
     <p class="drag-hint">Click anywhere on the map — or drag the red pin — to move your location</p>
+
+    <div class="export-row">
+      <button id="exportBtn" class="export-btn" type="button" aria-expanded="false" aria-controls="exportPanel">
+        <i class="ti ti-download"></i> Export report
+      </button>
+      <div class="export-panel" id="exportPanel" hidden>
+        <div class="export-panel-section">
+          <span class="export-panel-label">Dataset</span>
+          <div class="mini-seg" id="exportDatasetSeg" role="group" aria-label="Dataset">
+            <button data-val="ppi" aria-pressed="true">PPI + Signals</button>
+            <button data-val="log" aria-pressed="false">Enrichment Log</button>
+          </div>
+        </div>
+        <div class="export-panel-section">
+          <span class="export-panel-label">Format</span>
+          <div class="mini-seg" id="exportFormatSeg" role="group" aria-label="Format">
+            <button data-val="csv" aria-pressed="true">CSV</button>
+            <button data-val="xlsx" aria-pressed="false">Excel</button>
+            <button data-val="json" aria-pressed="false">JSON</button>
+          </div>
+        </div>
+        <div class="export-panel-section" id="exportScopeWrap">
+          <span class="export-panel-label">Scope</span>
+          <div class="mini-seg" id="exportScopeSeg" role="group" aria-label="Scope">
+            <button data-val="all" aria-pressed="true">All captured data</button>
+            <button data-val="view" aria-pressed="false">Within radius of pin</button>
+          </div>
+        </div>
+        <p class="export-meta" id="exportMeta">Every raw signal plus computed PPI, income &amp; spend, per pincode.</p>
+        <button class="primary" id="exportDownloadBtn" type="button">Download</button>
+      </div>
+    </div>
   </div>
 
   <!-- enrichment status bar — shown during scanning / mapping -->
@@ -1813,6 +1869,72 @@ document.getElementById("resetBtn").addEventListener("click", async ()=>{
   if(ci) ci.value = "";
   toast("Showing all " + ncrData.length + " localities");
 });
+
+// ── Export report ────────────────────────────────────────────────────────────
+(function(){
+  const btn      = document.getElementById("exportBtn");
+  const panel    = document.getElementById("exportPanel");
+  const scopeWrap= document.getElementById("exportScopeWrap");
+  const metaEl   = document.getElementById("exportMeta");
+  const dlBtn    = document.getElementById("exportDownloadBtn");
+  const state    = {dataset:"ppi", format:"csv", scope:"all"};
+
+  function wireSeg(id, key){
+    document.querySelectorAll(`#${id} button`).forEach(b=>{
+      b.addEventListener("click", ()=>{
+        document.querySelectorAll(`#${id} button`).forEach(x=>x.setAttribute("aria-pressed","false"));
+        b.setAttribute("aria-pressed","true");
+        state[key] = b.dataset.val;
+        updateMeta();
+      });
+    });
+  }
+  wireSeg("exportDatasetSeg","dataset");
+  wireSeg("exportFormatSeg","format");
+  wireSeg("exportScopeSeg","scope");
+
+  function updateMeta(){
+    scopeWrap.style.display = state.dataset === "log" ? "none" : "";
+    if(state.dataset === "log"){
+      metaEl.textContent = `Full audit trail — every enrichment event, source (yah/prefetch/search/batch) and timestamp.`;
+    } else if(state.scope === "view"){
+      metaEl.textContent = `Signals + PPI/income/spend for pincodes within ${radiusKm} km of the current pin.`;
+    } else {
+      metaEl.textContent = `Every raw signal plus computed PPI, income & spend, for all captured pincodes.`;
+    }
+  }
+  updateMeta();
+
+  btn.addEventListener("click", ()=>{
+    const open = panel.hidden;
+    panel.hidden = !open;
+    btn.setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", e=>{
+    if(!panel.hidden && !panel.contains(e.target) && e.target !== btn && !btn.contains(e.target)){
+      panel.hidden = true;
+      btn.setAttribute("aria-expanded","false");
+    }
+  });
+
+  dlBtn.addEventListener("click", ()=>{
+    if(!IS_SERVER){
+      toast("Run  python3 server.py  and open http://localhost:8080 to enable export",6000);
+      return;
+    }
+    const params = new URLSearchParams({format: state.format, dataset: state.dataset});
+    if(state.dataset === "ppi" && state.scope === "view"){
+      params.set("scope","view");
+      params.set("lat", center[0]);
+      params.set("lng", center[1]);
+      params.set("radius_km", radiusKm);
+    }
+    window.location.href = `/api/export?${params.toString()}`;
+    toast("Preparing download…",3000);
+    panel.hidden = true;
+    btn.setAttribute("aria-expanded","false");
+  });
+})();
 
 async function applyLocation(la, lo){
   if(dataPromise) await dataPromise;

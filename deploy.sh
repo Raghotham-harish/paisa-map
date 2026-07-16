@@ -81,7 +81,7 @@ echo "[deploy] synced to /var/www/paisamap"
 # Install any new Python deps for Flask server
 if [ -f venv-flask/bin/activate ]; then
   source venv-flask/bin/activate
-  pip install -q flask
+  pip install -q flask openpyxl
   deactivate
 fi
 

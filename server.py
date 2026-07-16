@@ -12,9 +12,14 @@ Endpoints:
   /api/enrich                GET {pincode, lat, lng, name, source} — enriches new pincode
   /api/status/<pincode>      enrichment job status
   /api/enrich_stats          enrichment log summary (counts by source, recent activity)
+  /api/export                GET {format, dataset, scope, lat, lng, radius_km} — download
+                              PPI+signals or the enrichment audit log as CSV/JSON/XLSX
 """
 
 import csv
+import io
+import json
+import math
 import re
 import sys
 import threading
@@ -31,8 +36,28 @@ ENRICH_SCRIPT = ETL / "etl" / "enrich_single.py"
 VENV_PY = ETL / "venv" / "bin" / "python3"
 PYTHON  = str(VENV_PY) if VENV_PY.exists() else sys.executable
 
+ETL_RAW = ETL / "data" / "raw"
+ETL_OUT = ETL / "data" / "output"
+
 ENRICH_LOG     = APP / "data" / "output" / "enrichment_log.csv"
 LOG_FIELDS     = ["timestamp", "pincode", "name", "lat", "lng", "source", "ppi", "income"]
+
+# ── Export: PPI/income/spend joined with every pincode-level raw signal ────────
+EXPORT_CORE_FIELDS = ["pincode", "name", "lat", "lng", "ppi_ml", "ppi_original",
+                       "est_monthly_income_hh", "est_monthly_spend_hh"]
+EXPORT_SIGNAL_FILES = [
+    ("property_rates.csv",      ["rate_per_sqft"]),
+    ("bank_deposits.csv",       ["bank_branches_per_lakh", "deposits_per_capita"]),
+    ("financial_inclusion.csv", ["sfb_branches", "coop_branches", "rrb_branches",
+                                  "fin_branches_total", "fin_density_per_km2"]),
+    ("itr_filers.csv",          ["filers_per_capita"]),
+    ("nightlights.csv",         ["radiance_mean"]),
+    ("poi_density.csv",         ["premium_poi_per_km2"]),
+    ("rto_enhanced.csv",        ["lmv_per_1000", "car_2w_ratio", "luxury_share", "ev_share"]),
+    ("vehicle_density.csv",     ["cars_per_1000"]),
+    ("upi_activity.csv",        ["upi_txn_value_per_capita"]),
+]
+EXPORT_ALL_COLUMNS = EXPORT_CORE_FIELDS + [c for _, cols in EXPORT_SIGNAL_FILES for c in cols]
 
 app = Flask(__name__)
 
@@ -192,6 +217,155 @@ def enrich_stats():
         "by_source": by_source,
         "recent":    recent,
     })
+
+
+# ── Export ────────────────────────────────────────────────────────────────────
+def _haversine_km(lat1, lng1, lat2, lng2):
+    r = 6371.0
+    p = math.pi / 180
+    dlat, dlng = (lat2 - lat1) * p, (lng2 - lng1) * p
+    a = (math.sin(dlat / 2) ** 2
+         + math.cos(lat1 * p) * math.cos(lat2 * p) * math.sin(dlng / 2) ** 2)
+    return 2 * r * math.asin(math.sqrt(max(0, a)))
+
+
+def _coerce(v):
+    """CSV values are always strings — turn numeric-looking ones back into numbers for JSON/XLSX."""
+    if v is None or v == "":
+        return None
+    try:
+        f = float(v)
+        return int(f) if f.is_integer() else f
+    except (TypeError, ValueError):
+        return v
+
+
+def _load_ppi_signals_rows():
+    """Join ppi_ml_refined.csv (PPI/income/spend) with every pincode-level raw signal file."""
+    core_path = ETL_OUT / "ppi_ml_refined.csv"
+    if not core_path.exists():
+        return {}
+    rows = {}
+    with open(core_path, newline="") as f:
+        for r in csv.DictReader(f):
+            pc = r.get("pincode")
+            if not pc:
+                continue
+            rows[pc] = {k: r.get(k, "") for k in EXPORT_CORE_FIELDS}
+    for fname, cols in EXPORT_SIGNAL_FILES:
+        fpath = ETL_RAW / fname
+        if not fpath.exists():
+            continue
+        with open(fpath, newline="") as f:
+            for r in csv.DictReader(f):
+                pc = r.get("pincode")
+                if pc not in rows:
+                    continue
+                for c in cols:
+                    rows[pc][c] = r.get(c, "")
+    return rows
+
+
+def _load_log_rows():
+    if not ENRICH_LOG.exists():
+        return []
+    with open(ENRICH_LOG, newline="") as f:
+        return list(csv.DictReader(f))
+
+
+@app.route("/api/export")
+def api_export():
+    fmt     = request.args.get("format", "csv").lower()
+    dataset = request.args.get("dataset", "ppi").lower()
+    scope   = request.args.get("scope", "all").lower()
+    lat     = request.args.get("lat", type=float)
+    lng     = request.args.get("lng", type=float)
+    radius  = request.args.get("radius_km", type=float)
+
+    if fmt not in ("csv", "json", "xlsx"):
+        return jsonify({"error": "format must be csv, json, or xlsx"}), 400
+    if dataset not in ("ppi", "log"):
+        return jsonify({"error": "dataset must be ppi or log"}), 400
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    if dataset == "log":
+        rows       = _load_log_rows()
+        columns    = LOG_FIELDS
+        sheet_name = "Enrichment Log"
+        base_name  = "paisamap_enrichment_log"
+    else:
+        joined = _load_ppi_signals_rows()
+        if scope == "view" and lat is not None and lng is not None and radius:
+            joined = {
+                pc: r for pc, r in joined.items()
+                if r.get("lat") and r.get("lng")
+                and _haversine_km(lat, lng, float(r["lat"]), float(r["lng"])) <= radius
+            }
+        rows       = sorted(joined.values(),
+                             key=lambda r: _coerce(r.get("ppi_ml")) or 0, reverse=True)
+        columns    = EXPORT_ALL_COLUMNS
+        sheet_name = "PPI & Signals"
+        base_name  = "paisamap_ppi_signals"
+
+    filename = f"{base_name}_{ts}.{fmt}"
+
+    if fmt == "json":
+        payload = json.dumps({
+            "generated_at": ts,
+            "dataset":      dataset,
+            "count":        len(rows),
+            "rows":         [{k: _coerce(v) for k, v in r.items()} for r in rows],
+        }, indent=2)
+        return payload, 200, {
+            "Content-Type":        "application/json",
+            "Content-Disposition": f"attachment; filename={filename}",
+        }
+
+    if fmt == "csv":
+        buf = io.StringIO()
+        w = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
+        w.writeheader()
+        for r in rows:
+            w.writerow(r)
+        return buf.getvalue(), 200, {
+            "Content-Type":        "text/csv",
+            "Content-Disposition": f"attachment; filename={filename}",
+        }
+
+    # xlsx
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+    except ImportError:
+        return jsonify({"error": "Excel export unavailable — openpyxl not installed on server"}), 501
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_name
+    ws.append(columns)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    ws.freeze_panes = "A2"
+    for r in rows:
+        ws.append([_coerce(r.get(c, "")) for c in columns])
+    for i, c in enumerate(columns, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = max(10, min(24, len(c) + 2))
+
+    meta = wb.create_sheet("Metadata")
+    meta.append(["Generated at (UTC)", ts])
+    meta.append(["Dataset", sheet_name])
+    meta.append(["Row count", len(rows)])
+    meta.append(["Source", "PaisaMap — pan-India PPI model + government/open data signals"])
+    meta.append(["Note", "Modelled estimates, not real transaction records — see in-app disclaimer."])
+
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return out.getvalue(), 200, {
+        "Content-Type":        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": f"attachment; filename={filename}",
+    }
 
 
 # ── Worker ────────────────────────────────────────────────────────────────────
