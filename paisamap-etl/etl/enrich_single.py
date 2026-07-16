@@ -22,6 +22,7 @@ from pathlib import Path
 import pandas as pd
 
 from _filelock import write_lock
+import _db
 
 ROOT = Path(__file__).resolve().parents[1]
 REF  = ROOT / "data" / "reference"
@@ -392,6 +393,14 @@ def main():
             "est_monthly_spend_hh":  spend_ml_new,
         }
         ml_df.sort_values("ppi_ml", ascending=False).to_csv(OUT / "ppi_ml_refined.csv")
+
+        # Dual-write to the database (no-op unless DATABASE_URL is set — see _db.py).
+        # CSV stays the source of truth until the DB has been proven in production.
+        try:
+            _db.upsert_pincode(pc, name, lat, lng, ppi_ml_new, None,
+                                income_ml_new, spend_ml_new)
+        except Exception as e:
+            print(f"  WARN: DB dual-write failed (CSV write already succeeded): {e}", flush=True)
 
         # ── Copy output to app directory ───────────────────────────────────────
         print("  Updating app data…")

@@ -81,13 +81,13 @@ echo "[deploy] synced to /var/www/paisamap"
 # Install any new Python deps for Flask server
 if [ -f venv-flask/bin/activate ]; then
   source venv-flask/bin/activate
-  pip install -q flask openpyxl
+  pip install -q flask openpyxl sqlalchemy psycopg2-binary
   deactivate
 fi
 
 # Install any new ETL deps
 if [ -d paisamap-etl/venv ]; then
-  paisamap-etl/venv/bin/pip install -q pandas requests pdfplumber scikit-learn
+  paisamap-etl/venv/bin/pip install -q pandas requests pdfplumber scikit-learn sqlalchemy psycopg2-binary
 fi
 
 # Restart Flask service

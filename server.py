@@ -14,6 +14,8 @@ Endpoints:
   /api/enrich_stats          enrichment log summary (counts by source, recent activity)
   /api/export                GET {format, dataset, scope, lat, lng, radius_km} — download
                               PPI+signals or the enrichment audit log as CSV/JSON/XLSX
+  /api/db_status             DB dual-write status + row-count parity vs. the CSVs
+                              (see paisamap-etl/etl/_db.py — no-op until DATABASE_URL is set)
 """
 
 import csv
@@ -38,6 +40,16 @@ PYTHON  = str(VENV_PY) if VENV_PY.exists() else sys.executable
 
 ETL_RAW = ETL / "data" / "raw"
 ETL_OUT = ETL / "data" / "output"
+
+# Optional DB dual-write (see paisamap-etl/etl/_db.py) — no-op unless
+# DATABASE_URL is set, and unavailable entirely if sqlalchemy isn't
+# installed in whatever interpreter is running this Flask app. Either way
+# the CSV-based flow below is unaffected.
+sys.path.insert(0, str(ETL / "etl"))
+try:
+    import _db
+except ImportError:
+    _db = None
 
 ENRICH_LOG     = APP / "data" / "output" / "enrichment_log.csv"
 LOG_FIELDS     = ["timestamp", "pincode", "name", "lat", "lng", "source", "ppi", "income"]
@@ -85,6 +97,15 @@ def _append_log(pc, name, lat, lng, source, ppi, income):
         if need_header:
             w.writeheader()
         w.writerow(row)
+
+    # Dual-write to the database (no-op unless DATABASE_URL is set). CSV
+    # above is already durable — a DB hiccup here must never surface to
+    # the /api/enrich caller, whose job already succeeded.
+    if _db is not None:
+        try:
+            _db.insert_log(row["timestamp"], pc, name, lat, lng, source, ppi, income)
+        except Exception as e:
+            print(f"  WARN: DB log dual-write failed: {e}", flush=True)
 
 
 def _parse_enrich_output(stdout):
@@ -186,6 +207,36 @@ def api_status(pincode):
 @app.route("/api/health")
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/db_status")
+def db_status():
+    """Whether the DB dual-write is configured, and what it currently holds
+    — CSV row counts alongside it as a parity check."""
+    if _db is None:
+        return jsonify({"enabled": False, "reason": "sqlalchemy not importable"})
+    if not _db.enabled():
+        return jsonify({"enabled": False, "reason": "DATABASE_URL not set"})
+    try:
+        db_counts = _db.counts()
+    except Exception as e:
+        return jsonify({"enabled": True, "error": str(e)}), 500
+
+    csv_pincodes = 0
+    ml_path = ETL_OUT / "ppi_ml_refined.csv"
+    if ml_path.exists():
+        with open(ml_path, newline="") as f:
+            csv_pincodes = sum(1 for _ in csv.DictReader(f))
+    csv_log = 0
+    if ENRICH_LOG.exists():
+        with open(ENRICH_LOG, newline="") as f:
+            csv_log = sum(1 for _ in csv.DictReader(f))
+
+    return jsonify({
+        "enabled": True,
+        "db":  db_counts,
+        "csv": {"pincodes": csv_pincodes, "enrichment_log": csv_log},
+    })
 
 
 @app.route("/api/enrich_stats")

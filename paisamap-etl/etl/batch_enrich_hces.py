@@ -35,6 +35,7 @@ import pandas as pd
 
 from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, PREFIX_STATE, scale_from_poi
 from _filelock import write_lock
+import _db
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW  = ROOT / "data" / "raw"
@@ -310,6 +311,23 @@ def write_to_app(new_rows: pd.DataFrame) -> int:
         # Sync to app data dir
         APP.mkdir(parents=True, exist_ok=True)
         combined.sort_values("ppi", ascending=False).to_csv(APP / "ppi_map_data.csv")
+
+        # Dual-write this run's new rows to the database (no-op unless
+        # DATABASE_URL is set — see _db.py). CSV stays the source of truth
+        # until the DB has been proven in production.
+        try:
+            db_rows = [
+                {"pincode": pc, "name": r.get("name") or pc, "lat": r["lat"], "lng": r["lng"],
+                 "ppi_ml": r["ppi_ml"], "ppi_original": r.get("ppi_original"),
+                 "est_monthly_income_hh": r["est_monthly_income_hh"],
+                 "est_monthly_spend_hh": r.get("est_monthly_spend_hh")}
+                for pc, r in truly_new.iterrows()
+            ]
+            n_db = _db.bulk_upsert_pincodes(db_rows)
+            if n_db:
+                print(f"  DB dual-write: upserted {n_db} pincodes")
+        except Exception as e:
+            print(f"  WARN: DB dual-write failed (CSV write already succeeded): {e}", flush=True)
 
         return len(truly_new)
 
