@@ -292,17 +292,27 @@ def _coerce(v):
 
 
 def _load_ppi_signals_rows():
-    """Join ppi_ml_refined.csv (PPI/income/spend) with every pincode-level raw signal file."""
-    core_path = ETL_OUT / "ppi_ml_refined.csv"
-    if not core_path.exists():
-        return {}
+    """Core PPI/income/spend (DB if configured, else ppi_ml_refined.csv) joined
+    with every pincode-level raw signal file (still CSV-only — out of scope
+    for the DB migration's first pass). Returns (rows_dict, source_label)."""
     rows = {}
-    with open(core_path, newline="") as f:
-        for r in csv.DictReader(f):
+    source = "csv"
+    db_rows = _db.fetch_pincodes() if _db is not None else None
+    if db_rows is not None:
+        source = "database"
+        for r in db_rows:
             pc = r.get("pincode")
-            if not pc:
-                continue
-            rows[pc] = {k: r.get(k, "") for k in EXPORT_CORE_FIELDS}
+            if pc:
+                rows[pc] = {k: r.get(k, "") for k in EXPORT_CORE_FIELDS}
+    else:
+        core_path = ETL_OUT / "ppi_ml_refined.csv"
+        if core_path.exists():
+            with open(core_path, newline="") as f:
+                for r in csv.DictReader(f):
+                    pc = r.get("pincode")
+                    if pc:
+                        rows[pc] = {k: r.get(k, "") for k in EXPORT_CORE_FIELDS}
+
     for fname, cols in EXPORT_SIGNAL_FILES:
         fpath = ETL_RAW / fname
         if not fpath.exists():
@@ -314,14 +324,19 @@ def _load_ppi_signals_rows():
                     continue
                 for c in cols:
                     rows[pc][c] = r.get(c, "")
-    return rows
+    return rows, source
 
 
 def _load_log_rows():
+    """Returns (rows, source_label) — DB if configured, else enrichment_log.csv."""
+    if _db is not None:
+        db_rows = _db.fetch_log()
+        if db_rows is not None:
+            return db_rows, "database"
     if not ENRICH_LOG.exists():
-        return []
+        return [], "csv"
     with open(ENRICH_LOG, newline="") as f:
-        return list(csv.DictReader(f))
+        return list(csv.DictReader(f)), "csv"
 
 
 @app.route("/api/export")
@@ -341,12 +356,12 @@ def api_export():
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
     if dataset == "log":
-        rows       = _load_log_rows()
+        rows, source = _load_log_rows()
         columns    = LOG_FIELDS
         sheet_name = "Enrichment Log"
         base_name  = "paisamap_enrichment_log"
     else:
-        joined = _load_ppi_signals_rows()
+        joined, source = _load_ppi_signals_rows()
         if scope == "view" and lat is not None and lng is not None and radius:
             joined = {
                 pc: r for pc, r in joined.items()
@@ -365,12 +380,14 @@ def api_export():
         payload = json.dumps({
             "generated_at": ts,
             "dataset":      dataset,
+            "source":       source,
             "count":        len(rows),
             "rows":         [{k: _coerce(v) for k, v in r.items()} for r in rows],
         }, indent=2)
         return payload, 200, {
             "Content-Type":        "application/json",
             "Content-Disposition": f"attachment; filename={filename}",
+            "X-Data-Source":       source,
         }
 
     if fmt == "csv":
@@ -382,6 +399,7 @@ def api_export():
         return buf.getvalue(), 200, {
             "Content-Type":        "text/csv",
             "Content-Disposition": f"attachment; filename={filename}",
+            "X-Data-Source":       source,
         }
 
     # xlsx
@@ -407,7 +425,8 @@ def api_export():
     meta.append(["Generated at (UTC)", ts])
     meta.append(["Dataset", sheet_name])
     meta.append(["Row count", len(rows)])
-    meta.append(["Source", "PaisaMap — pan-India PPI model + government/open data signals"])
+    meta.append(["Data read from", "PostgreSQL" if source == "database" else "CSV"])
+    meta.append(["About", "PaisaMap — pan-India PPI model + government/open data signals"])
     meta.append(["Note", "Modelled estimates, not real transaction records — see in-app disclaimer."])
 
     out = io.BytesIO()
@@ -416,6 +435,7 @@ def api_export():
     return out.getvalue(), 200, {
         "Content-Type":        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "Content-Disposition": f"attachment; filename={filename}",
+        "X-Data-Source":       source,
     }
 
 

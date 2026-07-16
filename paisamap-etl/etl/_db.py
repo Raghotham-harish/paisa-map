@@ -221,3 +221,59 @@ def counts():
         p = conn.execute(text("SELECT COUNT(*) FROM pincodes")).scalar()
         l = conn.execute(text("SELECT COUNT(*) FROM enrichment_log")).scalar()
     return {"pincodes": p, "enrichment_log": l}
+
+
+# ── Reads (for cutting server.py's read paths over) ────────────────────────────
+_PINCODE_EXPORT_COLS = ["pincode", "name", "lat", "lng", "ppi_ml", "ppi_original",
+                        "est_monthly_income_hh", "est_monthly_spend_hh"]
+_LOG_EXPORT_COLS = ["timestamp", "pincode", "name", "lat", "lng", "source", "ppi", "income"]
+
+
+def fetch_pincodes():
+    """All pincode rows, sorted by ppi_ml desc, as plain dicts with CSV-shaped
+    string-safe values (matching what the CSV-based code path already returns
+    from csv.DictReader) so callers don't need to branch on the source.
+    Returns None if the DB isn't configured."""
+    engine = _get_engine()
+    if engine is None:
+        return None
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT pincode, name, lat, lng, ppi_ml, ppi_original, "
+            "est_monthly_income_hh, est_monthly_spend_hh FROM pincodes "
+            "ORDER BY ppi_ml DESC"
+        )).mappings().all()
+    return [{c: ("" if r[c] is None else r[c]) for c in _PINCODE_EXPORT_COLS} for r in rows]
+
+
+def fetch_log():
+    """All enrichment_log rows, sorted oldest-first (matching the CSV's
+    natural append order), as plain dicts keyed like LOG_FIELDS in server.py.
+    Returns None if the DB isn't configured."""
+    engine = _get_engine()
+    if engine is None:
+        return None
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT ts, pincode, name, lat, lng, source, ppi, income "
+            "FROM enrichment_log ORDER BY id ASC"
+        )).mappings().all()
+    out = []
+    for r in rows:
+        out.append({
+            # text() queries skip SQLAlchemy's column-type result processing, so
+            # `ts` can come back as a driver-native string (confirmed on SQLite;
+            # not assumed safe on psycopg2 either) rather than a datetime — always
+            # normalise through _parse_ts instead of assuming an object with strftime.
+            "timestamp": _parse_ts(r["ts"]).strftime("%Y-%m-%dT%H:%M:%SZ") if r["ts"] else "",
+            "pincode":   r["pincode"],
+            "name":      r["name"] or "",
+            "lat":       "" if r["lat"] is None else r["lat"],
+            "lng":       "" if r["lng"] is None else r["lng"],
+            "source":    r["source"],
+            "ppi":       "" if r["ppi"] is None else r["ppi"],
+            "income":    "" if r["income"] is None else r["income"],
+        })
+    return out
