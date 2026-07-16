@@ -329,6 +329,13 @@ CENSUS_DISTRICT_ALIASES = {
     "CHHOTAUDEPUR": "CHHOTA UDAIPUR",
     "DEVBHOOMI DWARKA": "DEVBHUMI DWARKA",
     "AMBEDAKAR NAGAR": "AMBEDKAR NAGAR",
+    # Added for fetch_education.py's UDISE+ school-level data (2026-07-17).
+    "KAMRUP METRO": "KAMRUP METROPOLITAN",
+    "KAMRUP RURAL": "KAMRUP",
+    "SIBSAGAR": "SIVASAGAR",
+    "AURANGABAD BIHAR": "AURANGABAD",  # source already disambiguates from Maharashtra's Aurangabad
+    "KAIMUR BHABUA": "KAIMUR",
+    "PURBA CHAMPARAN": "EAST CHAMPARAN",  # Hindi "Purba" = East
 }
 
 
