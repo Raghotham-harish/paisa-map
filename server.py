@@ -72,6 +72,7 @@ EXPORT_SIGNAL_FILES = [
     ("commercial.csv",          ["msme_per_lakh"]),
     ("agriculture.csv",         ["cropping_intensity_pct"]),
     ("industrial.csv",          ["factories_per_lakh"]),
+    ("economic.csv",            ["nsdp_per_capita"]),
 ]
 EXPORT_ALL_COLUMNS = EXPORT_CORE_FIELDS + [c for _, cols in EXPORT_SIGNAL_FILES for c in cols]
 
