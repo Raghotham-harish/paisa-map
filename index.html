@@ -648,6 +648,26 @@ let nameIndex  = [];   // array of same objects, for fuzzy name search
 const IS_SERVER = !window.location.hostname.includes("github.io")
                && window.location.protocol !== "file:";
 
+// Quote-aware CSV line split — plain split(",") breaks on fields like
+// "Sundargarh, Odisha", silently misaligning every column after them.
+function splitCsvLine(line){
+  const out = [];
+  let cur = "", inQuotes = false;
+  for(let i=0; i<line.length; i++){
+    const c = line[i];
+    if(c === '"'){
+      if(inQuotes && line[i+1] === '"'){ cur += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if(c === ',' && !inQuotes){
+      out.push(cur); cur = "";
+    } else {
+      cur += c;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
 async function loadPPIData(){
   try{
     const res = await fetch(`data/output/ppi_map_data.csv?t=${Date.now()}`);
@@ -655,7 +675,7 @@ async function loadPPIData(){
     const text = await res.text();
     const lines = text.trim().split("\n");
     const parsed = lines.slice(1).map(line=>{
-      const [pincode,name,lat,lng,ppi,income,poi] = line.split(",");
+      const [pincode,name,lat,lng,ppi,income,poi] = splitCsvLine(line);
       return {pincode, name, lat:+lat, lng:+lng, ppi:+ppi||100, income:+income, poi:+poi||0};
     }).filter(r=>r.lat&&r.lng&&r.income);
     if(parsed.length > 0){
