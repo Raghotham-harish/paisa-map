@@ -43,11 +43,26 @@
 
   /* ---------- Sidebar : the ledger ---------- */
   aside{
-    width:340px;min-width:340px;height:100vh;
+    width:540px;min-width:540px;height:100vh;
     display:flex;flex-direction:column;
     border-right:1px solid var(--ink);
     background:var(--paper);
     z-index:1000;
+  }
+  /* two columns below the brand strip: inputs (left) vs. read-only results (right) */
+  .aside-body{
+    flex:1;min-height:0;display:flex;
+  }
+  .col-controls{
+    width:200px;min-width:200px;
+    border-right:1px solid var(--ink);
+    display:flex;flex-direction:column;
+    overflow-y:auto;
+  }
+  .col-results{
+    flex:1;min-width:0;
+    display:flex;flex-direction:column;
+    overflow-y:auto;
   }
   .brand{
     padding:12px 16px 10px;
@@ -183,6 +198,30 @@
   }
   .export-panel .mini-seg{width:100%}
   .export-panel .mini-seg button{flex:1;text-align:center;padding:6px 4px}
+  .export-panel-label{display:flex;justify-content:space-between;align-items:baseline}
+  .export-signals-toggle{
+    font-family:var(--mono);font-size:9px;letter-spacing:.05em;color:var(--rupee-deep);
+    background:none;border:0;cursor:pointer;padding:0;text-decoration:underline;
+  }
+  .export-signals-list{
+    max-height:170px;overflow-y:auto;border:1px solid var(--hairline);
+    background:var(--paper-2);padding:6px 8px;display:flex;flex-direction:column;gap:2px;
+  }
+  .export-signals-group{
+    font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-soft);margin-top:6px;
+  }
+  .export-signals-group:first-child{margin-top:0}
+  .export-signals-list label{
+    display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0;cursor:pointer;
+  }
+  .export-signals-list input{margin:0;flex-shrink:0}
+
+  /* "more signals" map metric dropdown */
+  select.signal-select{
+    width:100%;font-family:var(--mono);font-size:11px;color:var(--ink);
+    background:var(--paper);border:1px solid var(--ink);padding:7px 6px;cursor:pointer;
+  }
   .export-meta{font-family:var(--mono);font-size:9.5px;color:var(--ink-soft);line-height:1.45}
   .export-panel button.primary{width:100%}
 
@@ -272,7 +311,7 @@
 
   /* headline index */
   .headline{
-    padding:16px 22px;border-bottom:1px solid var(--ink);
+    padding:16px;border-bottom:1px solid var(--ink);
     background:var(--paper-2);
   }
   .headline .field-label{margin-bottom:2px}
@@ -294,11 +333,11 @@
     font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
     color:var(--ink-soft);
     display:grid;grid-template-columns:30px 1fr 84px 64px;
-    padding:8px 22px;border-bottom:1px solid var(--hairline);
+    padding:8px 16px;border-bottom:1px solid var(--hairline);
   }
   .loc-row{
     display:grid;grid-template-columns:30px 1fr 84px 64px;
-    padding:10px 22px;border-bottom:1px solid var(--hairline);
+    padding:10px 16px;border-bottom:1px solid var(--hairline);
     cursor:pointer;align-items:baseline;width:100%;
     background:transparent;border-left:0;border-right:0;border-top:0;text-align:left;
     font-family:var(--sans);color:var(--ink);
@@ -449,6 +488,9 @@
   @media (max-width:760px){
     body{flex-direction:column}
     aside{width:100%;min-width:0;height:46vh;order:2;border-right:0;border-top:1px solid var(--ink)}
+    .aside-body{flex-direction:column;overflow-y:auto}
+    .col-controls{width:100%;min-width:0;border-right:0;border-bottom:1px solid var(--ink);overflow-y:visible}
+    .col-results{overflow-y:visible}
     main{height:54vh;order:1}
     .brand-logo{height:28px}
     .headline .big{font-size:34px}
@@ -463,10 +505,12 @@
 
 <aside>
   <div class="brand">
-    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v3.6 · Live</span></div>
+    <div class="eyebrow"><span>Purchasing-power atlas</span><span>v3.7 · Live</span></div>
     <img class="brand-logo" src="assets/logo-horizontal.svg" alt="PaisaMap" height="36">
   </div>
 
+  <div class="aside-body">
+  <div class="col-controls">
   <div class="controls">
     <!-- Quick city jump: searchable dropdown -->
     <div class="city-search-wrap">
@@ -484,11 +528,13 @@
     </div>
     <div id="searchResults" role="listbox"></div>
 
-    <!-- Compact action bar: 2-row layout -->
+    <!-- Compact action bar -->
     <div class="action-bar">
       <div class="action-row">
-        <button class="act-btn" id="locateBtn" title="Use my location"><i class="ti ti-current-location"></i></button>
-        <button class="act-btn" id="nearbyBtn" title="Nearby hubs"><i class="ti ti-building-store"></i></button>
+        <button class="act-btn" id="locateBtn" title="Use my location" style="flex:1"><i class="ti ti-current-location"></i></button>
+        <button class="act-btn" id="nearbyBtn" title="Nearby hubs" style="flex:1"><i class="ti ti-building-store"></i></button>
+      </div>
+      <div class="action-row">
         <div class="mini-seg" id="metricSeg" role="group" aria-label="Metric" style="flex:1">
           <button data-metric="ppi"    aria-pressed="true"  title="PPI" style="flex:1">PPI</button>
           <button data-metric="income" aria-pressed="false" title="Income" style="flex:1">₹</button>
@@ -500,6 +546,11 @@
           <button id="viewZones" aria-pressed="true"  title="Zone polygons" style="flex:1"><i class="ti ti-hexagon"></i> Zones</button>
           <button id="viewHeat"  aria-pressed="false" title="Heatmap" style="flex:1"><i class="ti ti-flame"></i> Heat</button>
         </div>
+      </div>
+      <div class="action-row">
+        <select id="signalMore" class="signal-select" aria-label="Colour map by signal">
+          <option value="">More signals…</option>
+        </select>
       </div>
     </div>
 
@@ -538,6 +589,12 @@
             <button data-val="view" aria-pressed="false">Within radius of pin</button>
           </div>
         </div>
+        <div class="export-panel-section" id="exportSignalsWrap">
+          <span class="export-panel-label">Signals to include
+            <span><button type="button" class="export-signals-toggle" id="exportSignalsAll">All</button> / <button type="button" class="export-signals-toggle" id="exportSignalsNone">None</button></span>
+          </span>
+          <div class="export-signals-list" id="exportSignalsList"></div>
+        </div>
         <p class="export-meta" id="exportMeta">Every raw signal plus computed PPI, income &amp; spend, per pincode.</p>
         <button class="primary" id="exportDownloadBtn" type="button">Download</button>
       </div>
@@ -550,7 +607,9 @@
     <span id="enrichMsg">Scanning nearby…</span>
     <span class="enrich-count" id="enrichCount" hidden></span>
   </div>
+  </div>
 
+  <div class="col-results">
   <div class="headline">
     <div class="field-label"><span id="hlLabel">Area purchasing power index</span><span id="hlBaseLine">base 100</span></div>
     <div class="big"><span id="hlValue">—</span><small id="hlDenominator"> / 200</small></div>
@@ -564,6 +623,8 @@
   <div class="ledger">
     <div class="ledger-head"><span>#</span><span>Locality</span><span style="text-align:right" id="colLabel">Income/mo</span><span style="text-align:right">PPI</span></div>
     <div id="locList"></div>
+  </div>
+  </div>
   </div>
 
   <div class="method">
@@ -701,6 +762,60 @@ const fmtINR = n => "₹" + Math.round(n).toLocaleString("en-IN");
 const fmtShort = n => n >= 100000 ? "₹" + (n/100000).toFixed(1).replace(/\.0$/,"") + "L"
                                   : "₹" + Math.round(n/1000) + "k";
 
+// Every raw per-pincode signal /api/export can join in, grouped for the export
+// checklist and doubling as the "colour map by" dropdown. IDs match server.py's
+// EXPORT_SIGNAL_FILES column names exactly.
+const SIGNAL_GROUPS = [
+  { label:"Property", cols:[
+    {id:"rate_per_sqft", label:"Property rate /sqft", fmt:v=>fmtINR(v)},
+  ]},
+  { label:"Banking & UPI", cols:[
+    {id:"bank_branches_per_lakh",     label:"Bank branches /lakh",   fmt:v=>v.toFixed(1)},
+    {id:"deposits_per_capita",        label:"Deposits per capita",  fmt:v=>fmtINR(v)},
+    {id:"sfb_branches",               label:"SFB branches",         fmt:v=>v.toFixed(0)},
+    {id:"coop_branches",              label:"Co-op branches",       fmt:v=>v.toFixed(0)},
+    {id:"rrb_branches",               label:"RRB branches",         fmt:v=>v.toFixed(0)},
+    {id:"fin_branches_total",         label:"Total fin. branches",  fmt:v=>v.toFixed(0)},
+    {id:"fin_density_per_km2",        label:"Fin. density /km²",    fmt:v=>v.toFixed(2)},
+    {id:"upi_txn_value_per_capita",   label:"UPI txn value /capita",fmt:v=>fmtINR(v)},
+  ]},
+  { label:"Tax & economy", cols:[
+    {id:"filers_per_capita",       label:"ITR filers /capita",   fmt:v=>(v*100).toFixed(1)+"%"},
+    {id:"msme_per_lakh",           label:"MSMEs /lakh",          fmt:v=>v.toFixed(1)},
+    {id:"factories_per_lakh",      label:"Factories /lakh",      fmt:v=>v.toFixed(1)},
+    {id:"nsdp_per_capita",         label:"NSDP per capita",      fmt:v=>fmtINR(v)},
+    {id:"cropping_intensity_pct",  label:"Cropping intensity",   fmt:v=>v.toFixed(0)+"%"},
+  ]},
+  { label:"Infrastructure", cols:[
+    {id:"radiance_mean",        label:"Night-lights radiance", fmt:v=>v.toFixed(2)},
+    {id:"premium_poi_per_km2",  label:"Premium POI density",   fmt:v=>v.toFixed(2)},
+    {id:"schools_per_lakh",     label:"Schools /lakh",         fmt:v=>v.toFixed(1)},
+  ]},
+  { label:"Vehicles", cols:[
+    {id:"cars_per_1000",  label:"Cars /1000",       fmt:v=>v.toFixed(1)},
+    {id:"lmv_per_1000",   label:"LMVs /1000",       fmt:v=>v.toFixed(1)},
+    {id:"car_2w_ratio",   label:"Car:2W ratio",     fmt:v=>v.toFixed(2)},
+    {id:"luxury_share",   label:"Luxury vehicle share", fmt:v=>(v*100).toFixed(1)+"%"},
+    {id:"ev_share",       label:"EV share",         fmt:v=>(v*100).toFixed(1)+"%"},
+  ]},
+];
+const SIGNAL_DEFS = {};
+SIGNAL_GROUPS.forEach(g => g.cols.forEach(c => SIGNAL_DEFS[c.id] = c));
+
+// pincode → joined raw-signal row, loaded once from /api/export (json, all columns)
+let signalMap = {};
+async function loadSignalData(){
+  if(!IS_SERVER) return;
+  try{
+    const res = await fetch(`/api/export?format=json&dataset=ppi&scope=all`);
+    if(!res.ok) return;
+    const data = await res.json();
+    const m = {};
+    (data.rows||[]).forEach(r => { if(r.pincode) m[r.pincode] = r; });
+    signalMap = m;
+  }catch(e){ /* "more signals" simply stays unavailable — PPI/income/spend unaffected */ }
+}
+
 // deterministic pseudo-random (so heat jitter is stable per locality)
 function rng(seed){ return () => (seed = (seed*9301+49297)%233280) / 233280; }
 
@@ -740,6 +855,7 @@ const haversine = (a,b,c,d) => {
 let center = [...DELHI_CENTER];
 let radiusKm = 25;
 let metric = "ppi";
+let metricMin = 0, metricMax = 1;   // recomputed every render() — zoneColor/updateLegend read these
 let dataset = NCR.map(buildRecord);
 let activeId = null;
 
@@ -1418,10 +1534,22 @@ function spendColor(v){
   if(v >= 17000) return "#E74C3C";
   return                "#922B21";
 }
+// Any of the extra raw signals — bucketed by this render's min/max (metricMin/metricMax),
+// since their ranges vary far too widely (e.g. NSDP vs. UPI txn value) for fixed thresholds.
+function bucketColor(t){
+  if(t >= 1)   return "#1A7A4A";
+  if(t >= 0.8) return "#27AE60";
+  if(t >= 0.6) return "#F1C40F";
+  if(t >= 0.4) return "#E67E22";
+  if(t >= 0.2) return "#E74C3C";
+  return              "#922B21";
+}
 function zoneColor(d){
   if(metric === "income") return incomeColor(d.income);
   if(metric === "spend")  return spendColor(d.spend);
-  return ppiColor(d.ppi);
+  if(metric === "ppi")    return ppiColor(d.ppi);
+  const t = metricMax > metricMin ? (metricValue(d) - metricMin) / (metricMax - metricMin) : 0.5;
+  return bucketColor(t);
 }
 
 // Fixed ticks per metric for the legend
@@ -1432,9 +1560,19 @@ const LEGEND_TICKS = {
 };
 function updateLegend(){
   const labels = {ppi:"PPI index", income:"Avg income / mo", spend:"Avg spend / mo"};
-  document.getElementById("denomLabel").textContent = labels[metric];
-  document.getElementById("denomTicks").innerHTML =
-    LEGEND_TICKS[metric].map(t=>`<span>${t}</span>`).join("");
+  const sig = SIGNAL_DEFS[metric];
+  document.getElementById("denomLabel").textContent = sig ? sig.label : labels[metric];
+  if(sig){
+    const ticks = [];
+    for(let i=0;i<6;i++){
+      const v = metricMin + (metricMax-metricMin)*(i/5);
+      ticks.push(i===5 ? sig.fmt(v)+"+" : sig.fmt(v));
+    }
+    document.getElementById("denomTicks").innerHTML = ticks.map(t=>`<span>${t}</span>`).join("");
+  } else {
+    document.getElementById("denomTicks").innerHTML =
+      LEGEND_TICKS[metric].map(t=>`<span>${t}</span>`).join("");
+  }
 }
 
 let renderGen = 0;
@@ -1514,7 +1652,7 @@ map.on("zoomend",()=>{
   if(viewMode !== "heat" || !heatLayer || !lastHeatPts.length) return;
   heatLayer.remove();
   const hr = heatRadiusForZoom();
-  heatLayer = L.heatLayer(lastHeatPts,{radius:hr,blur:Math.round(hr*.72),maxZoom:16,minOpacity:0.12,max:1.0,gradient:HEAT_GRADIENTS[metric]}).addTo(map);
+  heatLayer = L.heatLayer(lastHeatPts,{radius:hr,blur:Math.round(hr*.72),maxZoom:16,minOpacity:0.12,max:1.0,gradient:HEAT_GRADIENTS[metric]||HEAT_GRADIENTS.ppi}).addTo(map);
 });
 
 /* ---------- core render ---------- */
@@ -1531,24 +1669,43 @@ function computePPI(rows){
   return rows;
 }
 
-function metricValue(d){ return metric==="income" ? d.income : metric==="spend" ? d.spend : d.ppi; }
+function metricValue(d){
+  if(metric === "income") return d.income;
+  if(metric === "spend")  return d.spend;
+  if(metric === "ppi")    return d.ppi;
+  const row = d.pincode && signalMap[d.pincode];
+  const v = row ? +row[metric] : NaN;
+  return Number.isFinite(v) ? v : 0;
+}
 
 function render(){
   const gen = ++renderGen;
-  let rows = computePPI(withinRadius()).sort((a,b)=>metricValue(b)-metricValue(a));
+  const isExtraSignal = !!SIGNAL_DEFS[metric];
+  let rows = computePPI(withinRadius());
+  if(isExtraSignal){
+    // Only pincodes with a real value for this signal — fabricating e.g. an
+    // NSDP figure for an unenriched area (like the synthetic fallback below
+    // does for income) would be actively misleading.
+    rows = rows.filter(d => {
+      const row = d.pincode && signalMap[d.pincode];
+      return row && row[metric] !== null && row[metric] !== undefined && row[metric] !== "";
+    });
+  }
+  rows.sort((a,b)=>metricValue(b)-metricValue(a));
 
   // No real data within selected radius → show synthetic demo clusters around pin
   let usingEstimated = false;
-  if(rows.length === 0){
+  if(rows.length === 0 && !isExtraSignal){
     const synth = syntheticAround(center[0], center[1]).map(buildRecord);
     rows = computePPI(synth.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm))
              .sort((a,b)=>metricValue(b)-metricValue(a));
     usingEstimated = true;
+  } else if(rows.length === 0 && isExtraSignal){
+    toast(`No ${SIGNAL_DEFS[metric].label} data within ${radiusKm} km`, 3500);
   }
 
-  const metricVals = rows.map(metricValue);
-  const metricMin = rows.length ? Math.min(...metricVals) : 0;
-  const metricMax = rows.length ? Math.max(...metricVals) : 1;
+  metricMin = rows.length ? Math.min(...rows.map(metricValue)) : 0;
+  metricMax = rows.length ? Math.max(...rows.map(metricValue)) : 1;
 
   // radius circle
   if(circleLayer) circleLayer.remove();
@@ -1660,7 +1817,7 @@ function render(){
       const hr = heatRadiusForZoom();
       heatLayer = L.heatLayer(fallbackPts,{
         radius:hr, blur:Math.round(hr*.72), maxZoom:16,
-        minOpacity:0.10, max:1.0, gradient:HEAT_GRADIENTS[metric]
+        minOpacity:0.10, max:1.0, gradient:HEAT_GRADIENTS[metric]||HEAT_GRADIENTS.ppi
       }).addTo(map);
     }
   }
@@ -1685,6 +1842,7 @@ function render(){
   const avgIncome = rows.length ? avg(rows.map(r=>r.income)) : 0;
   const avgSpend  = rows.length ? avg(rows.map(r=>r.spend))  : 0;
   const avgPpi    = rows.length ? Math.round(avg(rows.map(r=>r.ppi))) : 0;
+  const sigDef = SIGNAL_DEFS[metric];
   if(metric === "income"){
     document.getElementById("hlValue").textContent     = rows.length ? fmtShort(avgIncome) : "—";
     document.getElementById("hlDenominator").textContent = "/mo";
@@ -1692,6 +1850,11 @@ function render(){
   } else if(metric === "spend"){
     document.getElementById("hlValue").textContent     = rows.length ? fmtShort(avgSpend) : "—";
     document.getElementById("hlDenominator").textContent = "/mo";
+    document.getElementById("hlBaseLine").textContent  = "avg";
+  } else if(sigDef){
+    const avgSig = rows.length ? avg(rows.map(metricValue)) : 0;
+    document.getElementById("hlValue").textContent     = rows.length ? sigDef.fmt(avgSig) : "—";
+    document.getElementById("hlDenominator").textContent = "";
     document.getElementById("hlBaseLine").textContent  = "avg";
   } else {
     document.getElementById("hlValue").textContent     = rows.length ? avgPpi : "—";
@@ -1704,15 +1867,18 @@ function render(){
 
   // ledger list
   const colLabels = {ppi:"PPI", income:"Income/mo", spend:"Spend/mo"};
-  document.getElementById("colLabel").textContent = colLabels[metric]==="PPI" ? "Income/mo" : colLabels[metric];
+  document.getElementById("colLabel").textContent =
+    sigDef ? sigDef.label : (colLabels[metric]==="PPI" ? "Income/mo" : colLabels[metric]);
   const list = document.getElementById("locList");
   list.innerHTML = "";
   rows.forEach((d,i)=>{
     const b = document.createElement("button");
     b.className = "loc-row" + (d.id===activeId ? " active":"");
+    const valText = sigDef ? sigDef.fmt(metricValue(d))
+                  : metric==="spend" ? fmtShort(d.spend) : fmtShort(d.income);
     b.innerHTML = `<span class="rank">${String(i+1).padStart(2,"0")}</span>
       <span class="name">${d.name}</span>
-      <span class="val">${metric==="spend" ? fmtShort(d.spend) : fmtShort(d.income)}</span>
+      <span class="val">${valText}</span>
       <span class="ppi">${d.ppi}</span>`;
     b.addEventListener("click",()=>{
       setActive(d.id,true);
@@ -1864,15 +2030,37 @@ document.getElementById("radius").addEventListener("input", e=>{
   render();
 });
 
+const signalMoreEl = document.getElementById("signalMore");
+SIGNAL_GROUPS.forEach(g=>{
+  const og = document.createElement("optgroup");
+  og.label = g.label;
+  g.cols.forEach(c=>{
+    const opt = document.createElement("option");
+    opt.value = c.id; opt.textContent = c.label;
+    og.appendChild(opt);
+  });
+  signalMoreEl.appendChild(og);
+});
+
 document.querySelectorAll("#metricSeg button").forEach(b=>{
   b.addEventListener("click", ()=>{
     document.querySelectorAll("#metricSeg button").forEach(x=>x.setAttribute("aria-pressed","false"));
     b.setAttribute("aria-pressed","true");
+    signalMoreEl.value = "";
     metric = b.dataset.metric;
     const labels = {ppi:"Area purchasing power index", income:"Area avg income (indexed view)", spend:"Area avg spend (indexed view)"};
     document.getElementById("hlLabel").textContent = labels[metric];
     render();
   });
+});
+
+signalMoreEl.addEventListener("change", ()=>{
+  if(!signalMoreEl.value) return;
+  document.querySelectorAll("#metricSeg button").forEach(x=>x.setAttribute("aria-pressed","false"));
+  metric = signalMoreEl.value;
+  const sig = SIGNAL_DEFS[metric];
+  document.getElementById("hlLabel").textContent = (sig ? sig.label : "Signal") + " — area average";
+  render();
 });
 
 document.getElementById("resetBtn").addEventListener("click", async ()=>{
@@ -1895,9 +2083,30 @@ document.getElementById("resetBtn").addEventListener("click", async ()=>{
   const btn      = document.getElementById("exportBtn");
   const panel    = document.getElementById("exportPanel");
   const scopeWrap= document.getElementById("exportScopeWrap");
+  const signalsWrap = document.getElementById("exportSignalsWrap");
+  const signalsList = document.getElementById("exportSignalsList");
   const metaEl   = document.getElementById("exportMeta");
   const dlBtn    = document.getElementById("exportDownloadBtn");
   const state    = {dataset:"ppi", format:"csv", scope:"all"};
+
+  // Signal checklist — defaults to everything checked (== today's "export all" behaviour)
+  SIGNAL_GROUPS.forEach(g=>{
+    const gl = document.createElement("div");
+    gl.className = "export-signals-group";
+    gl.textContent = g.label;
+    signalsList.appendChild(gl);
+    g.cols.forEach(c=>{
+      const label = document.createElement("label");
+      label.innerHTML = `<input type="checkbox" value="${c.id}" checked> ${c.label}`;
+      signalsList.appendChild(label);
+    });
+  });
+  document.getElementById("exportSignalsAll").addEventListener("click", ()=>{
+    signalsList.querySelectorAll("input").forEach(cb=>cb.checked=true);
+  });
+  document.getElementById("exportSignalsNone").addEventListener("click", ()=>{
+    signalsList.querySelectorAll("input").forEach(cb=>cb.checked=false);
+  });
 
   function wireSeg(id, key){
     document.querySelectorAll(`#${id} button`).forEach(b=>{
@@ -1915,6 +2124,7 @@ document.getElementById("resetBtn").addEventListener("click", async ()=>{
 
   function updateMeta(){
     scopeWrap.style.display = state.dataset === "log" ? "none" : "";
+    signalsWrap.style.display = state.dataset === "log" ? "none" : "";
     if(state.dataset === "log"){
       metaEl.textContent = `Full audit trail — every enrichment event, source (yah/prefetch/search/batch) and timestamp.`;
     } else if(state.scope === "view"){
@@ -1948,6 +2158,10 @@ document.getElementById("resetBtn").addEventListener("click", async ()=>{
       params.set("lat", center[0]);
       params.set("lng", center[1]);
       params.set("radius_km", radiusKm);
+    }
+    if(state.dataset === "ppi"){
+      const checked = [...signalsList.querySelectorAll("input:checked")].map(cb=>cb.value);
+      params.set("columns", checked.join(","));
     }
     window.location.href = `/api/export?${params.toString()}`;
     toast("Preparing download…",3000);
@@ -2162,6 +2376,7 @@ document.getElementById('spiderBtn').addEventListener('click', ()=>{
 render();
 dataPromise = loadPPIData();
 loadBoundaries();   // async — choropleth upgrades from blur to real polygons when ready
+loadSignalData();   // async — "more signals" map colouring, doesn't block initial render
 
 // On load: instantly restore last saved location, then refresh from GPS
 (async ()=>{

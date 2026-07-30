@@ -352,6 +352,7 @@ def api_export():
     lat     = request.args.get("lat", type=float)
     lng     = request.args.get("lng", type=float)
     radius  = request.args.get("radius_km", type=float)
+    columns_param = request.args.get("columns", "").strip()
 
     if fmt not in ("csv", "json", "xlsx"):
         return jsonify({"error": "format must be csv, json, or xlsx"}), 400
@@ -376,6 +377,10 @@ def api_export():
         rows       = sorted(joined.values(),
                              key=lambda r: _coerce(r.get("ppi_ml")) or 0, reverse=True)
         columns    = EXPORT_ALL_COLUMNS
+        if columns_param:
+            requested = set(columns_param.split(","))
+            # core identity/PPI fields always ride along; signal columns are opt-in
+            columns = [c for c in EXPORT_ALL_COLUMNS if c in EXPORT_CORE_FIELDS or c in requested]
         sheet_name = "PPI & Signals"
         base_name  = "paisamap_ppi_signals"
 
@@ -387,7 +392,7 @@ def api_export():
             "dataset":      dataset,
             "source":       source,
             "count":        len(rows),
-            "rows":         [{k: _coerce(v) for k, v in r.items()} for r in rows],
+            "rows":         [{k: _coerce(v) for k, v in r.items() if k in columns} for r in rows],
         }, indent=2)
         return payload, 200, {
             "Content-Type":        "application/json",
