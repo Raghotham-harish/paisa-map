@@ -465,6 +465,10 @@
   .pp td{padding:4px 0;border-top:1px solid var(--hairline);font-size:12px}
   .pp td:last-child{text-align:right;font-family:var(--mono);font-weight:500}
   .pp .ppi-big{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1}
+  .pp .metric-label{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-soft);margin-bottom:2px;
+  }
 
   /* Spider / coverage-radar chart */
   #spiderBtn{
@@ -1907,13 +1911,34 @@ function setActive(id, fromList){
 }
 
 function popupHTML(d){
+  // Give the currently selected map signal top billing in the popup, same
+  // metric the sidebar headline and map colouring are keyed off — PPI drops
+  // into the table (instead of always being the big number) whenever some
+  // other signal is what the user actually selected.
+  const sigDef = SIGNAL_DEFS[metric];
+  const sigRow = d.pincode && signalMap[d.pincode];
+
+  let primaryLabel = "PPI", primaryValue = d.ppi, primaryUnit = "PPI";
+  if(metric === "income"){
+    primaryLabel = "Avg income"; primaryValue = fmtINR(d.income); primaryUnit = "/mo";
+  } else if(metric === "spend"){
+    primaryLabel = "Monthly spend"; primaryValue = fmtINR(d.spend); primaryUnit = "/mo";
+  } else if(sigDef && sigRow && sigRow[metric] !== null && sigRow[metric] !== undefined && sigRow[metric] !== ""){
+    primaryLabel = sigDef.label; primaryValue = sigDef.fmt(+sigRow[metric]); primaryUnit = "";
+  }
+  const isPrimaryPPI    = primaryLabel === "PPI";
+  const isPrimaryIncome = primaryLabel === "Avg income";
+  const isPrimarySpend  = primaryLabel === "Monthly spend";
+
   return `<div class="pp">
     <h3>${d.name}</h3>
     <div class="tag">Modelled estimate · demo</div>
-    <div class="ppi-big">${d.ppi} <span style="font-size:11px;color:#46524C">PPI</span></div>
+    ${isPrimaryPPI ? "" : `<div class="metric-label">${primaryLabel}</div>`}
+    <div class="ppi-big">${primaryValue} <span style="font-size:11px;color:#46524C">${primaryUnit || primaryLabel}</span></div>
     <table>
-      <tr><td>Avg income</td><td>${fmtINR(d.income)}/mo</td></tr>
-      <tr><td>Monthly spend</td><td>${fmtINR(d.spend)}/mo</td></tr>
+      ${isPrimaryPPI ? "" : `<tr><td>PPI</td><td>${d.ppi}</td></tr>`}
+      ${isPrimaryIncome ? "" : `<tr><td>Avg income</td><td>${fmtINR(d.income)}/mo</td></tr>`}
+      ${isPrimarySpend ? "" : `<tr><td>Monthly spend</td><td>${fmtINR(d.spend)}/mo</td></tr>`}
       <tr><td>Annual spend</td><td>${fmtINR(d.annual)}/yr</td></tr>
     </table>
     <button class="pp-btn" onclick="showBoundary(${d.id})">Show area boundary</button>
