@@ -23,6 +23,7 @@ import io
 import json
 import math
 import re
+import shutil
 import sys
 import threading
 import subprocess
@@ -52,7 +53,24 @@ except ImportError:
     _db = None
 
 ENRICH_LOG     = APP / "data" / "output" / "enrichment_log.csv"
+PPI_MAP_DATA   = APP / "data" / "output" / "ppi_map_data.csv"
 LOG_FIELDS     = ["timestamp", "pincode", "name", "lat", "lng", "source", "ppi", "income"]
+
+# nginx serves the live map's /data/... from a separate static mirror
+# (/var/www/paisamap), refreshed only by a full deploy — so a pincode
+# enriched on demand here doesn't reach the map until the next deploy
+# unless we also copy it there directly. No-op if the mirror doesn't exist
+# (e.g. local dev via `python3 server.py`).
+STATIC_MIRROR_OUT = Path("/var/www/paisamap/data/output")
+
+
+def _mirror_to_static():
+    if not STATIC_MIRROR_OUT.is_dir():
+        return
+    for f in (ENRICH_LOG, PPI_MAP_DATA):
+        if f.exists():
+            shutil.copy2(f, STATIC_MIRROR_OUT / f.name)
+
 
 # ── Export: PPI/income/spend joined with every pincode-level raw signal ────────
 EXPORT_CORE_FIELDS = ["pincode", "name", "lat", "lng", "ppi_ml", "ppi_original",
@@ -470,6 +488,7 @@ def _run_enrich(pc, lat, lng, name, source="yah"):
                     "summary": ppi_line,
                 }
                 _append_log(pc, name, lat, lng, source, ppi, income)
+                _mirror_to_static()
             else:
                 _jobs[pc] = {"status": "error", "source": source,
                              "error": res.stderr[-1500:]}
