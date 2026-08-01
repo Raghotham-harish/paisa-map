@@ -87,7 +87,7 @@ def _circle_coords(lat: float, lng: float, deg: float = 0.012):
     return pts
 
 
-def fetch_all(resume: bool) -> dict:
+def fetch_all(resume: bool, limit=None) -> dict:
     df = pd.read_csv(OUT_CSV, dtype={"pincode": str})
     total = len(df)
 
@@ -103,6 +103,7 @@ def fetch_all(resume: bool) -> dict:
 
     features = []
     hits, misses = 0, 0
+    fetched_this_run = 0
 
     for i, row in df.iterrows():
         pc     = str(row["pincode"])
@@ -121,8 +122,20 @@ def fetch_all(resume: bool) -> dict:
             print(f"  [{n:02d}/{total}] ↩  {pc} {name} (cached)")
             continue
 
+        # --limit caps *new* fetches per run (e.g. a nightly cron budget) — pincodes
+        # already cached above still get carried through untouched, so a capped run
+        # never regresses coverage, it just backfills gradually across several runs.
+        if limit is not None and fetched_this_run >= limit:
+            # Keep the rest of the dataset's pincodes out of the output entirely
+            # would silently drop their existing circle-fallback entries on a
+            # later merge — instead, just stop fetching and leave them for next run
+            # by not adding a feature at all (fetch_all is always run with --resume
+            # in the capped/cron path, so next run picks up where this left off).
+            continue
+
         print(f"  [{n:02d}/{total}] ↓  {pc} {name:<32}", end="", flush=True)
         time.sleep(DELAY)
+        fetched_this_run += 1
 
         geom, osm_name = reverse_geocode(lat, lng)
 
@@ -161,13 +174,19 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--resume",  action="store_true", help="Skip already-fetched pincodes")
     ap.add_argument("--dry-run", action="store_true", help="Fetch but don't write file")
+    ap.add_argument("--limit", type=int, default=None,
+                    help="Cap on *new* fetches this run (for a daily cron budget) — "
+                         "always combine with --resume so later runs keep backfilling")
     args = ap.parse_args()
 
     print(f"Source: {OUT_CSV}")
     print(f"Output: {OUT_GEO}")
-    print(f"Delay:  {DELAY}s between requests\n")
+    print(f"Delay:  {DELAY}s between requests")
+    if args.limit is not None:
+        print(f"Limit:  {args.limit} new fetches this run")
+    print()
 
-    geojson = fetch_all(resume=args.resume)
+    geojson = fetch_all(resume=args.resume, limit=args.limit)
 
     if args.dry_run:
         print(f"[DRY RUN] would write {len(geojson['features'])} features")

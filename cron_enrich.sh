@@ -9,9 +9,15 @@
 #   1. Pull latest code from GitHub (enrichment_log may have been synced back by Actions)
 #   2. Enrich user-visited pincodes from last 7 days that aren't in the ML output
 #   3. Pre-enrich up to 30 HCES districts per day (batch fills coverage map)
-#   4. Mirror the output CSVs to nginx's static root so the live map picks up
+#   4. Backfill up to 20 new boundary polygons per day (data/boundaries.geojson) —
+#      every pincode added by steps 2/3 (or a live pin-drop) starts without a real
+#      admin-boundary shape, so the choropleth/heatmap map representations fall
+#      back to a synthetic circle for it until this catches up. Previously this
+#      only ever ran as a manual one-off, so coverage quietly eroded back down
+#      as new pincodes accumulated with nothing backfilling them.
+#   5. Mirror the output CSVs to nginx's static root so the live map picks up
 #      today's enrichment right away, not just at the next full deploy
-#   5. Commit and push all touched data files directly — nothing else pushes
+#   6. Commit and push all touched data files directly — nothing else pushes
 #      these on our behalf, so a missed push here means the next `deploy.sh`
 #      hard-reset silently erases the night's work (see 2026-07-14 incident).
 
@@ -34,7 +40,7 @@ cd "$REPO"
 
 # ── 1. Pull latest (enrichment_log synced by GitHub Actions every 6h) ──────────
 echo ""
-echo "[1/5] Pulling latest code..."
+echo "[1/6] Pulling latest code..."
 git fetch origin main --quiet
 # Only fast-forward merge data files — don't discard local enrichment data
 git merge --ff-only origin/main --quiet || {
@@ -43,36 +49,48 @@ git merge --ff-only origin/main --quiet || {
 
 # ── 2. Enrich user-visited pincodes ─────────────────────────────────────────────
 echo ""
-echo "[2/5] Auto-enriching user-visited pincodes (last 7 days)..."
+echo "[2/6] Auto-enriching user-visited pincodes (last 7 days)..."
 "$PYTHON" "$ETL/etl/auto_enrich_visited.py" --days 7 || {
     echo "  auto_enrich_visited.py exited non-zero — continuing"
 }
 
 # ── 3. Batch pre-enrich HCES districts (30 per day) ─────────────────────────────
 echo ""
-echo "[3/5] Batch pre-enriching HCES districts (up to 30 today)..."
+echo "[3/6] Batch pre-enriching HCES districts (up to 30 today)..."
 "$PYTHON" "$ETL/etl/batch_enrich_hces.py" --limit 30 || {
     echo "  batch_enrich_hces.py exited non-zero — continuing"
 }
 
-# ── 4. Mirror to nginx's static root — that's what the live map actually
+# ── 4. Backfill boundary polygons (20 new per day, resumable) ───────────────────
+echo ""
+echo "[4/6] Backfilling boundary polygons (up to 20 new today)..."
+"$PYTHON" "$ETL/etl/fetch_boundaries.py" --resume --limit 20 || {
+    echo "  fetch_boundaries.py exited non-zero — continuing"
+}
+
+# ── 5. Mirror to nginx's static root — that's what the live map actually
 #      reads (see /var/www/paisamap), and it's only otherwise refreshed by
 #      a full deploy. Copying here means today's enrichment shows up on the
 #      map right away instead of waiting on the next non-cron push. ───────────
 STATIC_OUT="/var/www/paisamap/data/output"
 if [ -d "$STATIC_OUT" ]; then
     echo ""
-    echo "[4/5] Mirroring output CSVs to $STATIC_OUT..."
+    echo "[5/6] Mirroring output CSVs to $STATIC_OUT..."
     cp -f data/output/enrichment_log.csv data/output/ppi_map_data.csv "$STATIC_OUT/" 2>/dev/null || true
 fi
+STATIC_ROOT="/var/www/paisamap/data"
+if [ -d "$STATIC_ROOT" ]; then
+    cp -f data/boundaries.geojson "$STATIC_ROOT/" 2>/dev/null || true
+fi
 
-# ── 5. Stage any new/updated data files ─────────────────────────────────────────
+# ── 6. Stage any new/updated data files ─────────────────────────────────────────
 echo ""
 echo "Staging updated data files..."
 cd "$REPO"
 git add \
     data/output/enrichment_log.csv \
     data/output/ppi_map_data.csv \
+    data/boundaries.geojson \
     paisamap-etl/data/output/ppi_ml_refined.csv \
     paisamap-etl/data/output/ppi_map_data.csv \
     paisamap-etl/data/output/batch_enrich_log.csv \

@@ -298,12 +298,23 @@ def write_to_app(new_rows: pd.DataFrame) -> int:
         coords_all  = pd.read_csv(coords_path, dtype={"pincode": str}).set_index("pincode") \
                       if coords_path.exists() else pd.DataFrame()
 
+        # Same poi normalization ml_refinement.py's full-pipeline write uses (quantile
+        # 0.95 clipped to 0-100) — without this column, the frontend's "Nearby hubs"
+        # spider chart silently falls back to a cruder no-POI scoring formula for
+        # every pincode until the next full pipeline run restores it.
+        poi_path = RAW / "poi_density.csv"
+        poi_all = pd.read_csv(poi_path, dtype={"pincode": str}).set_index("pincode")["premium_poi_per_km2"] \
+                  if poi_path.exists() else pd.Series(dtype=float)
+        poi_p95 = float(poi_all.quantile(0.95)) if not poi_all.empty else 1.0
+        poi_norm = (poi_all / poi_p95 * 100).clip(0, 100).round(1)
+
         combined = pd.DataFrame({
             "name":   names_all["name"].reindex(ml_df.index).combine_first(ml_df.get("name", pd.Series(dtype=str))),
             "lat":    coords_all["lat"].reindex(ml_df.index).combine_first(ml_df.get("lat", pd.Series(dtype=float))),
             "lng":    coords_all["lng"].reindex(ml_df.index).combine_first(ml_df.get("lng", pd.Series(dtype=float))),
             "ppi":    ml_df["ppi_ml"],
             "income": ml_df["est_monthly_income_hh"],
+            "poi":    poi_norm.reindex(ml_df.index),
         })
         combined.index.name = "pincode"
         combined.sort_values("ppi", ascending=False).to_csv(OUT / "ppi_map_data.csv")
