@@ -14,22 +14,29 @@
 <link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Anybody:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css" />
 <style>
   :root{
-    --paper:#EDEFE8;
-    --paper-2:#E3E6DC;
-    --ink:#1B2622;
-    --ink-soft:#46524C;
-    --rupee:#0E7A5C;
-    --rupee-deep:#0A5743;
+    /* "Economic Hub" design system — Corporate Modern, forest-green-on-white */
+    --paper:#F9FAF5;
+    --paper-2:#F3F4EF;
+    --paper-3:#EDEEE9;
+    --ink:#1A1C1A;
+    --ink-soft:#41493B;
+    --rupee:#216A0B;
+    --rupee-deep:#115000;
     --amber:#DFAE3A;
-    --flame:#B33A2B;
+    --flame:#BA1A1A;
     --magenta:#9C3357;
-    --hairline:rgba(27,38,34,.18);
-    --mono:'IBM Plex Mono',ui-monospace,monospace;
-    --sans:'Archivo',system-ui,sans-serif;
+    --hairline:rgba(26,28,26,.10);
+    --border:#C7CCC2;
+    --radius:0.5rem;
+    --radius-lg:1rem;
+    --shadow-1:0 4px 12px rgba(34,72,57,.07);
+    --shadow-2:0 8px 24px rgba(20,30,20,.14);
+    --mono:'Anybody',ui-monospace,monospace;
+    --sans:'Hanken Grotesk',system-ui,sans-serif;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
@@ -45,7 +52,7 @@
   aside{
     width:540px;min-width:540px;height:100vh;
     display:flex;flex-direction:column;
-    border-right:1px solid var(--ink);
+    border-right:1px solid var(--border);
     background:var(--paper);
     z-index:1000;
   }
@@ -55,7 +62,7 @@
   }
   .col-controls{
     width:200px;min-width:200px;
-    border-right:1px solid var(--ink);
+    border-right:1px solid var(--border);
     display:flex;flex-direction:column;
     overflow-y:auto;
   }
@@ -66,7 +73,7 @@
   }
   .brand{
     padding:12px 16px 10px;
-    border-bottom:1px solid var(--ink);
+    border-bottom:1px solid var(--border);
   }
   .brand p{display:none}
   .brand .eyebrow{
@@ -84,7 +91,7 @@
   }
   button.primary{
     font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
-    background:var(--ink);color:var(--paper);border:1px solid var(--ink);
+    background:var(--rupee);color:#fff;border:1px solid var(--rupee);border-radius:var(--radius);
     padding:10px 14px;cursor:pointer;flex:1;
   }
   button.primary:hover{background:var(--rupee-deep);border-color:var(--rupee-deep)}
@@ -97,18 +104,18 @@
   }
   .field-label output{color:var(--ink);font-weight:600}
   input[type=range]{
-    width:100%;appearance:none;height:2px;background:var(--ink);cursor:pointer;
+    width:100%;appearance:none;height:2px;background:var(--border);cursor:pointer;
   }
   input[type=range]::-webkit-slider-thumb{
-    appearance:none;width:14px;height:14px;border-radius:0;
-    background:var(--rupee);border:1.5px solid var(--ink);
+    appearance:none;width:14px;height:14px;border-radius:50%;
+    background:var(--rupee);border:1.5px solid var(--paper);box-shadow:0 0 0 1px var(--rupee);
   }
   input[type=range]::-moz-range-thumb{
-    width:12px;height:12px;border-radius:0;background:var(--rupee);border:1.5px solid var(--ink);
+    width:12px;height:12px;border-radius:50%;background:var(--rupee);border:1.5px solid var(--paper);box-shadow:0 0 0 1px var(--rupee);
   }
 
   /* city search dropdown */
-  .city-search-wrap{display:flex;align-items:center;border:1px solid var(--ink);background:var(--paper)}
+  .city-search-wrap{display:flex;align-items:center;border:1px solid var(--border);border-radius:var(--radius);background:var(--paper)}
   .city-search-wrap input{
     flex:1;border:0;background:transparent;padding:8px 6px;
     font-family:var(--sans);font-size:13px;color:var(--ink);min-width:0;
@@ -123,8 +130,9 @@
   }
   .city-search-wrap button:hover{background:var(--paper-2);color:var(--ink)}
   #cityDropdown{
-    display:none;border:1px solid var(--ink);border-top:0;
-    max-height:200px;overflow-y:auto;background:var(--paper);
+    display:none;border:1px solid var(--border);border-top:0;border-radius:0 0 var(--radius) var(--radius);
+    box-shadow:var(--shadow-1);
+    max-height:200px;overflow-y:auto;background:#fff;
   }
   #cityDropdown button{
     display:flex;align-items:center;width:100%;text-align:left;border:0;
@@ -135,32 +143,41 @@
   #cityDropdown button:hover{background:var(--paper-2)}
   .city-tag{
     font-family:var(--mono);font-size:9px;letter-spacing:.08em;
-    color:var(--rupee-deep);background:rgba(14,122,92,.12);
+    color:var(--rupee-deep);background:rgba(33,106,11,.12);border-radius:3px;
     padding:1px 5px;white-space:nowrap;flex-shrink:0;
   }
   .city-tag.live{color:var(--amber);background:rgba(223,174,58,.15)}
+
+  /* Pro-gated signal badge — cosmetic tier preview, no real entitlement yet */
+  .pro-badge{
+    font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.08em;
+    color:#8A5A00;background:rgba(223,174,58,.22);border-radius:3px;
+    padding:1px 5px;white-space:nowrap;flex-shrink:0;
+  }
+  .locked-row{opacity:.62;cursor:not-allowed}
+  .locked-row:hover{background:transparent!important}
 
   /* action bar */
   .action-bar{display:flex;flex-direction:column;gap:5px}
   .action-row{display:flex;gap:5px;align-items:stretch}
   .act-btn{
     font-size:15px;padding:7px 10px;cursor:pointer;
-    background:var(--paper-2);border:1px solid var(--hairline);color:var(--ink);
+    background:var(--paper-2);border:1px solid var(--border);border-radius:var(--radius);color:var(--ink);
     display:flex;align-items:center;justify-content:center;
   }
-  .act-btn:hover{background:var(--ink);color:var(--paper)}
-  .act-btn.active{background:var(--rupee);color:var(--paper);border-color:var(--rupee)}
+  .act-btn:hover{background:var(--rupee);color:#fff;border-color:var(--rupee)}
+  .act-btn.active{background:var(--rupee);color:#fff;border-color:var(--rupee)}
   .act-btn i,.mini-seg i{font-size:14px;line-height:1;vertical-align:middle}
 
   /* mini toggles */
-  .mini-seg{display:flex;border:1px solid var(--ink);flex-shrink:0}
+  .mini-seg{display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;flex-shrink:0}
   .mini-seg button{
     padding:7px 8px;font-family:var(--mono);font-size:11px;
-    background:transparent;border:0;border-right:1px solid var(--ink);
+    background:transparent;border:0;border-right:1px solid var(--border);
     cursor:pointer;color:var(--ink);
   }
   .mini-seg button:last-child{border-right:0}
-  .mini-seg button[aria-pressed="true"]{background:var(--rupee);color:var(--paper)}
+  .mini-seg button[aria-pressed="true"]{background:var(--rupee);color:#fff}
 
   /* compact radius row */
   .radius-row{
@@ -182,13 +199,13 @@
   .export-btn{
     width:100%;display:flex;align-items:center;justify-content:center;gap:6px;
     font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;
-    background:var(--paper-2);border:1px solid var(--hairline);color:var(--ink);
+    background:var(--paper-2);border:1px solid var(--border);border-radius:var(--radius);color:var(--ink);
     padding:8px 10px;cursor:pointer;
   }
-  .export-btn:hover,.export-btn[aria-expanded="true"]{background:var(--ink);color:var(--paper)}
+  .export-btn:hover,.export-btn[aria-expanded="true"]{background:var(--rupee);color:#fff;border-color:var(--rupee)}
   .export-panel{
     position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:30;
-    background:var(--paper);border:1px solid var(--ink);box-shadow:0 8px 20px rgba(0,0,0,.18);
+    background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-2);
     padding:10px;display:flex;flex-direction:column;gap:9px;
   }
   .export-panel[hidden]{display:none}
@@ -204,7 +221,7 @@
     background:none;border:0;cursor:pointer;padding:0;text-decoration:underline;
   }
   .export-signals-list{
-    max-height:170px;overflow-y:auto;border:1px solid var(--hairline);
+    max-height:170px;overflow-y:auto;border:1px solid var(--hairline);border-radius:var(--radius);
     background:var(--paper-2);padding:6px 8px;display:flex;flex-direction:column;gap:2px;
   }
   .export-signals-group{
@@ -217,27 +234,183 @@
   }
   .export-signals-list input{margin:0;flex-shrink:0}
 
-  /* "more signals" map metric dropdown */
-  select.signal-select{
-    width:100%;font-family:var(--mono);font-size:11px;color:var(--ink);
-    background:var(--paper);border:1px solid var(--ink);padding:7px 6px;cursor:pointer;
-  }
   .export-meta{font-family:var(--mono);font-size:9.5px;color:var(--ink-soft);line-height:1.45}
   .export-panel button.primary{width:100%}
 
+  /* Signal Explorer — search + category chips + signal list + advanced filter */
+  .sig-explorer-panel{width:340px;max-height:70vh;overflow-y:auto;z-index:1600}
+  .sig-search{
+    width:100%;font-family:var(--sans);font-size:12.5px;color:var(--ink);
+    background:var(--paper-2);border:1px solid var(--border);border-radius:var(--radius);
+    padding:7px 9px;
+  }
+  .sig-search::placeholder{color:var(--ink-soft)}
+  .sig-chips{display:flex;flex-wrap:wrap;gap:5px}
+  .sig-chip{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;
+    background:var(--paper-2);border:1px solid var(--border);border-radius:999px;
+    color:var(--ink-soft);padding:3px 9px;cursor:pointer;
+  }
+  .sig-chip[aria-pressed="true"]{background:var(--rupee);color:#fff;border-color:var(--rupee)}
+  .sig-list{
+    max-height:190px;overflow-y:auto;border:1px solid var(--hairline);border-radius:var(--radius);
+    background:var(--paper-2);
+  }
+  .sig-row{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    width:100%;text-align:left;background:transparent;border:0;
+    border-bottom:1px solid var(--hairline);padding:7px 10px;cursor:pointer;
+    font-family:var(--sans);font-size:12.5px;color:var(--ink);
+  }
+  .sig-row:last-child{border-bottom:0}
+  .sig-row:hover{background:#fff}
+  .sig-row.active{background:var(--rupee);color:#fff}
+  .sig-row .sig-row-label{display:flex;align-items:center;gap:6px;min-width:0}
+  .sig-row .sig-row-label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .sig-empty{padding:14px 10px;text-align:center;color:var(--ink-soft);font-size:12px}
+  .sig-filter-section{border-top:1px solid var(--hairline);padding-top:9px;margin-top:2px}
+  .sig-filter-chips{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}
+  .sig-filter-chip{
+    display:flex;align-items:center;gap:5px;
+    font-family:var(--mono);font-size:10px;color:var(--rupee-deep);
+    background:rgba(33,106,11,.12);border-radius:999px;padding:3px 6px 3px 9px;
+  }
+  .sig-filter-chip button{background:none;border:0;color:var(--rupee-deep);cursor:pointer;font-size:12px;line-height:1;padding:0}
+  .sig-filter-locked{
+    display:flex;align-items:center;gap:7px;font-size:11px;line-height:1.4;color:var(--ink-soft);
+    background:var(--paper-2);border:1px dashed var(--border);border-radius:var(--radius);padding:9px 10px;
+  }
+  .sig-filter-locked i{color:var(--amber);font-size:14px;flex-shrink:0}
+  .sig-filter-builder[hidden]{display:none}
+  .sig-filter-builder{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+  .sig-filter-builder select,.sig-filter-builder input{
+    font-family:var(--sans);font-size:11.5px;color:var(--ink);
+    background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:5px 6px;
+  }
+  .sig-filter-builder select#filterSignalSel{flex:1;min-width:110px}
+  .sig-filter-builder input#filterValInput{width:70px}
+  .filter-status[hidden]{display:none}
+  .filter-status{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    padding:7px 16px;font-family:var(--mono);font-size:10px;color:var(--ink-soft);
+    background:var(--paper-3);border-bottom:1px solid var(--hairline);
+  }
+  .filter-status button{
+    background:none;border:0;color:var(--rupee-deep);cursor:pointer;
+    font-family:var(--mono);font-size:10px;text-decoration:underline;padding:0;
+  }
+
+  /* ── Signals Catalog — full-screen browse view, Living-Atlas-inspired ────────── */
+  .catalog-overlay[hidden]{display:none}
+  .catalog-overlay{
+    position:fixed;inset:0;z-index:2000;background:rgba(26,28,26,.5);
+    display:flex;align-items:flex-start;justify-content:center;
+    padding:28px 20px;overflow-y:auto;
+  }
+  .catalog-panel{
+    width:100%;max-width:1080px;background:var(--paper);border-radius:var(--radius-lg);
+    box-shadow:var(--shadow-2);overflow:hidden;
+  }
+  .catalog-header{
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:18px 24px;border-bottom:1px solid var(--border);background:#fff;
+  }
+  .catalog-header h2{font-size:19px;font-weight:700;font-variation-settings:'wdth' 112}
+  .catalog-header p{font-size:11.5px;color:var(--ink-soft);margin-top:1px}
+  .catalog-close{
+    width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:#fff;
+    color:var(--ink-soft);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;
+    flex-shrink:0;
+  }
+  .catalog-close:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .catalog-body{padding:20px 24px 26px}
+  .catalog-search{
+    width:100%;font-family:var(--sans);font-size:14px;color:var(--ink);
+    background:var(--paper-2);border:1px solid var(--border);border-radius:var(--radius);
+    padding:11px 14px;margin-bottom:16px;
+  }
+  .catalog-search::placeholder{color:var(--ink-soft)}
+  .catalog-cats{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:14px}
+  .catalog-cat{
+    display:flex;flex-direction:column;align-items:center;gap:5px;background:none;border:0;
+    cursor:pointer;color:var(--ink-soft);font-family:var(--sans);font-size:11px;padding:2px 0;
+    border-bottom:2px solid transparent;
+  }
+  .catalog-cat i{
+    width:38px;height:38px;border-radius:50%;background:var(--paper-2);
+    display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--ink-soft);
+  }
+  .catalog-cat[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--rupee)}
+  .catalog-cat[aria-pressed="true"] i{background:var(--rupee);color:#fff}
+  .catalog-cat .cat-lock{font-size:9px;margin-left:2px}
+  .catalog-filters{
+    display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;
+    padding:10px 0;border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline);
+    margin-bottom:16px;
+  }
+  .catalog-tier-toggle{display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+  .catalog-tier-toggle button{
+    padding:6px 12px;font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;
+    background:transparent;border:0;border-right:1px solid var(--border);cursor:pointer;color:var(--ink);
+  }
+  .catalog-tier-toggle button:last-child{border-right:0}
+  .catalog-tier-toggle button[aria-pressed="true"]{background:var(--rupee);color:#fff}
+  .catalog-sort{
+    font-family:var(--sans);font-size:11.5px;color:var(--ink);background:#fff;
+    border:1px solid var(--border);border-radius:var(--radius);padding:6px 8px;
+  }
+  .catalog-count{font-family:var(--mono);font-size:10.5px;color:var(--ink-soft)}
+  .catalog-grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;
+  }
+  .catalog-card{
+    background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);
+    overflow:hidden;display:flex;flex-direction:column;
+  }
+  .catalog-card-swatch{height:34px;width:100%}
+  .catalog-card-body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:6px;flex:1}
+  .catalog-card-title{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
+  .catalog-card-title span{font-size:13.5px;font-weight:600;line-height:1.3}
+  .catalog-card-meta{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--ink-soft);
+  }
+  .catalog-card-desc{font-size:11.5px;color:var(--ink-soft);line-height:1.4;flex:1}
+  .catalog-card-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px}
+  .catalog-card-use{
+    font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+    background:var(--rupee);color:#fff;border:1px solid var(--rupee);border-radius:var(--radius);
+    padding:6px 10px;cursor:pointer;
+  }
+  .catalog-card-use:hover{background:var(--rupee-deep);border-color:var(--rupee-deep)}
+  .catalog-card.locked .catalog-card-use{background:var(--paper-2);color:var(--ink-soft);border-color:var(--border)}
+  .catalog-card-coverage{font-family:var(--mono);font-size:9.5px;color:var(--ink-soft)}
+  .catalog-empty{
+    grid-column:1/-1;text-align:center;padding:40px 10px;color:var(--ink-soft);font-size:12.5px;
+  }
+  @media (max-width:760px){
+    .catalog-overlay{padding:0}
+    .catalog-panel{max-width:none;height:100%;border-radius:0;display:flex;flex-direction:column}
+    .catalog-body{overflow-y:auto}
+    .catalog-cats{gap:14px}
+  }
+
   /* search */
-  .search-wrap{display:flex;border:1px solid var(--ink);background:var(--paper)}
+  .search-wrap{display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--paper)}
   .search-wrap input{
     flex:1;border:0;background:transparent;padding:9px 10px;
     font-family:var(--sans);font-size:13px;color:var(--ink);min-width:0;
   }
   .search-wrap input::placeholder{color:var(--ink-soft)}
   .search-wrap button{
-    font-family:var(--mono);font-size:12px;background:var(--ink);color:var(--paper);
+    font-family:var(--mono);font-size:12px;background:var(--rupee);color:#fff;
     border:0;padding:0 14px;cursor:pointer;
   }
   .search-wrap button:hover{background:var(--rupee-deep)}
-  #searchResults{display:none;border:1px solid var(--ink);border-top:0;max-height:170px;overflow-y:auto;background:var(--paper)}
+  #searchResults{
+    display:none;border:1px solid var(--border);border-top:0;border-radius:0 0 var(--radius) var(--radius);
+    box-shadow:var(--shadow-1);max-height:170px;overflow-y:auto;background:#fff;
+  }
   #searchResults button{
     display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--hairline);
     background:transparent;padding:8px 10px;cursor:pointer;color:var(--ink);
@@ -263,9 +436,9 @@
   .pp-btn{
     margin-top:8px;width:100%;font-family:var(--mono);font-size:10px;
     letter-spacing:.1em;text-transform:uppercase;background:transparent;
-    border:1px solid var(--ink);color:var(--ink);padding:6px;cursor:pointer;
+    border:1px solid var(--ink);border-radius:var(--radius);color:var(--ink);padding:6px;cursor:pointer;
   }
-  .pp-btn:hover{background:var(--ink);color:var(--paper)}
+  .pp-btn:hover{background:var(--rupee);color:#fff;border-color:var(--rupee)}
 
   /* CSS-only classic pin (no image files — survives strict previews) */
   .css-pin{position:relative}
@@ -291,19 +464,19 @@
   /* offline graticule basemap when tile servers are unreachable */
   #map.offline{
     background:
-      repeating-linear-gradient(0deg,transparent 0 49px,rgba(27,38,34,.09) 49px 50px),
-      repeating-linear-gradient(90deg,transparent 0 49px,rgba(27,38,34,.09) 49px 50px),
+      repeating-linear-gradient(0deg,transparent 0 49px,rgba(26,28,26,.09) 49px 50px),
+      repeating-linear-gradient(90deg,transparent 0 49px,rgba(26,28,26,.09) 49px 50px),
       #E9ECE2;
   }
   .offline-note{
     display:none;position:absolute;left:14px;bottom:26px;z-index:850;
-    max-width:300px;background:var(--paper);border:1px solid var(--ink);
+    max-width:300px;background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);
     padding:10px 12px;font-size:11.5px;line-height:1.45;color:var(--ink);
   }
   .offline-note b{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--magenta)}
   .offline-note.show{display:block}
   .name-label{
-    background:rgba(255,255,255,.88);border:1px solid rgba(27,38,34,.35);
+    background:rgba(255,255,255,.88);border:1px solid rgba(26,28,26,.35);
     border-radius:3px;box-shadow:none;font-family:var(--sans);
     font-size:10.5px;padding:1px 5px;color:var(--ink);
   }
@@ -311,7 +484,7 @@
 
   /* headline index */
   .headline{
-    padding:16px;border-bottom:1px solid var(--ink);
+    padding:16px;border-bottom:1px solid var(--border);
     background:var(--paper-2);
   }
   .headline .field-label{margin-bottom:2px}
@@ -336,6 +509,7 @@
     padding:8px 16px;border-bottom:1px solid var(--hairline);
   }
   .loc-row{
+    position:relative;
     display:grid;grid-template-columns:30px 1fr 84px 64px;
     padding:10px 16px;border-bottom:1px solid var(--hairline);
     cursor:pointer;align-items:baseline;width:100%;
@@ -343,15 +517,18 @@
     font-family:var(--sans);color:var(--ink);
   }
   .loc-row:hover{background:var(--paper-2)}
-  .loc-row.active{background:var(--ink);color:var(--paper)}
+  .loc-row.active{background:var(--rupee-deep);color:#fff}
   .loc-row .rank{font-family:var(--mono);font-size:11px;color:var(--ink-soft)}
-  .loc-row.active .rank{color:var(--paper)}
+  .loc-row.active .rank{color:#fff}
   .loc-row .name{font-size:13.5px;font-weight:560;padding-right:8px}
   .loc-row .val,.loc-row .ppi{font-family:var(--mono);font-size:12px;text-align:right}
   .loc-row .ppi{font-weight:600}
+  /* micro-insight: relative rank of this row's value within the currently visible set */
+  .loc-row .row-bar{position:absolute;left:0;bottom:0;height:2px;background:var(--rupee);opacity:.4}
+  .loc-row.active .row-bar{background:#fff;opacity:.55}
 
   .method{
-    padding:12px 22px;border-top:1px solid var(--ink);
+    padding:12px 22px;border-top:1px solid var(--border);
     font-size:11px;line-height:1.5;color:var(--ink-soft);background:var(--paper-2);
   }
   .method b{color:var(--magenta);font-family:var(--mono);font-size:10px;letter-spacing:.1em}
@@ -364,11 +541,11 @@
   /* denomination-strip legend (signature) */
   .denom{
     position:absolute;right:14px;bottom:26px;z-index:800;
-    background:var(--paper);border:1px solid var(--ink);
+    background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);
     padding:10px 12px 12px;width:240px;
   }
   .denom .field-label{margin-bottom:8px}
-  .denom .strip{display:flex;height:18px;border:1px solid var(--ink)}
+  .denom .strip{display:flex;height:18px;border:1px solid var(--border);border-radius:3px;overflow:hidden}
   .denom .strip i{flex:1}
   .denom .ticks{
     display:flex;justify-content:space-between;
@@ -378,8 +555,9 @@
   /* status toast */
   .toast{
     position:absolute;top:14px;left:50%;transform:translateX(-50%);
-    z-index:900;background:var(--ink);color:var(--paper);
-    font-family:var(--mono);font-size:11px;padding:8px 14px;
+    z-index:2100;background:var(--ink);color:var(--paper);
+    font-family:var(--mono);font-size:11px;padding:8px 14px;border-radius:999px;
+    box-shadow:var(--shadow-2);
     opacity:0;transition:opacity .25s;pointer-events:none;max-width:80%;
     text-align:center;
   }
@@ -402,7 +580,7 @@
     content:'';position:absolute;inset:0;
     background:linear-gradient(90deg,
       transparent 0%,
-      rgba(14,122,92,.13) 50%,
+      rgba(33,106,11,.13) 50%,
       transparent 100%);
     animation:enrich-sweep 1.6s ease-in-out infinite;
     pointer-events:none;
@@ -449,11 +627,11 @@
   .choro-tip strong{ font-weight:700;color:var(--ink) }
   .choro-tip br + *{ color:var(--rupee-deep) }
   .leaflet-popup-content-wrapper{
-    border-radius:12px;background:#fff;color:var(--ink);
-    border:0;box-shadow:0 3px 14px rgba(0,0,0,.3);
+    border-radius:var(--radius-lg);background:#fff;color:var(--ink);
+    border:0;box-shadow:var(--shadow-2);
   }
-  .leaflet-popup-tip{background:#fff;border:0;box-shadow:0 3px 14px rgba(0,0,0,.2)}
-  .pp{font-size:12.5px;min-width:200px}
+  .leaflet-popup-tip{background:#fff;border:0;box-shadow:var(--shadow-1)}
+  .pp{font-size:12.5px;min-width:230px}
   .pp h3{
     font-variation-settings:'wdth' 112;font-size:15px;font-weight:700;margin-bottom:2px;
   }
@@ -469,19 +647,47 @@
     font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
     color:var(--ink-soft);margin-bottom:2px;
   }
+  /* micro-insight: real income/spend split + real raw-signal snapshot, all actual data */
+  .pp .snapshot{margin-top:10px;padding-top:9px;border-top:1px solid var(--hairline)}
+  .pp .snapshot-label{
+    font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--ink-soft);margin-bottom:6px;
+  }
+  .pp .split-bar{display:flex;height:7px;border-radius:4px;overflow:hidden;background:var(--paper-2)}
+  .pp .split-bar i{display:block;height:100%}
+  .pp .split-bar i.income{background:var(--rupee)}
+  .pp .split-bar i.spend{background:var(--amber)}
+  .pp .split-legend{display:flex;justify-content:space-between;font-size:9.5px;color:var(--ink-soft);margin:4px 0 10px}
+  .pp .split-legend b{color:var(--ink);font-weight:600}
+  .pp .sig-bar-row{margin-bottom:6px}
+  .pp .sig-bar-row:last-child{margin-bottom:0}
+  .pp .sig-bar-head{display:flex;align-items:baseline;justify-content:space-between;gap:6px;font-size:10.5px;margin-bottom:2px}
+  .pp .sig-bar-head span:first-child{color:var(--ink-soft);display:flex;align-items:center;gap:4px}
+  .pp .sig-bar-head b{font-family:var(--mono);font-weight:600}
+  .pp .sig-bar-head .pro-badge{font-size:7.5px;padding:0 4px}
+  .pp .sig-bar-track{height:5px;border-radius:3px;background:var(--paper-2);overflow:hidden}
+  .pp .sig-bar-fill{height:100%;background:var(--rupee);border-radius:3px}
 
   /* Spider / coverage-radar chart */
   #spiderBtn{
     position:absolute;right:14px;bottom:112px;z-index:810;
-    width:36px;height:36px;background:var(--paper);border:1px solid var(--ink);
+    width:36px;height:36px;background:#fff;border:1px solid var(--border);border-radius:var(--radius);
+    box-shadow:var(--shadow-1);
     cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;
     transition:background .15s,color .15s,border-color .15s;padding:0;
   }
-  #spiderBtn:hover{background:var(--ink);color:var(--paper)}
-  #spiderBtn.active{background:var(--rupee);color:var(--paper);border-color:var(--rupee)}
+  #spiderBtn:hover{background:var(--rupee);color:#fff;border-color:var(--rupee)}
+  #catalogBtn{
+    position:absolute;left:14px;bottom:80px;z-index:810;
+    width:36px;height:36px;background:#fff;border:1px solid var(--border);border-radius:var(--radius);
+    box-shadow:var(--shadow-1);cursor:pointer;font-size:15px;
+    display:flex;align-items:center;justify-content:center;color:var(--ink);
+  }
+  #catalogBtn:hover{background:var(--rupee);color:#fff;border-color:var(--rupee)}
+  #spiderBtn.active{background:var(--rupee);color:#fff;border-color:var(--rupee)}
   #spiderPanel{
     position:absolute;right:14px;bottom:156px;z-index:820;
-    background:var(--paper);border:1px solid var(--ink);
+    background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-2);
     padding:10px 12px;display:none;width:240px;
   }
   #spiderPanel.show{display:block}
@@ -491,9 +697,9 @@
   /* mobile */
   @media (max-width:760px){
     body{flex-direction:column}
-    aside{width:100%;min-width:0;height:46vh;order:2;border-right:0;border-top:1px solid var(--ink)}
+    aside{width:100%;min-width:0;height:46vh;order:2;border-right:0;border-top:1px solid var(--border)}
     .aside-body{flex-direction:column;overflow-y:auto}
-    .col-controls{width:100%;min-width:0;border-right:0;border-bottom:1px solid var(--ink);overflow-y:visible}
+    .col-controls{width:100%;min-width:0;border-right:0;border-bottom:1px solid var(--border);overflow-y:visible}
     .col-results{overflow-y:visible}
     main{height:54vh;order:1}
     .brand-logo{height:28px}
@@ -551,10 +757,38 @@
           <button id="viewHeat"  aria-pressed="false" title="Heatmap" style="flex:1"><i class="ti ti-flame"></i> Heat</button>
         </div>
       </div>
-      <div class="action-row">
-        <select id="signalMore" class="signal-select" aria-label="Colour map by signal">
-          <option value="">More signals…</option>
-        </select>
+      <div class="action-row" style="position:relative">
+        <button id="sigExplorerBtn" class="export-btn" type="button" aria-expanded="false" aria-controls="sigExplorerPanel">
+          <i class="ti ti-adjustments"></i> <span id="sigExplorerLabel">Signals</span>
+        </button>
+        <div class="export-panel sig-explorer-panel" id="sigExplorerPanel" hidden>
+          <input type="text" id="sigSearch" class="sig-search" placeholder="Search signals…" aria-label="Search signals">
+          <button type="button" id="sigCatalogLink" class="export-signals-toggle" style="align-self:flex-end;margin:-4px 0 2px">Browse full catalog →</button>
+          <div class="sig-chips" id="sigCategoryChips"></div>
+          <div class="sig-list" id="sigList"></div>
+          <div class="sig-filter-section">
+            <span class="export-panel-label">
+              <span>Advanced filter <span class="pro-badge">PRO</span></span>
+              <button type="button" class="export-signals-toggle" id="sigFilterClearBtn" hidden>Clear</button>
+            </span>
+            <div id="sigFilterChips" class="sig-filter-chips"></div>
+            <div id="sigFilterLocked" class="sig-filter-locked">
+              <i class="ti ti-lock"></i> Composable signal filters (e.g. "PPI &gt; 120 AND SFB branches ≥ 3") are a Pro capability — preview only for now.
+            </div>
+            <div id="sigFilterBuilder" class="sig-filter-builder" hidden>
+              <select id="filterSignalSel" aria-label="Filter signal"></select>
+              <select id="filterOpSel" aria-label="Filter operator">
+                <option value="gte">≥</option>
+                <option value="gt">&gt;</option>
+                <option value="lte">≤</option>
+                <option value="lt">&lt;</option>
+                <option value="eq">=</option>
+              </select>
+              <input type="number" id="filterValInput" placeholder="value" step="any" aria-label="Filter value">
+              <button type="button" id="filterAddBtn" class="export-btn" style="width:auto;padding:6px 10px">+ Add</button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -624,6 +858,10 @@
     </div>
   </div>
 
+  <div class="filter-status" id="filterStatus" hidden>
+    <span id="filterStatusText"></span>
+    <button type="button" id="filterStatusClear">Clear filters</button>
+  </div>
   <div class="ledger">
     <div class="ledger-head"><span>#</span><span>Locality</span><span style="text-align:right" id="colLabel">Income/mo</span><span style="text-align:right">PPI</span></div>
     <div id="locList"></div>
@@ -650,6 +888,9 @@
   <button id="spiderBtn" title="Coverage radar — 8-direction data density from YAH pin" aria-pressed="false">
     <i class="ti ti-chart-radar"></i>
   </button>
+  <button id="catalogBtn" title="Browse the full signals catalog">
+    <i class="ti ti-layout-grid"></i>
+  </button>
   <div id="spiderPanel">
     <div class="field-label"><span>Coverage radar</span><span style="font-size:9px;color:var(--ink-soft)">from YAH pin</span></div>
     <svg id="spiderSvg" viewBox="0 0 220 220" width="216" height="216" style="display:block;margin:0 auto"></svg>
@@ -664,8 +905,46 @@
   <div class="toast" id="toast" role="status"></div>
 </main>
 
+<!-- Signals Catalog — full-screen browse view, Living-Atlas-inspired. Additive: doesn't
+     replace the Signal Explorer popover above, reachable from it and from the map's grid icon. -->
+<div class="catalog-overlay" id="catalogOverlay" hidden>
+  <div class="catalog-panel">
+    <div class="catalog-header">
+      <div>
+        <h2>Signals Catalog</h2>
+        <p>Every purchasing-power signal PaisaMap tracks — real coverage stats, nothing invented.</p>
+      </div>
+      <button class="catalog-close" id="catalogCloseBtn" aria-label="Close catalog"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="catalog-body">
+      <input type="text" id="catalogSearch" class="catalog-search" placeholder="Search the catalog…" aria-label="Search catalog">
+      <div class="catalog-cats" id="catalogCats"></div>
+      <div class="catalog-filters">
+        <div class="catalog-tier-toggle" id="catalogTierToggle" role="group" aria-label="Tier filter">
+          <button type="button" data-tier="all" aria-pressed="true">All</button>
+          <button type="button" data-tier="free" aria-pressed="false">Free</button>
+          <button type="button" data-tier="pro" aria-pressed="false">Pro</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="catalog-count" id="catalogCount"></span>
+          <select class="catalog-sort" id="catalogSort" aria-label="Sort by">
+            <option value="category">Sort: Category</option>
+            <option value="alpha">Sort: Alphabetical</option>
+            <option value="coverage">Sort: Coverage</option>
+          </select>
+        </div>
+      </div>
+      <div class="catalog-grid" id="catalogGrid"></div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
+<!-- Optional ArcGIS vector basemap support — inert unless ARCGIS_API_KEY (below) is set.
+     Official Esri plugins, MapLibre GL is bundled inside esri-leaflet-vector's dist file. -->
+<script src="https://unpkg.com/esri-leaflet/dist/esri-leaflet.js"></script>
+<script src="https://unpkg.com/esri-leaflet-vector@4/dist/esri-leaflet-vector.js"></script>
 <script>
 /* ============================================================
    PaisaMap — demo purchasing-power heat map
@@ -712,6 +991,14 @@ let nameIndex  = [];   // array of same objects, for fuzzy name search
 // False on GitHub Pages (static-only) and file:// direct opens
 const IS_SERVER = !window.location.hostname.includes("github.io")
                && window.location.protocol !== "file:";
+
+// Optional — get a free key at location.arcgis.com, restrict it by HTTP referrer to your
+// domain(s) in the Esri dashboard before use (client-side map keys are inherently visible in
+// the browser, same as Mapbox/Google Maps — referrer-restriction is the real boundary, not
+// secrecy). Blank by design: never commit a real key to this public repo. When blank, the
+// ArcGIS basemap options are simply absent from the layer switcher — everything else works
+// exactly as before.
+const ARCGIS_API_KEY = "";
 
 // Quote-aware CSV line split — plain split(",") breaks on fields like
 // "Sundargarh, Odisha", silently misaligning every column after them.
@@ -769,11 +1056,13 @@ const fmtShort = n => n >= 100000 ? "₹" + (n/100000).toFixed(1).replace(/\.0$/
 // Every raw per-pincode signal /api/export can join in, grouped for the export
 // checklist and doubling as the "colour map by" dropdown. IDs match server.py's
 // EXPORT_SIGNAL_FILES column names exactly.
+// `pro` is cosmetic-only (badge + locked interaction) — there's no real
+// auth/entitlement backend yet, this is a UI preview of the future tiering.
 const SIGNAL_GROUPS = [
-  { label:"Property", cols:[
+  { label:"Property", pro:false, cols:[
     {id:"rate_per_sqft", label:"Property rate /sqft", fmt:v=>fmtINR(v)},
   ]},
-  { label:"Banking & UPI", cols:[
+  { label:"Banking & UPI", pro:true, cols:[
     {id:"bank_branches_per_lakh",     label:"Bank branches /lakh",   fmt:v=>v.toFixed(1)},
     {id:"deposits_per_capita",        label:"Deposits per capita",  fmt:v=>fmtINR(v)},
     {id:"sfb_branches",               label:"SFB branches",         fmt:v=>v.toFixed(0)},
@@ -783,19 +1072,19 @@ const SIGNAL_GROUPS = [
     {id:"fin_density_per_km2",        label:"Fin. density /km²",    fmt:v=>v.toFixed(2)},
     {id:"upi_txn_value_per_capita",   label:"UPI txn value /capita",fmt:v=>fmtINR(v)},
   ]},
-  { label:"Tax & economy", cols:[
+  { label:"Tax & economy", pro:true, cols:[
     {id:"filers_per_capita",       label:"ITR filers /capita",   fmt:v=>(v*100).toFixed(1)+"%"},
     {id:"msme_per_lakh",           label:"MSMEs /lakh",          fmt:v=>v.toFixed(1)},
     {id:"factories_per_lakh",      label:"Factories /lakh",      fmt:v=>v.toFixed(1)},
     {id:"nsdp_per_capita",         label:"NSDP per capita",      fmt:v=>fmtINR(v)},
     {id:"cropping_intensity_pct",  label:"Cropping intensity",   fmt:v=>v.toFixed(0)+"%"},
   ]},
-  { label:"Infrastructure", cols:[
+  { label:"Infrastructure", pro:true, cols:[
     {id:"radiance_mean",        label:"Night-lights radiance", fmt:v=>v.toFixed(2)},
     {id:"premium_poi_per_km2",  label:"Premium POI density",   fmt:v=>v.toFixed(2)},
     {id:"schools_per_lakh",     label:"Schools /lakh",         fmt:v=>v.toFixed(1)},
   ]},
-  { label:"Vehicles", cols:[
+  { label:"Vehicles", pro:true, cols:[
     {id:"cars_per_1000",  label:"Cars /1000",       fmt:v=>v.toFixed(1)},
     {id:"lmv_per_1000",   label:"LMVs /1000",       fmt:v=>v.toFixed(1)},
     {id:"car_2w_ratio",   label:"Car:2W ratio",     fmt:v=>v.toFixed(2)},
@@ -804,7 +1093,10 @@ const SIGNAL_GROUPS = [
   ]},
 ];
 const SIGNAL_DEFS = {};
-SIGNAL_GROUPS.forEach(g => g.cols.forEach(c => SIGNAL_DEFS[c.id] = c));
+SIGNAL_GROUPS.forEach(g => g.cols.forEach(c => {
+  c.pro = g.pro; c.group = g.label;
+  SIGNAL_DEFS[c.id] = c;
+}));
 
 // pincode → joined raw-signal row, loaded once from /api/export (json, all columns)
 let signalMap = {};
@@ -888,16 +1180,31 @@ const cartoLabels  = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/
 
 osmClassic.addTo(map);
 
+// ArcGIS vector basemaps — extra choices alongside the free OSM/CARTO defaults above, never
+// replacing them. Only constructed if a key is configured (see ARCGIS_API_KEY); otherwise this
+// block is a no-op and the switcher shows exactly the three layers it always has.
+const arcgisBaseLayers = {};
+if(ARCGIS_API_KEY && window.L && L.esri && L.esri.Vector){
+  // Style identifiers confirmed against Esri's current docs at time of writing — Esri has
+  // renamed these between library versions before, so re-verify against
+  // developers.arcgis.com/esri-leaflet if a style silently 404s.
+  arcgisBaseLayers["ArcGIS Streets"]  = L.esri.Vector.vectorBasemapLayer("ArcGIS:Streets",  {apikey: ARCGIS_API_KEY});
+  arcgisBaseLayers["ArcGIS Dark Gray"] = L.esri.Vector.vectorBasemapLayer("ArcGIS:DarkGray", {apikey: ARCGIS_API_KEY});
+}
+
 L.control.layers(
-  {"OpenStreetMap classic":osmClassic, "Streets (CARTO·OSM)":cartoStreets, "Light (CARTO·OSM)":cartoLight},
+  {"OpenStreetMap classic":osmClassic, "Streets (CARTO·OSM)":cartoStreets, "Light (CARTO·OSM)":cartoLight, ...arcgisBaseLayers},
   {"Labels overlay (for CARTO)":cartoLabels},
   {position:"topright", collapsed:true}
 ).addTo(map);
 
-// auto-attach the labels overlay when a CARTO (no-labels) basemap is chosen
+// auto-attach the CARTO labels overlay only for the CARTO no-labels basemaps — not for OSM
+// (has its own labels baked in) and not for ArcGIS vector styles (also self-labelled; stacking
+// CARTO's label tiles on top would look mismatched).
 map.on("baselayerchange", e=>{
-  if(e.layer === osmClassic){ map.removeLayer(cartoLabels); }
-  else if(!map.hasLayer(cartoLabels)){ cartoLabels.addTo(map); }
+  const isCartoNoLabels = e.layer === cartoStreets || e.layer === cartoLight;
+  if(isCartoNoLabels){ if(!map.hasLayer(cartoLabels)) cartoLabels.addTo(map); }
+  else{ map.removeLayer(cartoLabels); }
 });
 
 // If OSM tiles fail to load (some networks block them), fall back to CARTO
@@ -1490,7 +1797,7 @@ nearbyBtn.addEventListener("click", async ()=>{
       const t = el.tags || {};
       const kind = t.shop === "mall" ? "Mall" : t.shop === "supermarket" ? "Supermarket" : "Bank";
       L.circleMarker([la,lo],{
-        radius:3.5, color:"#0A5743", weight:1, fillColor:"#0E7A5C", fillOpacity:.9
+        radius:3.5, color:"#115000", weight:1, fillColor:"#216A0B", fillOpacity:.9
       }).bindTooltip(`${t.name || kind} · ${kind}`,{direction:"top",offset:[0,-4]})
         .addTo(nearbyGroup);
       n++;
@@ -1673,13 +1980,38 @@ function computePPI(rows){
   return rows;
 }
 
-function metricValue(d){
-  if(metric === "income") return d.income;
-  if(metric === "spend")  return d.spend;
-  if(metric === "ppi")    return d.ppi;
+// Generalized signal accessor — metricValue() below is the "current colour-by
+// metric" convenience wrapper; the advanced filter builder needs to read an
+// arbitrary signal id regardless of what's currently selected for colouring.
+function signalValue(d, sigId){
+  if(sigId === "income") return d.income;
+  if(sigId === "spend")  return d.spend;
+  if(sigId === "ppi")    return d.ppi;
   const row = d.pincode && signalMap[d.pincode];
-  const v = row ? +row[metric] : NaN;
+  const v = row ? +row[sigId] : NaN;
+  return Number.isFinite(v) ? v : NaN;
+}
+function metricValue(d){
+  const v = signalValue(d, metric);
   return Number.isFinite(v) ? v : 0;
+}
+
+// Advanced filter builder conditions — [{sig, op, val}], AND-combined.
+// Cosmetically Pro-gated (see SIGNAL_FILTERS_PRO) but the filtering logic
+// itself is real: it narrows `rows` by an actual signal comparison, same
+// data already flowing through signalMap.
+let signalFilters = [];
+function passesFilters(d){
+  return signalFilters.every(f=>{
+    const v = signalValue(d, f.sig);
+    if(!Number.isFinite(v)) return false;
+    if(f.op === "gt")  return v >  f.val;
+    if(f.op === "gte") return v >= f.val;
+    if(f.op === "lt")  return v <  f.val;
+    if(f.op === "lte") return v <= f.val;
+    if(f.op === "eq")  return v === f.val;
+    return true;
+  });
 }
 
 function render(){
@@ -1695,17 +2027,22 @@ function render(){
       return row && row[metric] !== null && row[metric] !== undefined && row[metric] !== "";
     });
   }
+  const beforeFilterCount = rows.length;
+  if(signalFilters.length) rows = rows.filter(passesFilters);
   rows.sort((a,b)=>metricValue(b)-metricValue(a));
 
   // No real data within selected radius → show synthetic demo clusters around pin
+  // (never for a filter-caused zero — that's a real "no matches", not "no data")
   let usingEstimated = false;
-  if(rows.length === 0 && !isExtraSignal){
+  if(rows.length === 0 && !isExtraSignal && !signalFilters.length){
     const synth = syntheticAround(center[0], center[1]).map(buildRecord);
     rows = computePPI(synth.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm))
              .sort((a,b)=>metricValue(b)-metricValue(a));
     usingEstimated = true;
   } else if(rows.length === 0 && isExtraSignal){
     toast(`No ${SIGNAL_DEFS[metric].label} data within ${radiusKm} km`, 3500);
+  } else if(rows.length === 0 && signalFilters.length){
+    toast(`No localities match your active filter${signalFilters.length>1?"s":""}`, 3500);
   }
 
   metricMin = rows.length ? Math.min(...rows.map(metricValue)) : 0;
@@ -1714,8 +2051,8 @@ function render(){
   // radius circle
   if(circleLayer) circleLayer.remove();
   circleLayer = L.circle(center,{
-    radius:radiusKm*1000, color:"#1B2622", weight:1.2, dashArray:"4 5",
-    fillColor:"#0E7A5C", fillOpacity:0.03, interactive:false
+    radius:radiusKm*1000, color:"#1A1C1A", weight:1.2, dashArray:"4 5",
+    fillColor:"#216A0B", fillOpacity:0.03, interactive:false
   }).addTo(map);
 
   // zones or heat
@@ -1810,7 +2147,7 @@ function render(){
           layer.on("click", function(e){
             L.DomEvent.stopPropagation(e);   // don't also relocate the YAH pin
             const d = rows.find(r => r.pincode === p.pincode);
-            if(d) layer.bindPopup(popupHTML(d)).openPopup();
+            if(d) layer.bindPopup(popupHTML(d, rows)).openPopup();
           });
         },
         interactive: true,
@@ -1830,7 +2167,7 @@ function render(){
   markerGroup.clearLayers();
   rows.forEach(d=>{
     const m = L.marker([d.lat,d.lng],{icon:pinIcon})   // CSS-drawn classic pin
-      .bindPopup(popupHTML(d));
+      .bindPopup(popupHTML(d, rows));
     if(OFFLINE){
       m.bindTooltip(d.name,{permanent:true,direction:"top",className:"name-label",opacity:1});
     }else{
@@ -1869,6 +2206,16 @@ function render(){
   document.getElementById("hlSpend").textContent  = rows.length ? fmtShort(avgSpend)  : "—";
   document.getElementById("hlCount").textContent  = rows.length;
 
+  // filter-status line — only shown once an advanced filter has actually narrowed the view
+  const filterStatusEl = document.getElementById("filterStatus");
+  if(signalFilters.length){
+    filterStatusEl.hidden = false;
+    document.getElementById("filterStatusText").textContent =
+      `${rows.length} of ${beforeFilterCount} shown · ${signalFilters.length} filter${signalFilters.length>1?"s":""} active`;
+  } else {
+    filterStatusEl.hidden = true;
+  }
+
   // ledger list
   const colLabels = {ppi:"PPI", income:"Income/mo", spend:"Spend/mo"};
   document.getElementById("colLabel").textContent =
@@ -1880,10 +2227,15 @@ function render(){
     b.className = "loc-row" + (d.id===activeId ? " active":"");
     const valText = sigDef ? sigDef.fmt(metricValue(d))
                   : metric==="spend" ? fmtShort(d.spend) : fmtShort(d.income);
+    // Micro-insight: real relative rank of this row within the visible set for
+    // the currently selected metric — reuses metricMin/metricMax, already
+    // computed above for the map's own zone/heat colouring, not a new number.
+    const pct = metricMax > metricMin ? (metricValue(d) - metricMin) / (metricMax - metricMin) : 1;
     b.innerHTML = `<span class="rank">${String(i+1).padStart(2,"0")}</span>
       <span class="name">${d.name}</span>
       <span class="val">${valText}</span>
-      <span class="ppi">${d.ppi}</span>`;
+      <span class="ppi">${d.ppi}</span>
+      <span class="row-bar" style="width:${Math.max(2,Math.round(pct*100))}%"></span>`;
     b.addEventListener("click",()=>{
       setActive(d.id,true);
       map.flyTo([d.lat,d.lng], Math.max(map.getZoom(),13), {duration:.6});
@@ -1910,7 +2262,15 @@ function setActive(id, fromList){
   }
 }
 
-function popupHTML(d){
+// Priority order for the popup's real-signal snapshot bars — the first 3-4 of
+// these actually present for a given pincode are shown, nothing invented for
+// the rest. Ordered roughly by how widely each signal is populated today.
+const POPUP_SNAPSHOT_PRIORITY = [
+  "rate_per_sqft","bank_branches_per_lakh","msme_per_lakh","schools_per_lakh",
+  "cars_per_1000","nsdp_per_capita","upi_txn_value_per_capita","radiance_mean",
+];
+
+function popupHTML(d, rows){
   // Give the currently selected map signal top billing in the popup, same
   // metric the sidebar headline and map colouring are keyed off — PPI drops
   // into the table (instead of always being the big number) whenever some
@@ -1930,17 +2290,53 @@ function popupHTML(d){
   const isPrimaryIncome = primaryLabel === "Avg income";
   const isPrimarySpend  = primaryLabel === "Monthly spend";
 
+  // Micro-insight 1: real income/spend split — the two real numbers that
+  // actually drive the PPI formula (0.6×income + 0.4×spend), not fabricated.
+  const sumIS = d.income + d.spend;
+  const incomePct = sumIS > 0 ? Math.round((d.income / sumIS) * 100) : 50;
+
+  // Micro-insight 2: whichever raw signals this pincode genuinely has data
+  // for, normalized against that signal's own min/max across the currently
+  // visible set (same normalization the map's own colouring already uses) —
+  // nothing shown for a signal this pincode lacks.
+  const snapshotRows = (rows || []).length ? rows : [d];
+  const snapshotSignals = POPUP_SNAPSHOT_PRIORITY
+    .filter(id => id !== metric)   // don't repeat the metric already shown as the big number above
+    .map(id => ({id, v: sigRow ? +sigRow[id] : NaN}))
+    .filter(s => Number.isFinite(s.v) && sigRow && sigRow[s.id] !== null && sigRow[s.id] !== "")
+    .slice(0, 4)
+    .map(s => {
+      const vals = snapshotRows.map(r => signalValue(r, s.id)).filter(Number.isFinite);
+      const lo = vals.length ? Math.min(...vals) : s.v;
+      const hi = vals.length ? Math.max(...vals) : s.v;
+      const pct = hi > lo ? (s.v - lo) / (hi - lo) : 1;
+      return {def: SIGNAL_DEFS[s.id], v: s.v, pct};
+    });
+
   return `<div class="pp">
     <h3>${d.name}</h3>
     <div class="tag">Modelled estimate · demo</div>
     ${isPrimaryPPI ? "" : `<div class="metric-label">${primaryLabel}</div>`}
-    <div class="ppi-big">${primaryValue} <span style="font-size:11px;color:#46524C">${primaryUnit || primaryLabel}</span></div>
+    <div class="ppi-big">${primaryValue} <span style="font-size:11px;color:var(--ink-soft)">${primaryUnit || primaryLabel}</span></div>
     <table>
       ${isPrimaryPPI ? "" : `<tr><td>PPI</td><td>${d.ppi}</td></tr>`}
       ${isPrimaryIncome ? "" : `<tr><td>Avg income</td><td>${fmtINR(d.income)}/mo</td></tr>`}
       ${isPrimarySpend ? "" : `<tr><td>Monthly spend</td><td>${fmtINR(d.spend)}/mo</td></tr>`}
       <tr><td>Annual spend</td><td>${fmtINR(d.annual)}/yr</td></tr>
     </table>
+    <div class="snapshot">
+      <div class="snapshot-label">Income vs spend</div>
+      <div class="split-bar"><i class="income" style="width:${incomePct}%"></i><i class="spend" style="width:${100-incomePct}%"></i></div>
+      <div class="split-legend"><span>Income <b>${incomePct}%</b></span><span>Spend <b>${100-incomePct}%</b></span></div>
+      ${snapshotSignals.map(s => `
+        <div class="sig-bar-row">
+          <div class="sig-bar-head">
+            <span>${s.def.label}${s.def.pro ? '<span class="pro-badge">PRO</span>' : ''}</span>
+            <b>${s.def.fmt(s.v)}</b>
+          </div>
+          <div class="sig-bar-track"><div class="sig-bar-fill" style="width:${Math.max(4,Math.round(s.pct*100))}%"></div></div>
+        </div>`).join("")}
+    </div>
     <button class="pp-btn" onclick="showBoundary(${d.id})">Show area boundary</button>
   </div>`;
 }
@@ -2055,36 +2451,360 @@ document.getElementById("radius").addEventListener("input", e=>{
   render();
 });
 
-const signalMoreEl = document.getElementById("signalMore");
-SIGNAL_GROUPS.forEach(g=>{
-  const og = document.createElement("optgroup");
-  og.label = g.label;
-  g.cols.forEach(c=>{
-    const opt = document.createElement("option");
-    opt.value = c.id; opt.textContent = c.label;
-    og.appendChild(opt);
-  });
-  signalMoreEl.appendChild(og);
-});
-
 document.querySelectorAll("#metricSeg button").forEach(b=>{
   b.addEventListener("click", ()=>{
     document.querySelectorAll("#metricSeg button").forEach(x=>x.setAttribute("aria-pressed","false"));
     b.setAttribute("aria-pressed","true");
-    signalMoreEl.value = "";
     metric = b.dataset.metric;
+    document.getElementById("sigExplorerLabel").textContent = "Signals";
     const labels = {ppi:"Area purchasing power index", income:"Area avg income (indexed view)", spend:"Area avg spend (indexed view)"};
     document.getElementById("hlLabel").textContent = labels[metric];
     render();
   });
 });
 
-signalMoreEl.addEventListener("change", ()=>{
-  if(!signalMoreEl.value) return;
+// ── Signal Explorer — search + category chips + signal picker + advanced filter builder ──
+// Replaces the old bare <select> "more signals" dropdown: same job (sets `metric`), but
+// discoverable via search/category instead of scrolling a native optgroup list, and it's
+// the one place Pro-badging/locking lives instead of duplicating that logic in two UIs.
+//
+// SIGNAL_FILTERS_PRO is a dev-only flag: the advanced filter builder ships permanently
+// locked (cosmetic-only Pro gating — there's no real upgrade path yet), but the underlying
+// add/remove/render() filtering logic (see signalFilters/passesFilters above) is fully real
+// and needs to be exercised somehow. Flip to true locally to verify end-to-end; ships false.
+const SIGNAL_FILTERS_PRO = false;
+
+// Shared between the Signal Explorer popover and the Signals Catalog (below) — one list of
+// every pickable signal, core (always-free) triad first.
+const CORE_SIGNALS = [
+  {id:"ppi",    label:"Purchasing Power Index (PPI)", pro:false, group:"Core"},
+  {id:"income", label:"Avg income",                   pro:false, group:"Core"},
+  {id:"spend",  label:"Avg spend",                     pro:false, group:"Core"},
+];
+const ALL_SIGNALS = [...CORE_SIGNALS, ...SIGNAL_GROUPS.flatMap(g=>g.cols)];
+
+// Shared "pick this signal to colour the map by" action — used by both the Signal Explorer
+// popover and the Signals Catalog below, so there's one behavior to keep correct, not two.
+function selectSignalMetric(sigId, label){
   document.querySelectorAll("#metricSeg button").forEach(x=>x.setAttribute("aria-pressed","false"));
-  metric = signalMoreEl.value;
-  const sig = SIGNAL_DEFS[metric];
+  metric = sigId;
+  document.getElementById("sigExplorerLabel").textContent = label;
+  const sig = SIGNAL_DEFS[sigId];
   document.getElementById("hlLabel").textContent = (sig ? sig.label : "Signal") + " — area average";
+  render();
+}
+
+(function(){
+  const btn             = document.getElementById("sigExplorerBtn");
+  const panel           = document.getElementById("sigExplorerPanel");
+  const searchEl        = document.getElementById("sigSearch");
+  const chipsEl         = document.getElementById("sigCategoryChips");
+  const listEl          = document.getElementById("sigList");
+  const filterChipsEl   = document.getElementById("sigFilterChips");
+  const filterLockedEl  = document.getElementById("sigFilterLocked");
+  const filterBuilderEl = document.getElementById("sigFilterBuilder");
+  const filterClearBtn  = document.getElementById("sigFilterClearBtn");
+  const filterSigSel    = document.getElementById("filterSignalSel");
+  const filterOpSel     = document.getElementById("filterOpSel");
+  const filterValInput  = document.getElementById("filterValInput");
+  const filterAddBtn    = document.getElementById("filterAddBtn");
+
+  const activeCats = new Set();   // empty = every category shown
+  let searchText = "";
+
+  SIGNAL_GROUPS.forEach(g=>{
+    const chip = document.createElement("button");
+    chip.type = "button"; chip.className = "sig-chip"; chip.setAttribute("aria-pressed","false");
+    chip.textContent = g.label + (g.pro ? " 🔒" : "");
+    chip.addEventListener("click", ()=>{
+      if(activeCats.has(g.label)) activeCats.delete(g.label); else activeCats.add(g.label);
+      chip.setAttribute("aria-pressed", String(activeCats.has(g.label)));
+      renderSigList();
+    });
+    chipsEl.appendChild(chip);
+  });
+
+  function matchesSearch(c){
+    if(!searchText) return true;
+    return c.label.toLowerCase().includes(searchText) || c.id.toLowerCase().includes(searchText);
+  }
+
+  function selectSignal(sigId, label){
+    selectSignalMetric(sigId, label);
+    panel.hidden = true; btn.setAttribute("aria-expanded","false");
+  }
+
+  function renderSigList(){
+    listEl.innerHTML = "";
+    let shown = 0;
+    ALL_SIGNALS.forEach(c=>{
+      if(activeCats.size && c.group !== "Core" && !activeCats.has(c.group)) return;
+      if(!matchesSearch(c)) return;
+      shown++;
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "sig-row" + (c.id===metric ? " active" : "") + (c.pro ? " locked-row" : "");
+      row.innerHTML = `<span class="sig-row-label"><span>${c.label}</span></span>` +
+        (c.pro ? '<span class="pro-badge">PRO</span>' : '');
+      row.addEventListener("click", ()=>{
+        if(c.pro){
+          toast(`🔒 ${c.label} is a Pro signal — upgrade to unlock`, 3000);
+          return;
+        }
+        selectSignal(c.id, c.label);
+      });
+      listEl.appendChild(row);
+    });
+    if(!shown){
+      const empty = document.createElement("div");
+      empty.className = "sig-empty";
+      empty.textContent = "No signals match your search.";
+      listEl.appendChild(empty);
+    }
+  }
+  renderSigList();
+
+  searchEl.addEventListener("input", ()=>{
+    searchText = searchEl.value.trim().toLowerCase();
+    renderSigList();
+  });
+
+  // advanced filter builder — signal picker options (only meaningful once unlocked)
+  ALL_SIGNALS.forEach(c=>{
+    const opt = document.createElement("option");
+    opt.value = c.id; opt.textContent = c.label;
+    filterSigSel.appendChild(opt);
+  });
+
+  function renderFilterChips(){
+    filterChipsEl.innerHTML = "";
+    signalFilters.forEach((f,i)=>{
+      const opLabel = {gt:">",gte:"≥",lt:"<",lte:"≤",eq:"="}[f.op];
+      const sigLabel = SIGNAL_DEFS[f.sig] ? SIGNAL_DEFS[f.sig].label : f.sig.toUpperCase();
+      const chip = document.createElement("span");
+      chip.className = "sig-filter-chip";
+      chip.innerHTML = `${sigLabel} ${opLabel} ${f.val} <button type="button" aria-label="Remove filter">✕</button>`;
+      chip.querySelector("button").addEventListener("click", ()=>{
+        signalFilters.splice(i,1);
+        renderFilterChips();
+        render();
+      });
+      filterChipsEl.appendChild(chip);
+    });
+    filterClearBtn.hidden = signalFilters.length === 0;
+  }
+
+  if(SIGNAL_FILTERS_PRO){
+    filterLockedEl.hidden = true;
+    filterBuilderEl.hidden = false;
+    filterAddBtn.addEventListener("click", ()=>{
+      const sig = filterSigSel.value, op = filterOpSel.value, val = parseFloat(filterValInput.value);
+      if(!sig || !Number.isFinite(val)) return;
+      signalFilters.push({sig, op, val});
+      filterValInput.value = "";
+      renderFilterChips();
+      render();
+    });
+  }
+  filterClearBtn.addEventListener("click", ()=>{
+    signalFilters = [];
+    renderFilterChips();
+    render();
+  });
+  renderFilterChips();
+
+  btn.addEventListener("click", ()=>{
+    const open = panel.hidden;
+    panel.hidden = !open;
+    btn.setAttribute("aria-expanded", String(open));
+    if(open){
+      renderFilterChips();   // pick up any external reset (e.g. "Reset" button)
+      // The panel is wider than its narrow sidebar column, which scrolls
+      // vertically — position:absolute there would get horizontally clipped.
+      // Anchor it to the button's actual screen position instead so it can
+      // float over the map, same as the export panel would need to if it
+      // were ever widened past its column.
+      const r = btn.getBoundingClientRect();
+      const w = Math.min(340, window.innerWidth - 20);
+      panel.style.position = "fixed";
+      panel.style.width = w + "px";
+      panel.style.left = Math.max(10, Math.min(r.left, window.innerWidth - w - 10)) + "px";
+      panel.style.top = (r.bottom + 6) + "px";
+      panel.style.right = "auto";
+    }
+  });
+  document.addEventListener("click", e=>{
+    if(!panel.hidden && !panel.contains(e.target) && e.target !== btn && !btn.contains(e.target)){
+      panel.hidden = true;
+      btn.setAttribute("aria-expanded","false");
+    }
+  });
+
+  document.getElementById("sigCatalogLink").addEventListener("click", ()=>{
+    panel.hidden = true; btn.setAttribute("aria-expanded","false");
+    document.getElementById("catalogBtn").click();   // reuse the Catalog's own open handler
+  });
+})();
+
+// ── Signals Catalog — full-screen browse view, Living-Atlas-inspired ──────────
+// Additive: doesn't replace the Signal Explorer popover above (reused verbatim via
+// selectSignalMetric/ALL_SIGNALS/SIGNAL_GROUPS/signalMap — no new data model, no duplicated
+// Pro-gating logic). Every stat shown (coverage counts) is computed from real signalMap rows,
+// never invented, matching this codebase's established rule.
+(function(){
+  const overlay    = document.getElementById("catalogOverlay");
+  const openBtn    = document.getElementById("catalogBtn");
+  const closeBtn   = document.getElementById("catalogCloseBtn");
+  const searchEl   = document.getElementById("catalogSearch");
+  const catsEl     = document.getElementById("catalogCats");
+  const tierToggle = document.getElementById("catalogTierToggle");
+  const sortEl     = document.getElementById("catalogSort");
+  const countEl    = document.getElementById("catalogCount");
+  const gridEl     = document.getElementById("catalogGrid");
+
+  const CATEGORY_ICONS = {
+    "All":"ti-apps", "Core":"ti-chart-histogram", "Property":"ti-building",
+    "Banking & UPI":"ti-building-bank", "Tax & economy":"ti-receipt-tax",
+    "Infrastructure":"ti-bulb", "Vehicles":"ti-car",
+  };
+  const CATEGORIES = ["All","Core",...SIGNAL_GROUPS.map(g=>g.label)];
+
+  let activeCat  = "All";
+  let tier       = "all";   // all | free | pro
+  let searchText = "";
+  let sortBy     = "category";
+
+  CATEGORIES.forEach(cat=>{
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "catalog-cat"; b.setAttribute("aria-pressed", String(cat==="All"));
+    const groupDef = SIGNAL_GROUPS.find(g=>g.label===cat);
+    const locked = groupDef && groupDef.pro;
+    b.innerHTML = `<i class="ti ${CATEGORY_ICONS[cat]||'ti-tag'}"></i><span>${cat}${locked?'<span class="cat-lock">🔒</span>':''}</span>`;
+    b.addEventListener("click", ()=>{
+      activeCat = cat;
+      catsEl.querySelectorAll(".catalog-cat").forEach(x=>x.setAttribute("aria-pressed", String(x===b)));
+      renderGrid();
+    });
+    catsEl.appendChild(b);
+  });
+
+  tierToggle.querySelectorAll("button").forEach(b=>{
+    b.addEventListener("click", ()=>{
+      tier = b.dataset.tier;
+      tierToggle.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed", String(x===b)));
+      renderGrid();
+    });
+  });
+
+  searchEl.addEventListener("input", ()=>{
+    searchText = searchEl.value.trim().toLowerCase();
+    renderGrid();
+  });
+  sortEl.addEventListener("change", ()=>{ sortBy = sortEl.value; renderGrid(); });
+
+  // Real coverage stat — how many captured pincodes actually have a value for this signal.
+  // Core (ppi/income/spend) are computed for every locality record, so coverage is definitionally
+  // total; raw signals depend on which ETL pipelines have reached which pincodes so far.
+  function coverageFor(sigId){
+    if(sigId==="ppi" || sigId==="income" || sigId==="spend"){
+      return {have:null, total:null};   // "every locality" — rendered without a fraction below
+    }
+    const rows = Object.values(signalMap);
+    const total = rows.length;
+    const have = rows.filter(r => r[sigId] !== null && r[sigId] !== undefined && r[sigId] !== "").length;
+    return {have, total};
+  }
+
+  // Shared 6-stop scale (matches ppiColor/incomeColor/spendColor/bucketColor's colours) for any
+  // extra raw signal; core metrics get their own real HEAT_GRADIENTS stops — same colours the
+  // map itself renders with, not new ones invented for this card.
+  const SHARED_SCALE = ["#922B21","#E74C3C","#E67E22","#F1C40F","#27AE60","#1A7A4A"];
+  function gradientCSSFor(sigId){
+    if(HEAT_GRADIENTS[sigId]){
+      const stops = HEAT_GRADIENTS[sigId];
+      return `linear-gradient(90deg, ${Object.keys(stops).map(k=>`${stops[k]} ${+k*100}%`).join(", ")})`;
+    }
+    const step = 100/(SHARED_SCALE.length-1);
+    return `linear-gradient(90deg, ${SHARED_SCALE.map((c,i)=>`${c} ${Math.round(i*step)}%`).join(", ")})`;
+  }
+
+  function matchesSearch(c){
+    if(!searchText) return true;
+    return c.label.toLowerCase().includes(searchText) || c.id.toLowerCase().includes(searchText);
+  }
+
+  function renderGrid(){
+    gridEl.innerHTML = "";
+    let items = ALL_SIGNALS.filter(c=>{
+      if(activeCat !== "All" && c.group !== activeCat) return false;
+      if(tier === "free" && c.pro) return false;
+      if(tier === "pro" && !c.pro) return false;
+      if(!matchesSearch(c)) return false;
+      return true;
+    });
+    if(sortBy === "alpha"){
+      items = [...items].sort((a,b)=>a.label.localeCompare(b.label));
+    } else if(sortBy === "coverage"){
+      items = [...items].sort((a,b)=>{
+        const ca = coverageFor(a.id), cb = coverageFor(b.id);
+        const pa = ca.total ? ca.have/ca.total : 1, pb = cb.total ? cb.have/cb.total : 1;
+        return pb - pa;
+      });
+    } else {
+      items = [...items].sort((a,b)=> (a.group===b.group) ? 0 : (a.group==="Core" ? -1 : b.group==="Core" ? 1 : a.group.localeCompare(b.group)));
+    }
+
+    countEl.textContent = `${items.length} signal${items.length===1?"":"s"}`;
+
+    items.forEach(c=>{
+      const {have, total} = coverageFor(c.id);
+      const card = document.createElement("div");
+      card.className = "catalog-card" + (c.pro ? " locked" : "");
+      const coverageText = total===null ? "All captured localities" : `${have} of ${total} pincodes`;
+      card.innerHTML = `
+        <div class="catalog-card-swatch" style="background:${gradientCSSFor(c.id)}"></div>
+        <div class="catalog-card-body">
+          <div class="catalog-card-title">
+            <span>${c.label}</span>
+            ${c.pro ? '<span class="pro-badge">PRO</span>' : ''}
+          </div>
+          <div class="catalog-card-meta">${c.group}</div>
+          <div class="catalog-card-desc">${coverageText}</div>
+          <div class="catalog-card-actions">
+            <span class="catalog-card-coverage">${total ? Math.round(have/total*100)+"% coverage" : ""}</span>
+            <button type="button" class="catalog-card-use">${c.pro ? "🔒 Pro" : "Use on map"}</button>
+          </div>
+        </div>`;
+      card.querySelector(".catalog-card-use").addEventListener("click", ()=>{
+        if(c.pro){
+          toast(`🔒 ${c.label} is a Pro signal — upgrade to unlock`, 3000);
+          return;
+        }
+        selectSignalMetric(c.id, c.label);
+        overlay.hidden = true;
+      });
+      gridEl.appendChild(card);
+    });
+
+    if(!items.length){
+      const empty = document.createElement("div");
+      empty.className = "catalog-empty";
+      empty.textContent = "No signals match your search/filters.";
+      gridEl.appendChild(empty);
+    }
+  }
+
+  openBtn.addEventListener("click", ()=>{
+    overlay.hidden = false;
+    renderGrid();
+  });
+  closeBtn.addEventListener("click", ()=>{ overlay.hidden = true; });
+  overlay.addEventListener("click", e=>{ if(e.target === overlay) overlay.hidden = true; });
+  document.addEventListener("keydown", e=>{ if(e.key === "Escape" && !overlay.hidden) overlay.hidden = true; });
+})();
+
+document.getElementById("filterStatusClear").addEventListener("click", ()=>{
+  signalFilters = [];
   render();
 });
 
@@ -2093,6 +2813,7 @@ document.getElementById("resetBtn").addEventListener("click", async ()=>{
   center = [...DELHI_CENTER];
   dataset = ncrData.map(buildRecord);
   activeId = null;
+  signalFilters = [];
   moveYou();
   clearNearby();
   drawBoundary(null);
@@ -2114,11 +2835,21 @@ document.getElementById("resetBtn").addEventListener("click", async ()=>{
   const dlBtn    = document.getElementById("exportDownloadBtn");
   const state    = {dataset:"ppi", format:"csv", scope:"all"};
 
-  // Signal checklist — defaults to everything checked (== today's "export all" behaviour)
+  // Signal checklist — defaults to everything checked (== today's "export all" behaviour).
+  // Pro badge shown for visual-tier consistency with the Signal Explorer, but the checkbox
+  // itself stays enabled — exporting raw data isn't the gated surface, the map/analysis
+  // experience is (see SIGNAL_GROUPS' `pro` flag, cosmetic-only).
   SIGNAL_GROUPS.forEach(g=>{
     const gl = document.createElement("div");
     gl.className = "export-signals-group";
     gl.textContent = g.label;
+    if(g.pro){
+      const badge = document.createElement("span");
+      badge.className = "pro-badge";
+      badge.style.marginLeft = "6px";
+      badge.textContent = "PRO";
+      gl.appendChild(badge);
+    }
     signalsList.appendChild(gl);
     g.cols.forEach(c=>{
       const label = document.createElement("label");
