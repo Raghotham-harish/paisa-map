@@ -78,6 +78,17 @@ sudo rsync -av --delete \
   /var/www/paisamap/
 echo "[deploy] synced to /var/www/paisamap"
 
+# Inject the ArcGIS API key into the DEPLOYED static copy only — the key never
+# lives in the repo/git, just in this root-only file on the server (same
+# pattern as /etc/paisamap/db.env for the Postgres password). No-op if that
+# file was never created, so index.html stays inert-safe by default.
+if [ -f /etc/paisamap/arcgis_api_key.env ]; then
+  . /etc/paisamap/arcgis_api_key.env
+  sudo sed -i "s|const ARCGIS_API_KEY = \"\";|const ARCGIS_API_KEY = \"${ARCGIS_API_KEY}\";|" \
+    /var/www/paisamap/index.html
+  echo "[deploy] ArcGIS API key injected into static index.html"
+fi
+
 # Install any new Python deps for Flask server
 if [ -f venv-flask/bin/activate ]; then
   source venv-flask/bin/activate
