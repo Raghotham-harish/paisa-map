@@ -179,6 +179,57 @@
   .mini-seg button:last-child{border-right:0}
   .mini-seg button[aria-pressed="true"]{background:var(--rupee);color:#fff}
 
+  /* representation picker — CSS-drawn thumbnails, no external images, same "no external
+     assets" approach the CSS-only map pins already use */
+  .repr-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft)}
+  .repr-picker{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+  .repr-btn{
+    flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px;
+    background:var(--paper);border:1px solid var(--border);border-radius:var(--radius);
+    padding:5px 7px;cursor:pointer;min-width:54px;
+  }
+  .repr-btn[aria-pressed="true"]{border-color:var(--rupee);background:rgba(33,106,11,.08)}
+  .repr-btn:hover{border-color:var(--rupee)}
+  .repr-name{font-size:9px;color:var(--ink-soft);white-space:nowrap}
+  .repr-thumb{width:34px;height:20px;display:flex;align-items:center;justify-content:center;gap:2px;position:relative}
+
+  .repr-thumb-choropleth i{width:9px;height:16px;border-radius:1px}
+  .repr-thumb-choropleth i:nth-child(1){background:#E74C3C}
+  .repr-thumb-choropleth i:nth-child(2){background:#F1C40F}
+  .repr-thumb-choropleth i:nth-child(3){background:#1A7A4A}
+
+  .repr-thumb-symbol{align-items:flex-end}
+  .repr-thumb-symbol i{border-radius:50%;background:#27AE60}
+  .repr-thumb-symbol i:nth-child(1){width:6px;height:6px}
+  .repr-thumb-symbol i:nth-child(2){width:11px;height:11px}
+  .repr-thumb-symbol i:nth-child(3){width:17px;height:17px}
+
+  .repr-thumb-heatmap{
+    width:34px;height:20px;border-radius:3px;
+    background:radial-gradient(circle at 50% 55%, #F1C40F 0%, #E67E22 35%, #922B21 70%, transparent 100%);
+  }
+
+  .repr-thumb-cluster .ring{position:absolute;inset:1px 8px;border:1.5px solid #1565C0;border-radius:50%}
+  .repr-thumb-cluster .dot{position:absolute;width:4px;height:4px;border-radius:50%;background:#1565C0}
+  .repr-thumb-cluster .dot:nth-of-type(2){top:4px;left:15px}
+  .repr-thumb-cluster .dot:nth-of-type(3){top:11px;left:11px}
+  .repr-thumb-cluster .dot:nth-of-type(4){top:11px;left:19px}
+
+  .repr-thumb-bivariate{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;width:18px;height:18px;gap:1px}
+  .repr-thumb-bivariate i:nth-child(1){background:#c8d9c0}
+  .repr-thumb-bivariate i:nth-child(2){background:#e6c96b}
+  .repr-thumb-bivariate i:nth-child(3){background:#2e7d4f}
+  .repr-thumb-bivariate i:nth-child(4){background:#8a5d1f}
+
+  .repr-thumb-topn i{border-radius:50%}
+  .repr-thumb-topn i:nth-child(1){width:13px;height:13px;background:#1A7A4A}
+  .repr-thumb-topn i:nth-child(2){width:10px;height:10px;background:#27AE60}
+  .repr-thumb-topn i:nth-child(3){width:6px;height:6px;background:#ccc;opacity:.6}
+  .repr-thumb-topn i:nth-child(4){width:6px;height:6px;background:#ccc;opacity:.6}
+
+  .repr-sub{font-size:10.5px;color:var(--ink-soft);display:flex;align-items:center;gap:6px}
+  .repr-sub select{font-family:var(--mono);font-size:10px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;background:var(--paper);color:var(--ink)}
+
   /* compact radius row */
   .radius-row{
     display:flex;align-items:center;gap:7px;
@@ -367,7 +418,10 @@
     background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);
     overflow:hidden;display:flex;flex-direction:column;
   }
-  .catalog-card-swatch{height:34px;width:100%}
+  .catalog-card-swatch{
+    height:52px;width:100%;display:flex;align-items:center;justify-content:center;
+  }
+  .catalog-card-swatch i{font-size:22px}
   .catalog-card-body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:6px;flex:1}
   .catalog-card-title{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
   .catalog-card-title span{font-size:13.5px;font-weight:600;line-height:1.3}
@@ -751,10 +805,39 @@
           <button data-metric="spend"  aria-pressed="false" title="Spend" style="flex:1">Spd</button>
         </div>
       </div>
-      <div class="action-row">
-        <div class="mini-seg" id="viewSeg" role="group" aria-label="View" style="flex:1">
-          <button id="viewZones" aria-pressed="true"  title="Zone polygons" style="flex:1"><i class="ti ti-hexagon"></i> Zones</button>
-          <button id="viewHeat"  aria-pressed="false" title="Heatmap" style="flex:1"><i class="ti ti-flame"></i> Heat</button>
+      <div class="action-row" style="flex-direction:column;align-items:stretch;gap:6px">
+        <div class="repr-label">Representation</div>
+        <div class="repr-picker" id="reprPicker" role="group" aria-label="Map representation">
+          <button class="repr-btn" data-repr="choropleth" aria-pressed="true" title="Choropleth — colour by value">
+            <span class="repr-thumb repr-thumb-choropleth"><i></i><i></i><i></i></span>
+            <span class="repr-name">Choropleth</span>
+          </button>
+          <button class="repr-btn" data-repr="symbol" aria-pressed="false" title="Proportional symbols — size by value">
+            <span class="repr-thumb repr-thumb-symbol"><i></i><i></i><i></i></span>
+            <span class="repr-name">Symbols</span>
+          </button>
+          <button class="repr-btn" data-repr="heatmap" aria-pressed="false" title="Heatmap — density blur">
+            <span class="repr-thumb repr-thumb-heatmap"></span>
+            <span class="repr-name">Heatmap</span>
+          </button>
+          <button class="repr-btn" data-repr="cluster" aria-pressed="false" title="Clustered symbols — grouped at low zoom">
+            <span class="repr-thumb repr-thumb-cluster"><i class="ring"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i></span>
+            <span class="repr-name">Cluster</span>
+          </button>
+          <button class="repr-btn" data-repr="bivariate" aria-pressed="false" title="Bivariate — two signals at once">
+            <span class="repr-thumb repr-thumb-bivariate"><i></i><i></i><i></i><i></i></span>
+            <span class="repr-name">Bivariate</span>
+          </button>
+          <button class="repr-btn" data-repr="topn" aria-pressed="false" title="Top N — highlight the leaders, dim the rest">
+            <span class="repr-thumb repr-thumb-topn"><i></i><i></i><i></i><i></i></span>
+            <span class="repr-name">Top N</span>
+          </button>
+        </div>
+        <div class="repr-sub" id="reprBivariateSub" hidden>
+          <label>vs&nbsp;<select id="reprBivariateSel"></select></label>
+        </div>
+        <div class="repr-sub" id="reprTopNSub" hidden>
+          <label>Show top&nbsp;<select id="reprTopNSel"><option value="10">10</option><option value="25">25</option></select></label>
         </div>
       </div>
       <div class="action-row" style="position:relative">
@@ -870,7 +953,7 @@
   </div>
 
   <div class="method">
-    <b>DEMO DATA</b> — figures are modelled estimates for illustration, not real transaction records. PPI = 0.6 × relative income + 0.4 × relative spend, indexed to the regional mean (100). Wire this to real sources (HCES, CMIE, bureau or UPI aggregator data) before drawing conclusions.
+    <b>MODELED ESTIMATES</b> — PPI = 0.6 × relative income + 0.4 × relative spend, indexed to the regional mean (100). Built from public POI, census and geospatial signals; coverage and precision keep improving as more bureau, UPI and survey sources come online.
   </div>
 </aside>
 
@@ -1226,7 +1309,10 @@ let markerGroup = L.layerGroup().addTo(map);
 let nearbyGroup = L.layerGroup().addTo(map);
 let boundaryLayer = null;
 let nearbyOn = false;
-let viewMode = "zones"; // "zones" | "heat"
+// "choropleth" | "symbol" | "heatmap" | "cluster" | "bivariate" | "topn"
+let representation = "choropleth";
+let bivariateSecondary = null;   // signal id — set the first time bivariate is opened
+let topN = 10;
 const polyCache = new Map(); // locality name → GeoJSON geometry or null
 
 // Pre-fetched pincode boundary polygons: pincode → GeoJSON feature
@@ -1243,8 +1329,8 @@ async function loadBoundaries(){
       if(pc) boundariesByPincode[pc] = f;
     });
     boundariesLoaded = true;
-    // If already in heat mode, re-render with real polygons
-    if(viewMode === "heat") render();
+    // If already showing the heatmap representation, re-render with real polygons
+    if(representation === "heatmap") render();
   }catch(e){ /* boundaries optional — zones view still works */ }
 }
 
@@ -1262,16 +1348,45 @@ async function fetchLocalityBoundary(name, lat, lng){
   }catch(e){ return null; }
 }
 
-document.getElementById("viewZones").addEventListener("click",()=>{
-  viewMode = "zones";
-  document.getElementById("viewZones").setAttribute("aria-pressed","true");
-  document.getElementById("viewHeat").setAttribute("aria-pressed","false");
+/* ---------- representation picker ---------- */
+const reprBivariateSub = document.getElementById("reprBivariateSub");
+const reprBivariateSel = document.getElementById("reprBivariateSel");
+const reprTopNSub      = document.getElementById("reprTopNSub");
+const reprTopNSel      = document.getElementById("reprTopNSel");
+
+function populateBivariateSelect(){
+  if(reprBivariateSel.options.length) return;   // ALL_SIGNALS-derived, only needs doing once
+  ALL_SIGNALS.forEach(s=>{
+    const opt = document.createElement("option");
+    opt.value = s.id; opt.textContent = s.label;
+    reprBivariateSel.appendChild(opt);
+  });
+}
+
+document.querySelectorAll("#reprPicker .repr-btn").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    representation = btn.dataset.repr;
+    document.querySelectorAll("#reprPicker .repr-btn").forEach(b=>
+      b.setAttribute("aria-pressed", String(b===btn)));
+
+    reprBivariateSub.hidden = representation !== "bivariate";
+    reprTopNSub.hidden      = representation !== "topn";
+    if(representation === "bivariate"){
+      populateBivariateSelect();
+      if(!bivariateSecondary || bivariateSecondary === metric){
+        bivariateSecondary = ALL_SIGNALS.find(s=>s.id!==metric)?.id || "income";
+      }
+      reprBivariateSel.value = bivariateSecondary;
+    }
+    render();
+  });
+});
+reprBivariateSel.addEventListener("change", ()=>{
+  bivariateSecondary = reprBivariateSel.value;
   render();
 });
-document.getElementById("viewHeat").addEventListener("click",()=>{
-  viewMode = "heat";
-  document.getElementById("viewHeat").setAttribute("aria-pressed","true");
-  document.getElementById("viewZones").setAttribute("aria-pressed","false");
+reprTopNSel.addEventListener("change", ()=>{
+  topN = +reprTopNSel.value;
   render();
 });
 
@@ -1288,6 +1403,7 @@ function moveYou(){ youMarker.setLatLng(center); }
 async function relocateYou(lat, lng){
   center = [lat, lng];
   moveYou();
+  syncCityInput(lat, lng);
   if(dataPromise) await dataPromise;
   liveData = []; liveGen++;          // cancel any in-flight live fetch
   const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
@@ -1404,6 +1520,7 @@ function showLocalResults(matches){
     b.addEventListener("click",()=>{
       center=[d.lat,d.lng];
       moveYou();
+      syncCityInput(d.lat, d.lng);
       searchResults.style.display="none";
       searchBox.value=d.name;
       activeId=null;
@@ -1482,6 +1599,7 @@ async function applyPlace(r){
   const poly=r.geojson&&(r.geojson.type==="Polygon"||r.geojson.type==="MultiPolygon")?r.geojson:null;
   drawBoundary(poly,poly?r.display_name.split(",")[0]:null);
   moveYou();
+  syncCityInput(center[0], center[1]);
   searchResults.style.display="none";
   searchBox.value=r.display_name.split(",")[0];
   if(boundaryLayer){map.flyToBounds(boundaryLayer.getBounds(),{maxZoom:13,duration:.8});}
@@ -1509,6 +1627,7 @@ async function enrichPincodeFlow(pincode){
   if(!lat||!lng){toast("Could not resolve pincode — try entering the area name instead.",5000);return;}
   center=[+lat,+lng];
   moveYou();
+  syncCityInput(center[0], center[1]);
   map.flyTo(center,14,{duration:.8});
   toast(`Adding ${name} (${pincode}) to PaisaMap — runs in background (~30–60 sec)…`,90000);
   try{
@@ -1892,7 +2011,7 @@ let liveGen   = 0;
 let lastHeatPts = [];  // kept so zoomend can recreate heat layer at new radius
 
 /* ---------- live data: query Overpass when no static data in radius ---------- */
-async function loadLiveAreaData(lat, lng){
+async function loadLiveAreaData(lat, lng, cityKey){
   const myGen = ++liveGen;
   try{
     // Count premium POIs within 2 km of pin
@@ -1946,6 +2065,9 @@ async function loadLiveAreaData(lat, lng){
     render();
     if(count >= 3){
       toast(`Live data · ${locName}`, 3000);
+      // This city now has real fetched data for the session — flip its catalog
+      // tag from LIVE to DATA so the dropdown reflects what's actually on the map.
+      if(cityKey && CITIES[cityKey]) CITIES[cityKey].hasData = true;
     } else {
       toast(`Estimated coverage · ${locName} — no mapped data yet`, 4000);
     }
@@ -1960,7 +2082,8 @@ function heatRadiusForZoom(){
   return z<=9?55 : z<=10?45 : z<=11?35 : z<=12?28 : z<=13?22 : z<=14?18 : 14;
 }
 map.on("zoomend",()=>{
-  if(viewMode !== "heat" || !heatLayer || !lastHeatPts.length) return;
+  if(representation === "cluster"){ render(); return; }  // bucket size depends on zoom scale
+  if(representation !== "heatmap" || !heatLayer || !lastHeatPts.length) return;
   heatLayer.remove();
   const hr = heatRadiusForZoom();
   heatLayer = L.heatLayer(lastHeatPts,{radius:hr,blur:Math.round(hr*.72),maxZoom:16,minOpacity:0.12,max:1.0,gradient:HEAT_GRADIENTS[metric]||HEAT_GRADIENTS.ppi}).addTo(map);
@@ -2055,12 +2178,12 @@ function render(){
     fillColor:"#216A0B", fillOpacity:0.03, interactive:false
   }).addTo(map);
 
-  // zones or heat
+  // representation — one of six mutually exclusive ways to draw the same `rows`/metric
   if(heatLayer){ heatLayer.remove(); heatLayer = null; }
   if(choroLayer){ choroLayer.remove(); choroLayer = null; }
   polyLayer.clearLayers();
 
-  if(viewMode === "zones"){
+  if(representation === "choropleth"){
     rows.forEach(d=>{
       const fill = zoneColor(d);
       // fade opacity by distance from pin: 0.15 at 30km, 0.70 at 0km
@@ -2087,9 +2210,24 @@ function render(){
         });
       }
     });
-  } else {
-    // Choropleth heat mode — real pincode boundary polygons colored by metric.
-    // Falls back to blur heatmap for any pincode that has no pre-fetched boundary.
+
+  } else if(representation === "symbol"){
+    // Proportional (graduated) symbols — plain circles at each locality's point, sized by the
+    // metric itself (bigger = higher value). Unlike choropleth's coverage-footprint blobs, size
+    // here IS the data, so no boundary-polygon lookup — a real admin shape would misrepresent it.
+    rows.forEach(d=>{
+      const fill = zoneColor(d);
+      const norm = metricMax > metricMin ? (metricValue(d) - metricMin) / (metricMax - metricMin) : 0.5;
+      const distFromPin = haversine(center[0],center[1],d.lat,d.lng);
+      const pinProx = Math.exp(-distFromPin / 12);
+      const fillOpacity = 0.35 + 0.5 * pinProx;
+      const radius = usingEstimated ? 700 : Math.round(500 + 2700 * norm);
+      L.circle([d.lat,d.lng],{radius, color:fill, weight:1.5, fillColor:fill, fillOpacity, interactive:false}).addTo(polyLayer);
+    });
+
+  } else if(representation === "heatmap"){
+    // Real pincode boundary polygons colored by metric, falling back to blur heatmap for any
+    // pincode with no pre-fetched boundary yet.
     const heatRange = Math.max(metricMax - metricMin, 1);
     const features = [];
     const fallbackPts = [];
@@ -2161,6 +2299,68 @@ function render(){
         minOpacity:0.10, max:1.0, gradient:HEAT_GRADIENTS[metric]||HEAT_GRADIENTS.ppi
       }).addTo(map);
     }
+
+  } else if(representation === "cluster"){
+    // Grid-bucket nearby localities into one bubble — bubble size ~ count (area-proportional),
+    // colour ~ the group's average metric value. Cell size tracks the current radius/zoom so
+    // clusters coarsen as you zoom out and split apart as you zoom in.
+    const cellKm  = Math.max(radiusKm / 5, 1.5);
+    const cellDeg = cellKm / 111;
+    const buckets = new Map();
+    rows.forEach(d=>{
+      const key = Math.round(d.lat/cellDeg) + "," + Math.round(d.lng/cellDeg);
+      if(!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(d);
+    });
+    const fmtFn = SIGNAL_DEFS[metric] ? SIGNAL_DEFS[metric].fmt : (metric==="ppi" ? (v=>Math.round(v)) : fmtShort);
+    buckets.forEach(members=>{
+      const n = members.length;
+      const avgLat = members.reduce((s,d)=>s+d.lat,0) / n;
+      const avgLng = members.reduce((s,d)=>s+d.lng,0) / n;
+      const avgVal = members.reduce((s,d)=>s+metricValue(d),0) / n;
+      const t = metricMax > metricMin ? (avgVal - metricMin) / (metricMax - metricMin) : 0.5;
+      const fill = metric==="income" ? incomeColor(avgVal)
+                 : metric==="spend"  ? spendColor(avgVal)
+                 : metric==="ppi"    ? ppiColor(avgVal)
+                 : bucketColor(t);
+      const radius = Math.round(600 + 550 * Math.sqrt(n));
+      const circ = L.circle([avgLat,avgLng],{radius, color:fill, weight:1.5, fillColor:fill, fillOpacity:.5, interactive:true}).addTo(polyLayer);
+      circ.bindTooltip(`<strong>${n} localit${n===1?"y":"ies"}</strong><br>avg ${fmtFn(avgVal)}`,{sticky:true, opacity:.95});
+    });
+
+  } else if(representation === "bivariate"){
+    // Fill = primary metric (same colour scale as choropleth); border weight = a second,
+    // independently-chosen signal — thicker border = higher secondary value. Two real
+    // signals read at once instead of picking just one.
+    const secId = bivariateSecondary || "income";
+    const secVals = rows.map(d=>signalValue(d,secId)).filter(Number.isFinite);
+    const secMin = secVals.length ? Math.min(...secVals) : 0;
+    const secMax = secVals.length ? Math.max(...secVals) : 1;
+    rows.forEach(d=>{
+      const fill = zoneColor(d);
+      const distFromPin = haversine(center[0],center[1],d.lat,d.lng);
+      const pinProx = Math.exp(-distFromPin / 12);
+      const fillOpacity = 0.15 + 0.55 * pinProx;
+      const sv = signalValue(d, secId);
+      const st = Number.isFinite(sv) && secMax > secMin ? (sv - secMin) / (secMax - secMin) : 0;
+      const weight = 1 + Math.round(st * 6);
+      L.circle([d.lat,d.lng],{radius:1400, color:"#12261C", weight, fillColor:fill, fillOpacity, interactive:false}).addTo(polyLayer);
+    });
+
+  } else if(representation === "topn"){
+    // Only the top N localities for the active metric get full colour/size; everything
+    // else is dimmed to grey context — `rows` is already sorted desc by metricValue.
+    const topIds = new Set(rows.slice(0, topN).map(d=>d.id));
+    rows.forEach(d=>{
+      const isTop = topIds.has(d.id);
+      const fill = isTop ? zoneColor(d) : "#9AA0A6";
+      L.circle([d.lat,d.lng],{
+        radius: isTop ? 2200 : 700,
+        color: fill, weight: isTop ? 2 : 0.75,
+        fillColor: fill, fillOpacity: isTop ? 0.6 : 0.12,
+        interactive:false,
+      }).addTo(polyLayer);
+    });
   }
 
   // markers
@@ -2362,6 +2562,21 @@ const CITIES = {
   jaipur:    {label:"Jaipur",        center:[26.91,75.79], zoom:12, hasData:false},
   lucknow:   {label:"Lucknow",       center:[26.85,80.95], zoom:12, hasData:false},
 };
+
+// Single source of truth for the "city" field — called by every flow that moves the pin
+// (city dropdown, pincode/area search, GPS locate, drag/click-to-relocate) so the field
+// never shows a stale city once the map has actually moved elsewhere.
+const CITY_SYNC_RADIUS_KM = 40;
+function syncCityInput(lat, lng){
+  const ci = document.getElementById("cityInput");
+  if(!ci) return;
+  let nearestKey = null, nearestDist = Infinity;
+  Object.entries(CITIES).forEach(([key,c])=>{
+    const d = haversine(lat, lng, c.center[0], c.center[1]);
+    if(d < nearestDist){ nearestDist = d; nearestKey = key; }
+  });
+  ci.value = (nearestKey && nearestDist <= CITY_SYNC_RADIUS_KM) ? CITIES[nearestKey].label : "";
+}
 async function jumpToCity(key){
   if(dataPromise) await dataPromise;
   liveData = []; liveGen++;
@@ -2375,9 +2590,10 @@ async function jumpToCity(key){
   render();
   const ci = document.getElementById("cityInput");
   if(ci) ci.value = c.label;
+  searchBox.value = "";
   if(!c.hasData || nearby.length === 0){
     toast("Fetching live OSM data for " + c.label + "…", 10000);
-    loadLiveAreaData(center[0], center[1]);
+    loadLiveAreaData(center[0], center[1], key);
   }
 }
 
@@ -2385,7 +2601,10 @@ async function jumpToCity(key){
 (function(){
   const inp  = document.getElementById("cityInput");
   const drop = document.getElementById("cityDropdown");
-  const ALL  = Object.entries(CITIES).map(([k,v]) => ({key:k, ...v}));
+  // Re-derived on every call (not cached) so a city's hasData flip — e.g. after a
+  // live OSM fetch completes — shows up next time the dropdown opens, instead of
+  // freezing every city's state as it was at page load.
+  const allCities = () => Object.entries(CITIES).map(([k,v]) => ({key:k, ...v}));
 
   function buildDropdown(items){
     drop.innerHTML = "";
@@ -2410,10 +2629,11 @@ async function jumpToCity(key){
     jumpToCity(c.key);
   }
 
-  inp.addEventListener("focus", ()=> buildDropdown(ALL));
+  inp.addEventListener("focus", ()=> buildDropdown(allCities()));
   inp.addEventListener("input", ()=>{
     const q = inp.value.toLowerCase().trim();
-    buildDropdown(q ? ALL.filter(c=> c.label.toLowerCase().includes(q)||c.key.includes(q)) : ALL);
+    const all = allCities();
+    buildDropdown(q ? all.filter(c=> c.label.toLowerCase().includes(q)||c.key.includes(q)) : all);
   });
   inp.addEventListener("keydown", e=>{
     if(e.key==="Escape"){ drop.style.display="none"; inp.blur(); inp.setAttribute("aria-expanded","false"); }
@@ -2451,15 +2671,13 @@ document.getElementById("radius").addEventListener("input", e=>{
   render();
 });
 
+// Shared with selectSignalMetric() below — core metrics (ppi/income/spend) get a fixed
+// headline label; every other signal falls back to its SIGNAL_DEFS label there instead.
+const CORE_METRIC_LABELS = {ppi:"Area purchasing power index", income:"Area avg income (indexed view)", spend:"Area avg spend (indexed view)"};
+
 document.querySelectorAll("#metricSeg button").forEach(b=>{
   b.addEventListener("click", ()=>{
-    document.querySelectorAll("#metricSeg button").forEach(x=>x.setAttribute("aria-pressed","false"));
-    b.setAttribute("aria-pressed","true");
-    metric = b.dataset.metric;
-    document.getElementById("sigExplorerLabel").textContent = "Signals";
-    const labels = {ppi:"Area purchasing power index", income:"Area avg income (indexed view)", spend:"Area avg spend (indexed view)"};
-    document.getElementById("hlLabel").textContent = labels[metric];
-    render();
+    selectSignalMetric(b.dataset.metric, null);
   });
 });
 
@@ -2486,11 +2704,15 @@ const ALL_SIGNALS = [...CORE_SIGNALS, ...SIGNAL_GROUPS.flatMap(g=>g.cols)];
 // Shared "pick this signal to colour the map by" action — used by both the Signal Explorer
 // popover and the Signals Catalog below, so there's one behavior to keep correct, not two.
 function selectSignalMetric(sigId, label){
-  document.querySelectorAll("#metricSeg button").forEach(x=>x.setAttribute("aria-pressed","false"));
   metric = sigId;
-  document.getElementById("sigExplorerLabel").textContent = label;
+  const isCore = CORE_METRIC_LABELS.hasOwnProperty(sigId);
+  document.querySelectorAll("#metricSeg button").forEach(x=>
+    x.setAttribute("aria-pressed", String(x.dataset.metric === sigId)));
+  document.getElementById("sigExplorerLabel").textContent = isCore ? "Signals" : label;
   const sig = SIGNAL_DEFS[sigId];
-  document.getElementById("hlLabel").textContent = (sig ? sig.label : "Signal") + " — area average";
+  document.getElementById("hlLabel").textContent = isCore
+    ? CORE_METRIC_LABELS[sigId]
+    : (sig ? sig.label : "Signal") + " — area average";
   render();
 }
 
@@ -2715,17 +2937,24 @@ function selectSignalMetric(sigId, label){
     return {have, total};
   }
 
-  // Shared 6-stop scale (matches ppiColor/incomeColor/spendColor/bucketColor's colours) for any
-  // extra raw signal; core metrics get their own real HEAT_GRADIENTS stops — same colours the
-  // map itself renders with, not new ones invented for this card.
-  const SHARED_SCALE = ["#922B21","#E74C3C","#E67E22","#F1C40F","#27AE60","#1A7A4A"];
-  function gradientCSSFor(sigId){
-    if(HEAT_GRADIENTS[sigId]){
-      const stops = HEAT_GRADIENTS[sigId];
-      return `linear-gradient(90deg, ${Object.keys(stops).map(k=>`${stops[k]} ${+k*100}%`).join(", ")})`;
-    }
-    const step = 100/(SHARED_SCALE.length-1);
-    return `linear-gradient(90deg, ${SHARED_SCALE.map((c,i)=>`${c} ${Math.round(i*step)}%`).join(", ")})`;
+  // Card header identifies the signal's *category*, not a colour scale — a 6-stop rainbow
+  // gradient never mapped to anything the signal actually measures, so it read as decoration
+  // rather than information. One flat colour + the same category icon used in the chips above
+  // (CATEGORY_ICONS) is honest about what it's showing and doubles as a category cue while
+  // scanning the grid.
+  const CATEGORY_SWATCH = {
+    "Core":            "#1A7A4A",
+    "Property":        "#6A4FB6",
+    "Banking & UPI":   "#1565C0",
+    "Tax & economy":   "#9A6B12",
+    "Infrastructure":  "#C2650C",
+    "Vehicles":        "#2E7D6B",
+  };
+  function swatchFor(c){
+    return {
+      bg: CATEGORY_SWATCH[c.group] || "#555",
+      icon: CATEGORY_ICONS[c.group] || "ti-tag",
+    };
   }
 
   function matchesSearch(c){
@@ -2761,8 +2990,9 @@ function selectSignalMetric(sigId, label){
       const card = document.createElement("div");
       card.className = "catalog-card" + (c.pro ? " locked" : "");
       const coverageText = total===null ? "All captured localities" : `${have} of ${total} pincodes`;
+      const sw = swatchFor(c);
       card.innerHTML = `
-        <div class="catalog-card-swatch" style="background:${gradientCSSFor(c.id)}"></div>
+        <div class="catalog-card-swatch" style="background:${sw.bg}"><i class="ti ${sw.icon}" style="color:#fff"></i></div>
         <div class="catalog-card-body">
           <div class="catalog-card-title">
             <span>${c.label}</span>
@@ -2933,7 +3163,8 @@ async function applyLocation(la, lo){
   const nearby = ncrData.filter(d => haversine(la,lo,d[1],d[2]) <= 80);
   dataset = (nearby.length > 0 ? nearby : syntheticAround(la,lo)).map(buildRecord);
   activeId = null; moveYou(); clearNearby(); drawBoundary(null);
-  document.querySelectorAll(".city-btn").forEach(b=>b.classList.remove("active"));
+  syncCityInput(la, lo);
+  searchBox.value = "";
   map.flyTo(center, 12, {duration:1});
   render();
   try{ localStorage.setItem("pm_loc", JSON.stringify([la,lo])); }catch(e){}
