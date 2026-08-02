@@ -33,7 +33,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, PREFIX_STATE, scale_from_poi
+from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, PREFIX_STATE, scale_from_poi, estimate_via_idw
 from _filelock import write_lock
 import _db
 
@@ -195,7 +195,7 @@ def _city_poi_median(state: str) -> float:
     return 15.0 if pd.isna(med) or med < 1 else float(med)
 
 
-def backfill_raw_proxies(pincode: str, state: str):
+def backfill_raw_proxies(pincode: str, state: str, lat: float, lng: float):
     """
     Batch mode has no Overpass POI query (that's the whole point — see module
     docstring), so unlike enrich_single.py we can't scale off a live POI
@@ -209,26 +209,47 @@ def backfill_raw_proxies(pincode: str, state: str):
     poi_med = _city_poi_median(state)
     signals = scale_from_poi(poi_med, prior, poi_med)
 
-    def _append(fname, col, val):
+    def _append_multi(fname, col_vals):
+        # Sets several columns on the same new row in one read-modify-write —
+        # a per-column _append() would silently drop every column after the
+        # first for the same file, since the row already exists by the second
+        # call. See the identical fix + explanation in enrich_single.py.
         p = RAW / fname
         if not p.exists():
             return
         df = pd.read_csv(p, dtype={"pincode": str}).set_index("pincode")
         if pincode not in df.index:
-            df.loc[pincode, col] = val
+            for col, val in col_vals.items():
+                if val is not None:
+                    df.loc[pincode, col] = val
             df.to_csv(p)
 
     # Same shared raw CSVs enrich_single.py writes (live pin-drops) — lock the
     # whole read-modify-write cycle so a concurrent live enrichment can't lose
     # this row or vice versa. See _filelock.py / enrich_single.py.
     with write_lock():
-        _append("property_rates.csv",      "rate_per_sqft",       signals["rate_per_sqft"])
-        _append("bank_deposits.csv",       "deposits_per_capita", signals["deposits_per_capita"])
-        _append("nightlights.csv",         "radiance_mean",       signals["radiance_mean"])
-        _append("poi_density.csv",         "premium_poi_per_km2", signals["premium_poi_per_km2"])
-        _append("itr_filers.csv",          "filers_per_capita",   signals["filers_per_capita"])
-        _append("vehicle_density.csv",     "cars_per_1000",       signals["cars_per_1000"])
-        _append("financial_inclusion.csv", "fin_density_per_km2", signals["fin_density_per_km2"])
+        _append_multi("property_rates.csv",  {"rate_per_sqft":   signals["rate_per_sqft"]})
+        _append_multi("nightlights.csv",     {"radiance_mean":   signals["radiance_mean"]})
+        _append_multi("poi_density.csv",     {"premium_poi_per_km2": signals["premium_poi_per_km2"]})
+        _append_multi("itr_filers.csv",      {"filers_per_capita": signals["filers_per_capita"]})
+        _append_multi("vehicle_density.csv", {"cars_per_1000":   signals["cars_per_1000"]})
+
+        # bank_branches_per_lakh via IDW — same fix as enrich_single.py (see
+        # estimate_via_idw() docstring): a one-off pan-India backfill populated
+        # this once, no incremental path (including this one, until now) ever
+        # touched it again, coverage eroded from ~100% to 34%.
+        bbpl = estimate_via_idw(lat, lng, state, RAW / "bank_deposits.csv", "bank_branches_per_lakh")
+        _append_multi("bank_deposits.csv", {
+            "deposits_per_capita":    signals["deposits_per_capita"],
+            "bank_branches_per_lakh": round(bbpl, 1) if bbpl is not None else None,
+        })
+
+        if (RAW / "financial_inclusion.csv").exists():
+            fin_vals = {"fin_density_per_km2": signals["fin_density_per_km2"]}
+            for col in ("sfb_branches", "coop_branches", "rrb_branches", "fin_branches_total"):
+                est = estimate_via_idw(lat, lng, state, RAW / "financial_inclusion.csv", col)
+                fin_vals[col] = round(est) if est is not None else None
+            _append_multi("financial_inclusion.csv", fin_vals)
 
         rto_path = RAW / "rto_enhanced.csv"
         if rto_path.exists():
@@ -479,7 +500,7 @@ def main():
 
         # 7b. Backfill raw proxy CSVs (property_rates, bank_deposits, etc.)
         # so this pincode survives a full ml_refinement.py rerun.
-        backfill_raw_proxies(pincode, PREFIX_STATE.get(prefix, ""))
+        backfill_raw_proxies(pincode, PREFIX_STATE.get(prefix, ""), lat, lng)
 
         append_batch_log({
             "timestamp":       datetime.now(timezone.utc).isoformat(),

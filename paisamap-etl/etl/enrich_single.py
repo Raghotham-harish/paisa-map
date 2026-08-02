@@ -217,6 +217,64 @@ def register_in_district_map(pc: str, name: str, lat: float, lng: float, state: 
     print(f"  Registered {pc} → {district}, {STATE_NAMES.get(state, state)}", flush=True)
 
 
+def haversine_series(lat1, lng1, lat2s, lng2s):
+    """Vectorized haversine distance (km) from one point to a pandas Series of points."""
+    R = 6371.0
+    p = math.pi / 180
+    dlat = (lat2s - lat1) * p
+    dlng = (lng2s - lng1) * p
+    a = (dlat / 2).apply(lambda x: math.sin(x) ** 2) + \
+        math.cos(lat1 * p) * \
+        (lat2s * p).apply(math.cos) * \
+        (dlng / 2).apply(lambda x: math.sin(x) ** 2)
+    return (2 * R * a.apply(lambda x: math.asin(math.sqrt(max(0, x))))).round(3)
+
+
+def estimate_via_idw(lat: float, lng: float, state: str, csv_path: Path, col: str,
+                      k: int = 5, min_dist_km: float = 0.5):
+    """
+    Inverse-distance-weighted estimate of `col` for a new point, from the k
+    nearest existing pincodes that already have a real (non-null) value in
+    csv_path — same spatial-interpolation approach main() already uses for
+    PPI/income below, generalized to any raw-signal column.
+
+    Without this, columns like bank_branches_per_lakh (and financial_inclusion's
+    branch counts) only ever got set by a one-off pan-India backfill and were
+    never touched again for pincodes added afterward — coverage silently eroded
+    from ~100% toward single digits as the dataset grew (see project memory:
+    34%/15% by 2026-08-02). Every _append() call site for those columns should
+    go through this instead of being left NaN for new pincodes.
+
+    Returns None if there's no real data anywhere yet to interpolate from —
+    callers should leave the column unset (NaN) in that case, not write a
+    fabricated 0/guess.
+    """
+    if not csv_path.exists():
+        return None
+    df = pd.read_csv(csv_path, dtype={"pincode": str}).set_index("pincode")
+    if col not in df.columns:
+        return None
+    have_val = df[df[col].notna()]
+    if have_val.empty:
+        return None
+
+    coords_df = pd.read_csv(RAW / "pincode_coords.csv", dtype={"pincode": str}).set_index("pincode")
+    pool = have_val.join(coords_df[["lat", "lng"]], how="inner")
+    if pool.empty:
+        return None
+
+    # Same-state neighbours preferred, same fallback rule as the PPI interpolation below.
+    same_state = pool[[state_from_pincode(idx) == state for idx in pool.index]]
+    if len(same_state) >= 3:
+        pool = same_state
+
+    dists = haversine_series(lat, lng, pool["lat"], pool["lng"])
+    k_eff = min(k, len(pool))
+    nearest = dists.nsmallest(k_eff)
+    inv_w = 1.0 / nearest.clip(lower=min_dist_km)
+    return float((pool.loc[nearest.index, col] * inv_w).sum() / inv_w.sum())
+
+
 def main():
     if len(sys.argv) < 4:
         print("Usage: python3 enrich_single.py <pincode> <lat> <lng> [<name>]")
@@ -295,9 +353,23 @@ def main():
 
     # ── Append to all raw CSVs (only if not already present) ─────────────────
     def _append(fname, col, val):
+        if val is None:   # estimate_via_idw() found nothing to interpolate from yet
+            return None
+        return _append_multi(fname, {col: val})
+
+    def _append_multi(fname, col_vals):
+        # Sets several columns on the same new row in one read-modify-write cycle.
+        # A plain per-column _append() would break here: the second call's
+        # `pc not in df.index` guard would already be False after the first
+        # call added the row, silently dropping every column after the first
+        # for the same file (exactly how bank_branches_per_lakh would have
+        # been lost again if appended as a second separate _append() call
+        # right after deposits_per_capita on the same bank_deposits.csv row).
         df = pd.read_csv(RAW / fname, dtype={"pincode": str}).set_index("pincode")
         if pc not in df.index:
-            df.loc[pc, col] = val
+            for col, val in col_vals.items():
+                if val is not None:
+                    df.loc[pc, col] = val
             df.to_csv(RAW / fname)
         return df
 
@@ -322,13 +394,28 @@ def main():
         names_df.to_csv(RAW / "pincode_names.csv")
 
         _append("property_rates.csv",      "rate_per_sqft",         signals["rate_per_sqft"])
-        _append("bank_deposits.csv",       "deposits_per_capita",   signals["deposits_per_capita"])
         _append("nightlights.csv",         "radiance_mean",         signals["radiance_mean"])
         _append("poi_density.csv",         "premium_poi_per_km2",   signals["premium_poi_per_km2"])
         _append("itr_filers.csv",          "filers_per_capita",     signals["filers_per_capita"])
         _append("vehicle_density.csv",     "cars_per_1000",         signals["cars_per_1000"])
+
+        # bank_branches_per_lakh via IDW (see estimate_via_idw() docstring — a one-off
+        # pan-India backfill populated it once, no incremental path ever touched it
+        # again, coverage eroded from ~100% to 34%). Estimated *before* writing this
+        # pincode's row so the interpolation pool doesn't include itself, and set in
+        # the same read-write cycle as deposits_per_capita (see _append_multi).
+        bbpl = estimate_via_idw(lat, lng, state, RAW / "bank_deposits.csv", "bank_branches_per_lakh")
+        _append_multi("bank_deposits.csv", {
+            "deposits_per_capita":    signals["deposits_per_capita"],
+            "bank_branches_per_lakh": round(bbpl, 1) if bbpl is not None else None,
+        })
+
         if (RAW / "financial_inclusion.csv").exists():
-            _append("financial_inclusion.csv", "fin_density_per_km2",   signals["fin_density_per_km2"])
+            fin_vals = {"fin_density_per_km2": signals["fin_density_per_km2"]}
+            for col in ("sfb_branches", "coop_branches", "rrb_branches", "fin_branches_total"):
+                est = estimate_via_idw(lat, lng, state, RAW / "financial_inclusion.csv", col)
+                fin_vals[col] = round(est) if est is not None else None
+            _append_multi("financial_inclusion.csv", fin_vals)
 
         # rto_enhanced — 4 columns
         rto_df = pd.read_csv(RAW / "rto_enhanced.csv", dtype={"pincode": str}).set_index("pincode")
@@ -353,18 +440,7 @@ def main():
         print("\n  Computing PPI via spatial interpolation from ML baseline…")
         ml_df = pd.read_csv(OUT / "ppi_ml_refined.csv", dtype={"pincode": str}).set_index("pincode")
 
-        def haversine(lat1, lng1, lat2s, lng2s):
-            R = 6371.0
-            p = math.pi / 180
-            dlat = (lat2s - lat1) * p
-            dlng = (lng2s - lng1) * p
-            a = (dlat / 2).apply(lambda x: math.sin(x) ** 2) + \
-                math.cos(lat1 * p) * \
-                (lat2s * p).apply(math.cos) * \
-                (dlng / 2).apply(lambda x: math.sin(x) ** 2)
-            return (2 * R * a.apply(lambda x: math.asin(math.sqrt(max(0, x))))).round(3)
-
-        dists = haversine(lat, lng, ml_df["lat"], ml_df["lng"])
+        dists = haversine_series(lat, lng, ml_df["lat"], ml_df["lng"])
 
         # Use same-state neighbours preferentially; fall back to global if too few
         same_state = ml_df[[state_from_pincode(idx) == state for idx in ml_df.index]]
