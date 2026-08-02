@@ -129,12 +129,26 @@ def load_features() -> pd.DataFrame:
         ("financial_inclusion.csv", "fin_density_per_km2"),
     ]:
         p = RAW / fname
-        if p.exists():
-            df = pd.read_csv(p, dtype={"pincode": str}).set_index("pincode")[col]
-            frames[col] = df
-            print(f"  ✓ {fname:<35} {len(df)} rows")
-        else:
+        if not p.exists():
             print(f"  · {fname:<35} (not present — skipped)")
+            continue
+        full = pd.read_csv(p, dtype={"pincode": str}).set_index("pincode")
+        if col not in full.columns:
+            # A file can exist but not (yet, or no longer) carry every column that's
+            # ever been derived from it — e.g. credit_deposit_ratio is only added by
+            # `fetch_rbi_bsr.py --cdr-xlsx <manually-exported Handbook Table 153>`, an
+            # optional one-off flag, not part of the recurring cron. Without this
+            # check, a run that regenerates bank_deposits.csv without that flag
+            # crashes the *entire* pipeline on a KeyError instead of just running
+            # without this one optional feature (confirmed happened 2026-07-16 —
+            # the column vanished on the next post-add write and every full
+            # pipeline rerun since would have crashed here, undetected because nothing
+            # exercises this path outside a manual full rerun).
+            print(f"  · {fname:<35}::{col} (column not present — skipped)")
+            continue
+        df = full[col]
+        frames[col] = df
+        print(f"  ✓ {fname:<35} {len(df)} rows")
 
     # HCES 2023-24 district MPCE (direct government spend signal)
     mpce_path = RAW / "mpce_district.csv"
