@@ -179,55 +179,23 @@
   .mini-seg button:last-child{border-right:0}
   .mini-seg button[aria-pressed="true"]{background:var(--rupee);color:#fff}
 
-  /* representation picker — CSS-drawn thumbnails, no external images, same "no external
-     assets" approach the CSS-only map pins already use */
+  /* representation picker — one unambiguous Tabler glyph per mode instead of small
+     multi-part CSS-drawn thumbnails (those read as near-identical at this size) */
   .repr-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft)}
   .repr-picker{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
   .repr-btn{
     flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px;
     background:var(--paper);border:1px solid var(--border);border-radius:var(--radius);
-    padding:5px 7px;cursor:pointer;min-width:54px;
+    padding:6px 8px;cursor:pointer;min-width:54px;
   }
   .repr-btn[aria-pressed="true"]{border-color:var(--rupee);background:rgba(33,106,11,.08)}
+  .repr-btn[aria-pressed="true"] .repr-thumb{color:var(--rupee-deep)}
   .repr-btn:hover{border-color:var(--rupee)}
   .repr-name{font-size:9px;color:var(--ink-soft);white-space:nowrap}
-  .repr-thumb{width:34px;height:20px;display:flex;align-items:center;justify-content:center;gap:2px;position:relative}
-
-  .repr-thumb-choropleth i{width:9px;height:16px;border-radius:1px}
-  .repr-thumb-choropleth i:nth-child(1){background:#E74C3C}
-  .repr-thumb-choropleth i:nth-child(2){background:#F1C40F}
-  .repr-thumb-choropleth i:nth-child(3){background:#1A7A4A}
-
-  .repr-thumb-symbol{align-items:flex-end}
-  .repr-thumb-symbol i{border-radius:50%;background:#27AE60}
-  .repr-thumb-symbol i:nth-child(1){width:6px;height:6px}
-  .repr-thumb-symbol i:nth-child(2){width:11px;height:11px}
-  .repr-thumb-symbol i:nth-child(3){width:17px;height:17px}
-
-  .repr-thumb-heatmap{
-    width:34px;height:20px;border-radius:3px;
-    background:radial-gradient(circle at 50% 55%, #F1C40F 0%, #E67E22 35%, #922B21 70%, transparent 100%);
-  }
-
-  .repr-thumb-cluster .ring{position:absolute;inset:1px 8px;border:1.5px solid #1565C0;border-radius:50%}
-  .repr-thumb-cluster .dot{position:absolute;width:4px;height:4px;border-radius:50%;background:#1565C0}
-  .repr-thumb-cluster .dot:nth-of-type(2){top:4px;left:15px}
-  .repr-thumb-cluster .dot:nth-of-type(3){top:11px;left:11px}
-  .repr-thumb-cluster .dot:nth-of-type(4){top:11px;left:19px}
-
-  .repr-thumb-bivariate{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;width:18px;height:18px;gap:1px}
-  .repr-thumb-bivariate i:nth-child(1){background:#c8d9c0}
-  .repr-thumb-bivariate i:nth-child(2){background:#e6c96b}
-  .repr-thumb-bivariate i:nth-child(3){background:#2e7d4f}
-  .repr-thumb-bivariate i:nth-child(4){background:#8a5d1f}
-
-  .repr-thumb-topn i{border-radius:50%}
-  .repr-thumb-topn i:nth-child(1){width:13px;height:13px;background:#1A7A4A}
-  .repr-thumb-topn i:nth-child(2){width:10px;height:10px;background:#27AE60}
-  .repr-thumb-topn i:nth-child(3){width:6px;height:6px;background:#ccc;opacity:.6}
-  .repr-thumb-topn i:nth-child(4){width:6px;height:6px;background:#ccc;opacity:.6}
+  .repr-thumb{width:34px;height:20px;display:flex;align-items:center;justify-content:center;font-size:17px;color:var(--ink-soft)}
 
   .repr-sub{font-size:10.5px;color:var(--ink-soft);display:flex;align-items:center;gap:6px}
+  .repr-sub[hidden]{display:none}
   .repr-sub select{font-family:var(--mono);font-size:10px;border:1px solid var(--border);border-radius:4px;padding:2px 4px;background:var(--paper);color:var(--ink)}
 
   /* compact radius row */
@@ -506,6 +474,18 @@
     position:absolute;left:10.5px;top:9px;width:8px;height:8px;
     border-radius:50%;background:#fff;border:1px solid #19548C;
   }
+
+  /* "Icons" representation — categorized pin: a round badge tinted by the same
+     zoneColor() value-tier scale every other mode uses, with a Tabler glyph inside
+     showing what KIND of signal it is (bank, tax, vehicles, etc.) instead of a plain
+     uniform teardrop — discrete/scannable, unlike the blended fills of the other modes. */
+  .tier-pin{
+    width:26px;height:26px;border-radius:50% 50% 50% 4px;
+    display:flex;align-items:center;justify-content:center;
+    border:1.5px solid rgba(0,0,0,.35);box-shadow:-1px 2px 3px rgba(0,0,0,.3);
+    transform:rotate(-45deg);
+  }
+  .tier-pin i{transform:rotate(45deg);color:#fff;font-size:13px}
 
   /* layer switcher icon: replace blocked PNG with a text glyph */
   .leaflet-control-layers-toggle{
@@ -808,29 +788,33 @@
       <div class="action-row" style="flex-direction:column;align-items:stretch;gap:6px">
         <div class="repr-label">Representation</div>
         <div class="repr-picker" id="reprPicker" role="group" aria-label="Map representation">
-          <button class="repr-btn" data-repr="choropleth" aria-pressed="true" title="Choropleth — colour by value">
-            <span class="repr-thumb repr-thumb-choropleth"><i></i><i></i><i></i></span>
+          <button class="repr-btn" data-repr="choropleth" aria-pressed="true" title="Choropleth — colour-filled area shapes by value">
+            <span class="repr-thumb"><i class="ti ti-map-2"></i></span>
             <span class="repr-name">Choropleth</span>
           </button>
-          <button class="repr-btn" data-repr="symbol" aria-pressed="false" title="Proportional symbols — size by value">
-            <span class="repr-thumb repr-thumb-symbol"><i></i><i></i><i></i></span>
+          <button class="repr-btn" data-repr="symbol" aria-pressed="false" title="Proportional symbols — circle size scales with value">
+            <span class="repr-thumb"><i class="ti ti-chart-bubble"></i></span>
             <span class="repr-name">Symbols</span>
           </button>
-          <button class="repr-btn" data-repr="heatmap" aria-pressed="false" title="Heatmap — density blur">
-            <span class="repr-thumb repr-thumb-heatmap"></span>
+          <button class="repr-btn" data-repr="heatmap" aria-pressed="false" title="Heatmap — density blur, real polygons where available">
+            <span class="repr-thumb"><i class="ti ti-flame"></i></span>
             <span class="repr-name">Heatmap</span>
           </button>
           <button class="repr-btn" data-repr="cluster" aria-pressed="false" title="Clustered symbols — grouped at low zoom">
-            <span class="repr-thumb repr-thumb-cluster"><i class="ring"></i><i class="dot"></i><i class="dot"></i><i class="dot"></i></span>
+            <span class="repr-thumb"><i class="ti ti-affiliate"></i></span>
             <span class="repr-name">Cluster</span>
           </button>
-          <button class="repr-btn" data-repr="bivariate" aria-pressed="false" title="Bivariate — two signals at once">
-            <span class="repr-thumb repr-thumb-bivariate"><i></i><i></i><i></i><i></i></span>
+          <button class="repr-btn" data-repr="bivariate" aria-pressed="false" title="Bivariate — two signals at once (fill + border weight)">
+            <span class="repr-thumb"><i class="ti ti-layers-intersect"></i></span>
             <span class="repr-name">Bivariate</span>
           </button>
           <button class="repr-btn" data-repr="topn" aria-pressed="false" title="Top N — highlight the leaders, dim the rest">
-            <span class="repr-thumb repr-thumb-topn"><i></i><i></i><i></i><i></i></span>
+            <span class="repr-thumb"><i class="ti ti-crown"></i></span>
             <span class="repr-name">Top N</span>
+          </button>
+          <button class="repr-btn" data-repr="icons" aria-pressed="false" title="Icons — categorized pin per locality (glyph = signal type, colour = value tier)">
+            <span class="repr-thumb"><i class="ti ti-map-pins"></i></span>
+            <span class="repr-name">Icons</span>
           </button>
         </div>
         <div class="repr-sub" id="reprBivariateSub" hidden>
@@ -1141,38 +1125,48 @@ const fmtShort = n => n >= 100000 ? "₹" + (n/100000).toFixed(1).replace(/\.0$/
 // EXPORT_SIGNAL_FILES column names exactly.
 // `pro` is cosmetic-only (badge + locked interaction) — there's no real
 // auth/entitlement backend yet, this is a UI preview of the future tiering.
+//
+// `viz` is the suggested representation for this signal's *unit*, not the signal
+// itself — same idea as ArcGIS Smart Mapping's "pick a field, then pick a renderer
+// that fits its type" (a rate reads as an area fill; a density reads as a hot spot;
+// a raw count reads as a sized dot). Applied by selectSignalMetric() below when the
+// signal is chosen, not hardcoded per-signal, so the rule stays explainable:
+//   "per capita" / "%" / "share" / "ratio" / a plain rate  → choropleth (colour-filled area)
+//   "per lakh" / "per km²" / other area-normalized density → heatmap (matches the
+//     thermal-hotspot style of Esri's own density layers)
+//   a raw, un-normalized count of things                   → symbol (size = the count)
 const SIGNAL_GROUPS = [
   { label:"Property", pro:false, cols:[
-    {id:"rate_per_sqft", label:"Property rate /sqft", fmt:v=>fmtINR(v)},
+    {id:"rate_per_sqft", label:"Property rate /sqft", fmt:v=>fmtINR(v), viz:"choropleth"},
   ]},
   { label:"Banking & UPI", pro:true, cols:[
-    {id:"bank_branches_per_lakh",     label:"Bank branches /lakh",   fmt:v=>v.toFixed(1)},
-    {id:"deposits_per_capita",        label:"Deposits per capita",  fmt:v=>fmtINR(v)},
-    {id:"sfb_branches",               label:"SFB branches",         fmt:v=>v.toFixed(0)},
-    {id:"coop_branches",              label:"Co-op branches",       fmt:v=>v.toFixed(0)},
-    {id:"rrb_branches",               label:"RRB branches",         fmt:v=>v.toFixed(0)},
-    {id:"fin_branches_total",         label:"Total fin. branches",  fmt:v=>v.toFixed(0)},
-    {id:"fin_density_per_km2",        label:"Fin. density /km²",    fmt:v=>v.toFixed(2)},
-    {id:"upi_txn_value_per_capita",   label:"UPI txn value /capita",fmt:v=>fmtINR(v)},
+    {id:"bank_branches_per_lakh",     label:"Bank branches /lakh",   fmt:v=>v.toFixed(1), viz:"heatmap"},
+    {id:"deposits_per_capita",        label:"Deposits per capita",  fmt:v=>fmtINR(v), viz:"choropleth"},
+    {id:"sfb_branches",               label:"SFB branches",         fmt:v=>v.toFixed(0), viz:"symbol"},
+    {id:"coop_branches",              label:"Co-op branches",       fmt:v=>v.toFixed(0), viz:"symbol"},
+    {id:"rrb_branches",               label:"RRB branches",         fmt:v=>v.toFixed(0), viz:"symbol"},
+    {id:"fin_branches_total",         label:"Total fin. branches",  fmt:v=>v.toFixed(0), viz:"symbol"},
+    {id:"fin_density_per_km2",        label:"Fin. density /km²",    fmt:v=>v.toFixed(2), viz:"heatmap"},
+    {id:"upi_txn_value_per_capita",   label:"UPI txn value /capita",fmt:v=>fmtINR(v), viz:"choropleth"},
   ]},
   { label:"Tax & economy", pro:true, cols:[
-    {id:"filers_per_capita",       label:"ITR filers /capita",   fmt:v=>(v*100).toFixed(1)+"%"},
-    {id:"msme_per_lakh",           label:"MSMEs /lakh",          fmt:v=>v.toFixed(1)},
-    {id:"factories_per_lakh",      label:"Factories /lakh",      fmt:v=>v.toFixed(1)},
-    {id:"nsdp_per_capita",         label:"NSDP per capita",      fmt:v=>fmtINR(v)},
-    {id:"cropping_intensity_pct",  label:"Cropping intensity",   fmt:v=>v.toFixed(0)+"%"},
+    {id:"filers_per_capita",       label:"ITR filers /capita",   fmt:v=>(v*100).toFixed(1)+"%", viz:"choropleth"},
+    {id:"msme_per_lakh",           label:"MSMEs /lakh",          fmt:v=>v.toFixed(1), viz:"heatmap"},
+    {id:"factories_per_lakh",      label:"Factories /lakh",      fmt:v=>v.toFixed(1), viz:"heatmap"},
+    {id:"nsdp_per_capita",         label:"NSDP per capita",      fmt:v=>fmtINR(v), viz:"choropleth"},
+    {id:"cropping_intensity_pct",  label:"Cropping intensity",   fmt:v=>v.toFixed(0)+"%", viz:"choropleth"},
   ]},
   { label:"Infrastructure", pro:true, cols:[
-    {id:"radiance_mean",        label:"Night-lights radiance", fmt:v=>v.toFixed(2)},
-    {id:"premium_poi_per_km2",  label:"Premium POI density",   fmt:v=>v.toFixed(2)},
-    {id:"schools_per_lakh",     label:"Schools /lakh",         fmt:v=>v.toFixed(1)},
+    {id:"radiance_mean",        label:"Night-lights radiance", fmt:v=>v.toFixed(2), viz:"heatmap"},
+    {id:"premium_poi_per_km2",  label:"Premium POI density",   fmt:v=>v.toFixed(2), viz:"heatmap"},
+    {id:"schools_per_lakh",     label:"Schools /lakh",         fmt:v=>v.toFixed(1), viz:"heatmap"},
   ]},
   { label:"Vehicles", pro:true, cols:[
-    {id:"cars_per_1000",  label:"Cars /1000",       fmt:v=>v.toFixed(1)},
-    {id:"lmv_per_1000",   label:"LMVs /1000",       fmt:v=>v.toFixed(1)},
-    {id:"car_2w_ratio",   label:"Car:2W ratio",     fmt:v=>v.toFixed(2)},
-    {id:"luxury_share",   label:"Luxury vehicle share", fmt:v=>(v*100).toFixed(1)+"%"},
-    {id:"ev_share",       label:"EV share",         fmt:v=>(v*100).toFixed(1)+"%"},
+    {id:"cars_per_1000",  label:"Cars /1000",       fmt:v=>v.toFixed(1), viz:"choropleth"},
+    {id:"lmv_per_1000",   label:"LMVs /1000",       fmt:v=>v.toFixed(1), viz:"choropleth"},
+    {id:"car_2w_ratio",   label:"Car:2W ratio",     fmt:v=>v.toFixed(2), viz:"choropleth"},
+    {id:"luxury_share",   label:"Luxury vehicle share", fmt:v=>(v*100).toFixed(1)+"%", viz:"choropleth"},
+    {id:"ev_share",       label:"EV share",         fmt:v=>(v*100).toFixed(1)+"%", viz:"choropleth"},
   ]},
 ];
 const SIGNAL_DEFS = {};
@@ -1180,6 +1174,15 @@ SIGNAL_GROUPS.forEach(g => g.cols.forEach(c => {
   c.pro = g.pro; c.group = g.label;
   SIGNAL_DEFS[c.id] = c;
 }));
+
+// Signal-group → Tabler icon, shared by the Signals Catalog swatches/category chips AND
+// the "Icons" map representation below (glyph = what kind of signal; the pin's colour is
+// still the same zoneColor() tier scale every other mode uses, so only the shape is new).
+const CATEGORY_ICONS = {
+  "All":"ti-apps", "Core":"ti-chart-histogram", "Property":"ti-building",
+  "Banking & UPI":"ti-building-bank", "Tax & economy":"ti-receipt-tax",
+  "Infrastructure":"ti-bulb", "Vehicles":"ti-car",
+};
 
 // pincode → joined raw-signal row, loaded once from /api/export (json, all columns)
 let signalMap = {};
@@ -1334,18 +1337,32 @@ async function loadBoundaries(){
   }catch(e){ /* boundaries optional — zones view still works */ }
 }
 
+// Nominatim's usage policy is ~1 request/sec — rendering 20-30 localities at once used to
+// fire that many reverse-geocode calls simultaneously, which gets the whole burst
+// rate-limited (choropleth silently stayed circles instead of upgrading to real shapes).
+// Serialize every call through one queue with a minimum gap instead.
+let nominatimQueue = Promise.resolve();
+const NOMINATIM_GAP_MS = 1100;
+function queueNominatim(fn){
+  const run = nominatimQueue.then(() => new Promise(r => setTimeout(r, NOMINATIM_GAP_MS))).then(fn);
+  nominatimQueue = run.catch(() => {});
+  return run;
+}
+
 async function fetchLocalityBoundary(name, lat, lng){
   if(polyCache.has(name)) return polyCache.get(name);
   polyCache.set(name, null);
-  try{
-    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&zoom=14&format=geojson&polygon_geojson=1`;
-    const res = await fetch(url, {headers:{"Accept-Language":"en"}});
-    const data = await res.json();
-    const geom = data.geometry || null;
-    const valid = geom && (geom.type==="Polygon" || geom.type==="MultiPolygon") ? geom : null;
-    polyCache.set(name, valid);
-    return valid;
-  }catch(e){ return null; }
+  return queueNominatim(async () => {
+    try{
+      const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&zoom=14&format=geojson&polygon_geojson=1`;
+      const res = await fetch(url, {headers:{"Accept-Language":"en"}});
+      const data = await res.json();
+      const geom = data.geometry || null;
+      const valid = geom && (geom.type==="Polygon" || geom.type==="MultiPolygon") ? geom : null;
+      polyCache.set(name, valid);
+      return valid;
+    }catch(e){ return null; }
+  });
 }
 
 /* ---------- representation picker ---------- */
@@ -1363,23 +1380,28 @@ function populateBivariateSelect(){
   });
 }
 
-document.querySelectorAll("#reprPicker .repr-btn").forEach(btn=>{
-  btn.addEventListener("click", ()=>{
-    representation = btn.dataset.repr;
-    document.querySelectorAll("#reprPicker .repr-btn").forEach(b=>
-      b.setAttribute("aria-pressed", String(b===btn)));
+// Shared by the picker's own click handler and selectSignalMetric()'s viz-hint
+// auto-switch below, so there's one path that sets `representation` correctly
+// (button pressed-state, bivariate/topn sub-panels, render) instead of two.
+function setRepresentation(repr){
+  representation = repr;
+  document.querySelectorAll("#reprPicker .repr-btn").forEach(b=>
+    b.setAttribute("aria-pressed", String(b.dataset.repr === repr)));
 
-    reprBivariateSub.hidden = representation !== "bivariate";
-    reprTopNSub.hidden      = representation !== "topn";
-    if(representation === "bivariate"){
-      populateBivariateSelect();
-      if(!bivariateSecondary || bivariateSecondary === metric){
-        bivariateSecondary = ALL_SIGNALS.find(s=>s.id!==metric)?.id || "income";
-      }
-      reprBivariateSel.value = bivariateSecondary;
+  reprBivariateSub.hidden = representation !== "bivariate";
+  reprTopNSub.hidden      = representation !== "topn";
+  if(representation === "bivariate"){
+    populateBivariateSelect();
+    if(!bivariateSecondary || bivariateSecondary === metric){
+      bivariateSecondary = ALL_SIGNALS.find(s=>s.id!==metric)?.id || "income";
     }
-    render();
-  });
+    reprBivariateSel.value = bivariateSecondary;
+  }
+  render();
+}
+
+document.querySelectorAll("#reprPicker .repr-btn").forEach(btn=>{
+  btn.addEventListener("click", ()=> setRepresentation(btn.dataset.repr));
 });
 reprBivariateSel.addEventListener("change", ()=>{
   bivariateSecondary = reprBivariateSel.value;
@@ -1443,6 +1465,21 @@ const pinIcon = L.divIcon({
   html:'<span class="body"></span><span class="dot"></span>',
   iconSize:[28,30], iconAnchor:[14,28], popupAnchor:[0,-26], tooltipAnchor:[0,-26]
 });
+
+// "Icons" representation's categorized pin — cached per colour+glyph pair (only 6 colours ×
+// ~7 category glyphs ever occur) so re-render doesn't rebuild identical L.divIcon objects.
+const tierPinCache = new Map();
+function tierPinIcon(color, iconGlyph){
+  const key = color + "|" + iconGlyph;
+  if(tierPinCache.has(key)) return tierPinCache.get(key);
+  const icon = L.divIcon({
+    className:"tier-pin-wrap",
+    html:`<span class="tier-pin" style="background:${color}"><i class="ti ${iconGlyph}"></i></span>`,
+    iconSize:[26,26], iconAnchor:[13,24], popupAnchor:[0,-22], tooltipAnchor:[0,-22]
+  });
+  tierPinCache.set(key, icon);
+  return icon;
+}
 
 /* ---------- offline mode: tiles unreachable → grid + name labels ---------- */
 let OFFLINE = false;
@@ -2067,7 +2104,7 @@ async function loadLiveAreaData(lat, lng, cityKey){
       toast(`Live data · ${locName}`, 3000);
       // This city now has real fetched data for the session — flip its catalog
       // tag from LIVE to DATA so the dropdown reflects what's actually on the map.
-      if(cityKey && CITIES[cityKey]) CITIES[cityKey].hasData = true;
+      if(cityKey && CITIES[cityKey]) CITIES[cityKey].liveFetched = true;
     } else {
       toast(`Estimated coverage · ${locName} — no mapped data yet`, 4000);
     }
@@ -2198,9 +2235,22 @@ function render(){
         ? 50 + 150 * (metricValue(d) - metricMin) / (metricMax - metricMin)
         : 100;
       const coverM = usingEstimated ? 800 : Math.round(Math.max(1200, 2600 - normVal * 10));
+
+      // Prefetched static boundary (same data/boundaries.geojson the heatmap reads) —
+      // instant, no network round-trip, and covers a growing share of pincodes as the
+      // daily backfill cron runs. Try this before ever touching live Nominatim.
+      const bf = d.pincode && boundariesByPincode[d.pincode];
+      if(bf && bf.geometry){
+        L.geoJSON(bf.geometry, {style:()=>({...baseStyle}), interactive:false}).addTo(polyLayer);
+        return;
+      }
+
       const circ = L.circle([d.lat,d.lng],{radius:coverM,...baseStyle}).addTo(polyLayer);
-      // Skip OSM boundary lookup for synthetic clusters ("East cluster 4") and
-      // live-estimated points ("N · Your Area") — they return wrong large polygons
+      // Skip the live OSM lookup for synthetic clusters ("East cluster 4") and
+      // live-estimated points ("N · Your Area") — they return wrong large polygons.
+      // For real, uncached localities this call is queued/throttled (see
+      // fetchLocalityBoundary) so a 20-30 locality view doesn't burst-fire that many
+      // simultaneous requests at Nominatim and get the whole batch rate-limited.
       const isEstimated = /cluster\s*\d/i.test(d.name) || d.name.includes(" · ");
       if(!isEstimated){
         fetchLocalityBoundary(d.name, d.lat, d.lng).then(geom=>{
@@ -2221,7 +2271,10 @@ function render(){
       const distFromPin = haversine(center[0],center[1],d.lat,d.lng);
       const pinProx = Math.exp(-distFromPin / 12);
       const fillOpacity = 0.35 + 0.5 * pinProx;
-      const radius = usingEstimated ? 700 : Math.round(500 + 2700 * norm);
+      // Size always tracks the value, even for synthetic estimates — a fixed radius here
+      // (like choropleth's honest "not a real boundary" cue) would make Symbols mode
+      // collapse into a copy of Choropleth whenever no real data is in view.
+      const radius = Math.round(500 + 2700 * norm);
       L.circle([d.lat,d.lng],{radius, color:fill, weight:1.5, fillColor:fill, fillOpacity, interactive:false}).addTo(polyLayer);
     });
 
@@ -2361,12 +2414,19 @@ function render(){
         interactive:false,
       }).addTo(polyLayer);
     });
+  } else if(representation === "icons"){
+    // No polyLayer fill/blob here — the categorized pin markers built below (in the
+    // "markers" section, `markerGroup`) ARE the representation for this mode.
   }
 
   // markers
+  const isExtraSigForIcon = !!SIGNAL_DEFS[metric];
+  const iconGroupLabel = isExtraSigForIcon ? SIGNAL_DEFS[metric].group : "Core";
+  const iconGlyph = CATEGORY_ICONS[iconGroupLabel] || "ti-map-pin";
   markerGroup.clearLayers();
   rows.forEach(d=>{
-    const m = L.marker([d.lat,d.lng],{icon:pinIcon})   // CSS-drawn classic pin
+    const markerIcon = representation === "icons" ? tierPinIcon(zoneColor(d), iconGlyph) : pinIcon;
+    const m = L.marker([d.lat,d.lng],{icon:markerIcon})   // CSS-drawn classic pin (or tier-pin in Icons mode)
       .bindPopup(popupHTML(d, rows));
     if(OFFLINE){
       m.bindTooltip(d.name,{permanent:true,direction:"top",className:"name-label",opacity:1});
@@ -2550,18 +2610,31 @@ function toast(msg, ms=3200){
 }
 
 /* ---------- controls ---------- */
+// `hasData` here only tracks *session* state (flipped true once a live OSM fetch has
+// actually populated a city — see loadLiveAreaData). Whether a city already has real
+// CSV coverage at page load is computed fresh in allCities() below from the live
+// ncrData, not hardcoded, since the enrichment cron grows coverage daily and a static
+// true/false here silently drifts out of date (e.g. Pune had 14 real localities within
+// 80km while still hardcoded false).
 const CITIES = {
-  delhi:     {label:"Delhi · NCR",  center:[28.61,77.21], zoom:11, hasData:true},
-  mumbai:    {label:"Mumbai",        center:[19.07,72.87], zoom:12, hasData:true},
-  bengaluru: {label:"Bengaluru",     center:[12.97,77.59], zoom:12, hasData:true},
-  hyderabad: {label:"Hyderabad",     center:[17.38,78.49], zoom:12, hasData:false},
-  chennai:   {label:"Chennai",       center:[13.08,80.27], zoom:12, hasData:false},
-  pune:      {label:"Pune",          center:[18.52,73.86], zoom:12, hasData:false},
-  kolkata:   {label:"Kolkata",       center:[22.57,88.36], zoom:12, hasData:false},
-  ahmedabad: {label:"Ahmedabad",     center:[23.03,72.59], zoom:12, hasData:false},
-  jaipur:    {label:"Jaipur",        center:[26.91,75.79], zoom:12, hasData:false},
-  lucknow:   {label:"Lucknow",       center:[26.85,80.95], zoom:12, hasData:false},
+  delhi:     {label:"Delhi · NCR",  center:[28.61,77.21], zoom:11},
+  mumbai:    {label:"Mumbai",        center:[19.07,72.87], zoom:12},
+  bengaluru: {label:"Bengaluru",     center:[12.97,77.59], zoom:12},
+  hyderabad: {label:"Hyderabad",     center:[17.38,78.49], zoom:12},
+  chennai:   {label:"Chennai",       center:[13.08,80.27], zoom:12},
+  pune:      {label:"Pune",          center:[18.52,73.86], zoom:12},
+  kolkata:   {label:"Kolkata",       center:[22.57,88.36], zoom:12},
+  ahmedabad: {label:"Ahmedabad",     center:[23.03,72.59], zoom:12},
+  jaipur:    {label:"Jaipur",        center:[26.91,75.79], zoom:12},
+  lucknow:   {label:"Lucknow",       center:[26.85,80.95], zoom:12},
 };
+// Minimum real localities within 80km before the dropdown calls a city "DATA" instead
+// of "LIVE" — a couple of stray CSV rows near a city center isn't meaningful coverage.
+const CITY_HASDATA_MIN = 5;
+function cityHasRealData(c){
+  if(c.liveFetched) return true;
+  return ncrData.filter(d => haversine(c.center[0],c.center[1],d[1],d[2]) <= 80).length >= CITY_HASDATA_MIN;
+}
 
 // Single source of truth for the "city" field — called by every flow that moves the pin
 // (city dropdown, pincode/area search, GPS locate, drag/click-to-relocate) so the field
@@ -2591,7 +2664,7 @@ async function jumpToCity(key){
   const ci = document.getElementById("cityInput");
   if(ci) ci.value = c.label;
   searchBox.value = "";
-  if(!c.hasData || nearby.length === 0){
+  if(nearby.length < CITY_HASDATA_MIN){
     toast("Fetching live OSM data for " + c.label + "…", 10000);
     loadLiveAreaData(center[0], center[1], key);
   }
@@ -2602,9 +2675,10 @@ async function jumpToCity(key){
   const inp  = document.getElementById("cityInput");
   const drop = document.getElementById("cityDropdown");
   // Re-derived on every call (not cached) so a city's hasData flip — e.g. after a
-  // live OSM fetch completes — shows up next time the dropdown opens, instead of
-  // freezing every city's state as it was at page load.
-  const allCities = () => Object.entries(CITIES).map(([k,v]) => ({key:k, ...v}));
+  // live OSM fetch completes, or the CSV loading in with fresh cron coverage — shows
+  // up next time the dropdown opens, instead of freezing every city's state as it
+  // was at page load.
+  const allCities = () => Object.entries(CITIES).map(([k,v]) => ({key:k, ...v, hasData: cityHasRealData(v)}));
 
   function buildDropdown(items){
     drop.innerHTML = "";
@@ -2703,6 +2777,11 @@ const ALL_SIGNALS = [...CORE_SIGNALS, ...SIGNAL_GROUPS.flatMap(g=>g.cols)];
 
 // Shared "pick this signal to colour the map by" action — used by both the Signal Explorer
 // popover and the Signals Catalog below, so there's one behavior to keep correct, not two.
+// Basic representations a viz-hint can switch between — cluster/bivariate/topn are left
+// alone since picking one of those is a deliberate choice unrelated to which signal is active.
+const BASIC_REPRS = ["choropleth","symbol","heatmap"];
+const REPR_NAMES  = {choropleth:"Choropleth", symbol:"Symbols", heatmap:"Heatmap"};
+
 function selectSignalMetric(sigId, label){
   metric = sigId;
   const isCore = CORE_METRIC_LABELS.hasOwnProperty(sigId);
@@ -2713,7 +2792,15 @@ function selectSignalMetric(sigId, label){
   document.getElementById("hlLabel").textContent = isCore
     ? CORE_METRIC_LABELS[sigId]
     : (sig ? sig.label : "Signal") + " — area average";
-  render();
+
+  // Auto-switch to the representation that best fits this signal's unit (rate → choropleth,
+  // density → heatmap, raw count → symbol) — see the `viz` field on SIGNAL_GROUPS for the rule.
+  if(sig && sig.viz && BASIC_REPRS.includes(representation) && representation !== sig.viz){
+    setRepresentation(sig.viz);
+    toast(`Switched to ${REPR_NAMES[sig.viz]} — better fit for ${sig.label}`, 3000);
+  } else {
+    render();
+  }
 }
 
 (function(){
@@ -2884,11 +2971,8 @@ function selectSignalMetric(sigId, label){
   const countEl    = document.getElementById("catalogCount");
   const gridEl     = document.getElementById("catalogGrid");
 
-  const CATEGORY_ICONS = {
-    "All":"ti-apps", "Core":"ti-chart-histogram", "Property":"ti-building",
-    "Banking & UPI":"ti-building-bank", "Tax & economy":"ti-receipt-tax",
-    "Infrastructure":"ti-bulb", "Vehicles":"ti-car",
-  };
+  // CATEGORY_ICONS now defined globally (near SIGNAL_DEFS) — also used by the Icons
+  // map representation.
   const CATEGORIES = ["All","Core",...SIGNAL_GROUPS.map(g=>g.label)];
 
   let activeCat  = "All";

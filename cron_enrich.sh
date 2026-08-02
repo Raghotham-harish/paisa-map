@@ -61,10 +61,14 @@ echo "[3/6] Batch pre-enriching HCES districts (up to 30 today)..."
     echo "  batch_enrich_hces.py exited non-zero — continuing"
 }
 
-# ── 4. Backfill boundary polygons (20 new per day, resumable) ───────────────────
+# ── 4. Backfill boundary polygons (60 new per day, resumable) ───────────────────
+# Bumped from 20 → 60 (adds ~3 more minutes to this step, still well within the
+# nightly cron window) to clear the ~300-pincode backlog in days instead of weeks —
+# choropleth/heatmap fall back to synthetic-looking circles for any pincode without
+# a real boundary yet.
 echo ""
-echo "[4/6] Backfilling boundary polygons (up to 20 new today)..."
-"$PYTHON" "$ETL/etl/fetch_boundaries.py" --resume --limit 20 || {
+echo "[4/6] Backfilling boundary polygons (up to 60 new today)..."
+"$PYTHON" "$ETL/etl/fetch_boundaries.py" --resume --limit 60 || {
     echo "  fetch_boundaries.py exited non-zero — continuing"
 }
 
