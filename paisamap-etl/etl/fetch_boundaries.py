@@ -34,10 +34,14 @@ HEADERS = {"User-Agent": "PaisaMap-Boundaries/1.0 (one-time batch)", "Accept-Lan
 DELAY   = 5.0    # seconds — conservative for batch use of public Nominatim
 
 
-def reverse_geocode(lat: float, lng: float, zoom: int = 12):
+def reverse_geocode(lat: float, lng: float, zoom: int = 14):
     """
-    Reverse geocode at zoom=12 → returns the OSM area polygon at suburb/neighbourhood level.
-    This is the same call fetchLocalityBoundary() makes in the browser.
+    Reverse geocode at zoom=14 → returns the OSM area polygon at suburb level. Starts at
+    the same zoom fetchLocalityBoundary() uses in the browser (previously this batch script
+    started at zoom=12 — one level coarser than the live path, which is how oversized
+    town/borough-scale polygons ended up cached as if they were tight locality boundaries).
+    Falls back at most to zoom=12 on a miss; never goes coarser than that here — anything
+    coarser is city/county-scale and gets rejected by the caller's size check regardless.
     """
     params = urllib.parse.urlencode({
         "lat":            lat,
@@ -58,7 +62,7 @@ def reverse_geocode(lat: float, lng: float, zoom: int = 12):
             if geom and geom.get("type") in ("Polygon", "MultiPolygon"):
                 return geom, data.get("display_name", "")
             # No polygon at this zoom — try one level coarser
-            if zoom > 10:
+            if zoom > 12:
                 time.sleep(DELAY)
                 return reverse_geocode(lat, lng, zoom - 1)
             return None, ""
@@ -76,6 +80,66 @@ def reverse_geocode(lat: float, lng: float, zoom: int = 12):
     return None, ""
 
 
+def _haversine_km(lat1, lng1, lat2, lng2):
+    import math
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(min(1, math.sqrt(a)))
+
+
+def _bbox_diag_km(geom) -> float:
+    """Bounding-box diagonal of a Polygon/MultiPolygon, in km — a cheap proxy for
+    'how big an area does this polygon cover' without needing a geometry library."""
+    def flatten(coords):
+        if isinstance(coords[0], (int, float)):
+            yield coords
+        else:
+            for c in coords:
+                yield from flatten(c)
+    pts = list(flatten(geom["coordinates"]))
+    lngs = [p[0] for p in pts]
+    lats = [p[1] for p in pts]
+    return _haversine_km(min(lats), min(lngs), max(lats), max(lngs))
+
+
+def nearest_neighbor_km(df) -> "list[float]":
+    """For each row, the distance in km to its closest *other* pincode in the dataset —
+    used as the local 'how tight should a locality boundary be here' scale, since pincode
+    density varies wildly between dense NCR and sparse rural areas."""
+    lats = df["lat"].to_numpy(dtype=float)
+    lngs = df["lng"].to_numpy(dtype=float)
+    n = len(lats)
+    out = [float("inf")] * n
+    for i in range(n):
+        best = float("inf")
+        for j in range(n):
+            if i == j:
+                continue
+            d = _haversine_km(lats[i], lngs[i], lats[j], lngs[j])
+            if d < best:
+                best = d
+        out[i] = best if best != float("inf") else 5.0
+    return out
+
+
+def is_reasonable_size(geom, nn_km: float) -> bool:
+    """Reject polygons that don't look like a single postal locality. Two conditions,
+    whichever is tighter:
+    - relative: shouldn't reach much past halfway to the nearest neighbouring pincode
+      (catches dense-city mismatches, e.g. a 'suburb' polygon that's really a whole ward)
+    - absolute: capped at 15km regardless of how far away the nearest neighbour is —
+      without this, sparse rural pincodes let *any* size through (nn_km itself can be
+      100km+), which is how city/district/state-scale Nominatim matches (e.g. an entire
+      Rajasthan district returned for one rural pincode) were silently accepted as if
+      they were tight locality shapes. Floor of 2.5km so isolated/rural pincodes still
+      get a sensibly-sized real shape rather than being floored out by the relative term."""
+    max_km = min(15.0, max(nn_km * 2, 2.5))
+    return _bbox_diag_km(geom) <= max_km
+
+
 def _circle_coords(lat: float, lng: float, deg: float = 0.012):
     """12-point circle as GeoJSON fallback polygon."""
     import math
@@ -87,9 +151,11 @@ def _circle_coords(lat: float, lng: float, deg: float = 0.012):
     return pts
 
 
-def fetch_all(resume: bool, limit=None) -> dict:
+def fetch_all(resume: bool, limit=None, revalidate=False) -> dict:
     df = pd.read_csv(OUT_CSV, dtype={"pincode": str})
     total = len(df)
+    nn_km = nearest_neighbor_km(df)
+    nn_by_pincode = {str(df.iloc[i]["pincode"]): nn_km[i] for i in range(total)}
 
     existing: dict[str, dict] = {}
     if resume and OUT_GEO.exists():
@@ -102,7 +168,7 @@ def fetch_all(resume: bool, limit=None) -> dict:
         print(f"Resuming: {len(existing)}/{total} already done")
 
     features = []
-    hits, misses = 0, 0
+    hits, misses, downgraded = 0, 0, 0
     fetched_this_run = 0
 
     for i, row in df.iterrows():
@@ -114,12 +180,25 @@ def fetch_all(resume: bool, limit=None) -> dict:
         income = int(row["income"])
         n      = i + 1
 
-        # Reuse cached
+        # Reuse cached — but if --revalidate, re-check its size against today's pincode
+        # density first, since a polygon fetched when neighbours were sparser may now
+        # engulf pincodes that have since been added nearby.
         if pc in existing:
             feat = existing[pc]
             feat["properties"].update(ppi=ppi, income=income, name=name)
+            geom = feat.get("geometry")
+            if (revalidate and not feat["properties"].get("_synthetic")
+                    and geom and not is_reasonable_size(geom, nn_by_pincode[pc])):
+                feat["geometry"] = {
+                    "type": "Polygon",
+                    "coordinates": [_circle_coords(lat, lng)],
+                }
+                feat["properties"]["_synthetic"] = True
+                downgraded += 1
+                print(f"  [{n:02d}/{total}] ▼  {pc} {name} (downgraded — oversized)")
+            else:
+                print(f"  [{n:02d}/{total}] ↩  {pc} {name} (cached)")
             features.append(feat)
-            print(f"  [{n:02d}/{total}] ↩  {pc} {name} (cached)")
             continue
 
         # --limit caps *new* fetches per run (e.g. a nightly cron budget) — pincodes
@@ -138,6 +217,9 @@ def fetch_all(resume: bool, limit=None) -> dict:
         fetched_this_run += 1
 
         geom, osm_name = reverse_geocode(lat, lng)
+        if geom and not is_reasonable_size(geom, nn_by_pincode[pc]):
+            print(f" ⚠ oversized ({_bbox_diag_km(geom):.1f}km, nn={nn_by_pincode[pc]:.1f}km)", end="")
+            geom = None
 
         if geom:
             features.append({
@@ -166,7 +248,8 @@ def fetch_all(resume: bool, limit=None) -> dict:
             misses += 1
             print(" ✗ (fallback circle)")
 
-    print(f"\nDone: {hits} real polygons, {misses} fallback circles / {total} pincodes")
+    print(f"\nDone: {hits} real polygons, {misses} fallback circles, "
+          f"{downgraded} downgraded on revalidation / {total} pincodes")
     return {"type": "FeatureCollection", "features": features}
 
 
@@ -177,6 +260,10 @@ def main():
     ap.add_argument("--limit", type=int, default=None,
                     help="Cap on *new* fetches this run (for a daily cron budget) — "
                          "always combine with --resume so later runs keep backfilling")
+    ap.add_argument("--revalidate", action="store_true",
+                    help="Re-check cached polygons' size against current pincode density "
+                         "and downgrade any that are now oversized to a fallback circle — "
+                         "no network calls, safe to run any time with --resume")
     args = ap.parse_args()
 
     print(f"Source: {OUT_CSV}")
@@ -186,7 +273,7 @@ def main():
         print(f"Limit:  {args.limit} new fetches this run")
     print()
 
-    geojson = fetch_all(resume=args.resume, limit=args.limit)
+    geojson = fetch_all(resume=args.resume, limit=args.limit, revalidate=args.revalidate)
 
     if args.dry_run:
         print(f"[DRY RUN] would write {len(geojson['features'])} features")

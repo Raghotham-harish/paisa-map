@@ -1305,7 +1305,6 @@ osmClassic.on("tileerror", ()=>{
 });
 
 let heatLayer = null;
-let choroLayer = null;        // choropleth GeoJSON layer (heat mode)
 let circleLayer = null;
 let polyLayer = L.layerGroup().addTo(map);
 let markerGroup = L.layerGroup().addTo(map);
@@ -1460,10 +1459,13 @@ map.on("click", async e=>{
 });
 
 /* ---------- CSS-only locality pin (no external images) ---------- */
+// Anchored at the round body's own center (not the teardrop's bottom tip) so the pin
+// lines up with the circle/polygon bubbles drawn at the same [lat,lng] underneath it —
+// a classic "tip touches ground" pin anchor reads as off-center once there's a bubble.
 const pinIcon = L.divIcon({
   className:"css-pin",
   html:'<span class="body"></span><span class="dot"></span>',
-  iconSize:[28,30], iconAnchor:[14,28], popupAnchor:[0,-26], tooltipAnchor:[0,-26]
+  iconSize:[28,30], iconAnchor:[14,13], popupAnchor:[0,-11], tooltipAnchor:[0,-11]
 });
 
 // "Icons" representation's categorized pin — cached per colour+glyph pair (only 6 colours ×
@@ -2174,6 +2176,36 @@ function passesFilters(d){
   });
 }
 
+// A locality's real boundary polygon (from the static backfill or a live Nominatim
+// lookup) is only trustworthy if it's actually locality-scale — matched to Python's
+// is_reasonable_size() in fetch_boundaries.py so the frontend rejects the same class of
+// oversized/wrong-admin-level polygon a fresh live fetch could still return.
+function polygonDiagKm(geom){
+  const b = L.geoJSON(geom).getBounds();
+  const ne = b.getNorthEast(), sw = b.getSouthWest();
+  return haversine(ne.lat, ne.lng, sw.lat, sw.lng);
+}
+function isReasonableBoundary(geom, nnKm){
+  const maxKm = Math.min(15, Math.max(nnKm * 2, 2.5));
+  return polygonDiagKm(geom) <= maxKm;
+}
+// Nearest-neighbour distance (km) per row in the current view — used to keep a
+// locality's drawn footprint (real boundary or fallback circle) from reaching past
+// its neighbours, so dense clusters don't render as one solid overlapping blob.
+function nearestNeighborKmMap(rows){
+  const m = new Map();
+  for(let i=0;i<rows.length;i++){
+    let best = Infinity;
+    for(let j=0;j<rows.length;j++){
+      if(i===j) continue;
+      const dist = haversine(rows[i].lat, rows[i].lng, rows[j].lat, rows[j].lng);
+      if(dist < best) best = dist;
+    }
+    m.set(rows[i].id, Number.isFinite(best) ? best : 5);
+  }
+  return m;
+}
+
 function render(){
   const gen = ++renderGen;
   const isExtraSignal = !!SIGNAL_DEFS[metric];
@@ -2217,10 +2249,10 @@ function render(){
 
   // representation — one of six mutually exclusive ways to draw the same `rows`/metric
   if(heatLayer){ heatLayer.remove(); heatLayer = null; }
-  if(choroLayer){ choroLayer.remove(); choroLayer = null; }
   polyLayer.clearLayers();
 
   if(representation === "choropleth"){
+    const nnKm = nearestNeighborKmMap(rows);
     rows.forEach(d=>{
       const fill = zoneColor(d);
       // fade opacity by distance from pin: 0.15 at 30km, 0.70 at 0km
@@ -2228,19 +2260,26 @@ function render(){
       const pinProx = Math.exp(-distFromPin / 12);
       const fillOpacity = 0.15 + 0.55 * pinProx;
       const baseStyle = {color:fill,weight:1.5,fillColor:fill,fillOpacity,interactive:false};
+      const nn = nnKm.get(d.id) ?? 5;
       // Estimated/synthetic clusters use a fixed small radius so they don't look like real coverage.
       // Real localities scale: ~2 km avg, higher metric = slightly smaller blob (denser/richer areas).
       // Normalize active metric to 50–200 range so radius formula works for income/spend too.
       const normVal = (metricMax > metricMin)
         ? 50 + 150 * (metricValue(d) - metricMin) / (metricMax - metricMin)
         : 100;
-      const coverM = usingEstimated ? 800 : Math.round(Math.max(1200, 2600 - normVal * 10));
+      // Capped at half the gap to the nearest other locality — otherwise dense clusters
+      // (e.g. 20+ localities inside a 25km search radius) draw circles that swallow
+      // their neighbours whole, which is what "overlap" and "area too big" meant here.
+      const coverM = usingEstimated ? 800
+        : Math.max(300, Math.min(Math.round(Math.max(1200, 2600 - normVal * 10)), nn * 500));
 
       // Prefetched static boundary (same data/boundaries.geojson the heatmap reads) —
       // instant, no network round-trip, and covers a growing share of pincodes as the
-      // daily backfill cron runs. Try this before ever touching live Nominatim.
+      // daily backfill cron runs. Try this before ever touching live Nominatim. Rejected
+      // if it's not actually locality-scale (see isReasonableBoundary) — a lot of the
+      // static file turned out to be mismatched city/district-scale OSM polygons.
       const bf = d.pincode && boundariesByPincode[d.pincode];
-      if(bf && bf.geometry){
+      if(bf && bf.geometry && isReasonableBoundary(bf.geometry, nn)){
         L.geoJSON(bf.geometry, {style:()=>({...baseStyle}), interactive:false}).addTo(polyLayer);
         return;
       }
@@ -2255,6 +2294,7 @@ function render(){
       if(!isEstimated){
         fetchLocalityBoundary(d.name, d.lat, d.lng).then(geom=>{
           if(!geom || gen !== renderGen) return;
+          if(!isReasonableBoundary(geom, nn)) return;
           polyLayer.removeLayer(circ);
           L.geoJSON(geom,{style:()=>({...baseStyle}),interactive:false}).addTo(polyLayer);
         });
@@ -2279,10 +2319,13 @@ function render(){
     });
 
   } else if(representation === "heatmap"){
-    // Real pincode boundary polygons colored by metric, falling back to blur heatmap for any
-    // pincode with no pre-fetched boundary yet.
+    // Always a blurred density gradient (Leaflet.heat), never hard-edged polygon fills —
+    // that's what distinguishes it from Choropleth, which already owns the "flat colour
+    // per real boundary" job. Previously this mode drew a flat-shaded real polygon per
+    // locality when one was cached, which (a) read as a second choropleth, not a heatmap,
+    // and (b) inherited the same oversized/wrong-admin-level boundary problem choropleth
+    // had — a hard edge from a bad polygon is a lot more visible than a soft blur is.
     const heatRange = Math.max(metricMax - metricMin, 1);
-    const features = [];
     const fallbackPts = [];
     const rPin = rng(42);
     for(let i=0;i<12;i++){
@@ -2290,60 +2333,14 @@ function render(){
     }
 
     rows.forEach(d=>{
-      const fill    = zoneColor(d);
-      const distKm  = haversine(center[0],center[1],d.lat,d.lng);
-      const pinProx = Math.exp(-distKm / 14);
-      const fillOp  = 0.18 + 0.55 * pinProx;
-
-      const bf = boundariesByPincode[d.pincode];
-      if(bf && bf.geometry){
-        // Clone feature, inject live metric values + style hint
-        features.push({
-          ...bf,
-          properties: {
-            ...bf.properties,
-            _fill: fill, _fillOp: fillOp,
-            ppi: d.ppi, income: d.income, spend: d.spend,
-            name: d.name,
-          }
-        });
-      } else {
-        // No boundary file yet — add to blur fallback
-        const w = 0.2 + 0.8 * ((metricValue(d) - metricMin) / heatRange);
-        const r = rng(d.id * 7 + 3);
-        for(let i = 0; i < 14; i++){
-          fallbackPts.push([d.lat+(r()-.5)*0.02, d.lng+(r()-.5)*0.02,
-                            Math.max(0.04, w * Math.exp(-distKm/10))]);
-        }
+      const distKm = haversine(center[0],center[1],d.lat,d.lng);
+      const w = 0.2 + 0.8 * ((metricValue(d) - metricMin) / heatRange);
+      const r = rng(d.id * 7 + 3);
+      for(let i = 0; i < 14; i++){
+        fallbackPts.push([d.lat+(r()-.5)*0.02, d.lng+(r()-.5)*0.02,
+                          Math.max(0.04, w * Math.exp(-distKm/10))]);
       }
     });
-
-    if(features.length){
-      choroLayer = L.geoJSON({type:"FeatureCollection", features}, {
-        style: f => ({
-          color:       "#1B2622",
-          weight:      1,
-          fillColor:   f.properties._fill,
-          fillOpacity: f.properties._fillOp,
-        }),
-        onEachFeature: (f, layer) => {
-          const p = f.properties;
-          layer.bindTooltip(
-            `<strong>${p.name}</strong><br>` +
-            `PPI ${p.ppi} · ₹${Math.round(p.income/1000)}k/mo`,
-            {sticky:true, opacity:0.95, className:"choro-tip"}
-          );
-          layer.on("mouseover", function(){ this.setStyle({weight:2.5, fillOpacity: Math.min(0.9, (f.properties._fillOp||0.4)+0.25)}); });
-          layer.on("mouseout",  function(){ choroLayer && choroLayer.resetStyle(this); });
-          layer.on("click", function(e){
-            L.DomEvent.stopPropagation(e);   // don't also relocate the YAH pin
-            const d = rows.find(r => r.pincode === p.pincode);
-            if(d) layer.bindPopup(popupHTML(d, rows)).openPopup();
-          });
-        },
-        interactive: true,
-      }).addTo(map);
-    }
 
     if(fallbackPts.length > 12){
       const hr = heatRadiusForZoom();
