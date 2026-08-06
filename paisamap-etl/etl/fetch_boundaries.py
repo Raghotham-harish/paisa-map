@@ -1,17 +1,62 @@
 """
-fetch_boundaries.py — Pre-fetch boundary polygons for all pincodes.
+fetch_boundaries.py — Build data/boundaries.geojson: a real polygon for
+every one of India's ~19,312 PIN codes, plus this app's own dataset.
 
-Uses Nominatim REVERSE geocode (one call per pincode, not search) at
-zoom=12 to return the OSM area boundary at neighbourhood/suburb level.
-This matches what fetchLocalityBoundary() does in the browser.
+Output is the union of two layers:
 
-Output: paisa-map/data/boundaries.geojson
+1. National base layer (ALL of India, not just pincodes this app has
+   enriched) — committed, pre-simplified copy of the Dept. of Posts'
+   official all-India PIN code boundary dataset (one authoritative polygon
+   per PIN code office area), published on data.gov.in under NDSAP.
+   Lives at
+     data/reference/pincode_boundary_master/india_pincode_boundaries_simplified.geojson
+   and is read on every run — no network call, no Nominatim, instant.
+   These features skip is_reasonable_size() entirely: they're real
+   government-drawn boundaries, not same-named-place guesses, so a
+   genuinely large rural PIN code area is correct, not a mismatch bug.
+   Shipping full national coverage (not just this app's own pincodes)
+   means ANY pincode a user later enriches on-demand (see
+   enrichPincodeFlow() in index.html) already has its real boundary
+   ready client-side the instant it's enriched — no separate fetch, no
+   fallback circle.
+
+   Regenerating this base layer (source updates ~twice a year): download
+   the raw 90MB master from
+     https://drive.google.com/drive/folders/1IEZgX6wf1pwjRxPIDHdEtdw1496-QoAs
+     → Pincodes/All_India_pincode_Boundary-19312.geojson (file id
+     1GG8HbFrO3pgGEB_1KvKbPN3IZmQAlra4 as of 2026-08 — "anyone with link"
+     folder, plain curl works, no confirm-token dance despite the size)
+   into data/reference/pincode_boundary_master/ (gitignored — NOT the
+   simplified sibling file, which IS committed), then simplify it:
+     npx mapshaper All_India_pincode_Boundary-19312.geojson \\
+       -simplify 10% -filter-fields Pincode \\
+       -o precision=0.00001 format=geojson out.geojson
+   then rename the Pincode property to lowercase pincode and add
+   {"_source": "govt"} to each feature's properties before overwriting
+   india_pincode_boundaries_simplified.geojson.
+
+   NOT Esri's re-host of the same underlying data (arcgis.com item
+   7fe4eec592004f5f992ed7492a50b18d) — that one requires an ArcGIS org/dev
+   login AND its license explicitly forbids exporting for offline use,
+   which is exactly what shipping a static file does, so it's off-limits
+   regardless of credentials, even a paid one.
+
+2. This app's own dataset, for whatever the national layer above doesn't
+   cover (~9% of real pincodes, plus this app's synthetic "D..." demo
+   pincodes which will never appear in a real geo dataset): Nominatim
+   REVERSE geocode (one call per pincode) at zoom=14, falling back to
+   zoom=12, matching what fetchLocalityBoundary() does in the browser —
+   DOES go through is_reasonable_size(), since it's an approximate
+   named-place match rather than an authoritative polygon. Falls back
+   further to a plain circle if even that misses.
 
 Run once after any significant dataset expansion:
   cd paisamap-etl
   python3 etl/fetch_boundaries.py
 
-~6 minutes for 73 pincodes (5s between calls, Nominatim ToS).
+~6 minutes for ~40 pincodes needing the Nominatim fallback (5s between
+calls, Nominatim ToS) — the national base layer and any already-cached
+fallback entries are instant, no network call.
 Pass --resume to skip pincodes already in existing boundaries.geojson.
 """
 
@@ -24,10 +69,11 @@ from pathlib import Path
 
 import pandas as pd
 
-ROOT    = Path(__file__).resolve().parents[1]
-APP     = ROOT.parent
-OUT_CSV = APP / "data" / "output" / "ppi_map_data.csv"
-OUT_GEO = APP / "data" / "boundaries.geojson"
+ROOT       = Path(__file__).resolve().parents[1]
+APP        = ROOT.parent
+OUT_CSV    = APP / "data" / "output" / "ppi_map_data.csv"
+OUT_GEO    = APP / "data" / "boundaries.geojson"
+NATIONAL_GEO = ROOT / "data" / "reference" / "pincode_boundary_master" / "india_pincode_boundaries_simplified.geojson"
 
 NOMINATIM_REVERSE = "https://nominatim.openstreetmap.org/reverse"
 HEADERS = {"User-Agent": "PaisaMap-Boundaries/1.0 (one-time batch)", "Accept-Language": "en"}
@@ -151,11 +197,32 @@ def _circle_coords(lat: float, lng: float, deg: float = 0.012):
     return pts
 
 
+def load_national_layer() -> dict:
+    """Pincode -> ready-to-use Feature, from the committed national base layer.
+    Returns {} (not an error, just no national coverage) if that file is somehow
+    missing — callers fall through to the existing Nominatim/circle path."""
+    if not NATIONAL_GEO.exists():
+        print(f"(national boundary layer not found at {NATIONAL_GEO} — skipping, "
+              f"see this script's docstring to regenerate it)")
+        return {}
+    print(f"Loading national boundary layer ({NATIONAL_GEO.stat().st_size // 1_000_000}MB)…", end="", flush=True)
+    with open(NATIONAL_GEO) as f:
+        national = json.load(f)
+    by_pincode = {}
+    for feat in national["features"]:
+        pc = str(feat.get("properties", {}).get("pincode", "")).strip()
+        if pc:
+            by_pincode[pc] = feat
+    print(f" {len(by_pincode)} pincodes")
+    return by_pincode
+
+
 def fetch_all(resume: bool, limit=None, revalidate=False) -> dict:
     df = pd.read_csv(OUT_CSV, dtype={"pincode": str})
     total = len(df)
     nn_km = nearest_neighbor_km(df)
     nn_by_pincode = {str(df.iloc[i]["pincode"]): nn_km[i] for i in range(total)}
+    national = load_national_layer()
 
     existing: dict[str, dict] = {}
     if resume and OUT_GEO.exists():
@@ -167,8 +234,12 @@ def fetch_all(resume: bool, limit=None, revalidate=False) -> dict:
                 existing[pc] = feat
         print(f"Resuming: {len(existing)}/{total} already done")
 
+    # Gap-fill features for this app's own dataset only — anything the national
+    # layer already covers is skipped here and pulled in from `national` at the
+    # end instead, so every run always ships full national coverage regardless
+    # of --resume/--limit state (a capped or resumed run can never regress it).
     features = []
-    hits, misses, downgraded = 0, 0, 0
+    hits, misses, downgraded, from_national = 0, 0, 0, 0
     fetched_this_run = 0
 
     for i, row in df.iterrows():
@@ -179,6 +250,11 @@ def fetch_all(resume: bool, limit=None, revalidate=False) -> dict:
         ppi    = int(row["ppi"])
         income = int(row["income"])
         n      = i + 1
+
+        if pc in national:
+            from_national += 1
+            print(f"  [{n:02d}/{total}] ★  {pc} {name} (national layer)")
+            continue
 
         # Reuse cached — but if --revalidate, re-check its size against today's pincode
         # density first, since a polygon fetched when neighbours were sparser may now
@@ -248,9 +324,22 @@ def fetch_all(resume: bool, limit=None, revalidate=False) -> dict:
             misses += 1
             print(" ✗ (fallback circle)")
 
-    print(f"\nDone: {hits} real polygons, {misses} fallback circles, "
-          f"{downgraded} downgraded on revalidation / {total} pincodes")
-    return {"type": "FeatureCollection", "features": features}
+    print(f"\nDone: {from_national} from national layer, {hits} real Nominatim polygons, "
+          f"{misses} fallback circles, {downgraded} downgraded on revalidation / {total} pincodes")
+
+    # Union: full national layer (all ~19,312 pincodes, not just this app's own
+    # dataset) + this run's gap-fill features for anything national doesn't cover.
+    # National entries always win on key collision — see docstring on why an
+    # authoritative govt polygon is never second-guessed by a cached Nominatim one.
+    all_features = list(national.values())
+    covered = set(national.keys())
+    for feat in features:
+        pc = feat.get("properties", {}).get("pincode", "")
+        if pc not in covered:
+            all_features.append(feat)
+    print(f"Total output: {len(national)} national + {len(all_features) - len(national)} "
+          f"dataset-specific fallback = {len(all_features)} features")
+    return {"type": "FeatureCollection", "features": all_features}
 
 
 def main():

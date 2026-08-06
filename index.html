@@ -462,8 +462,18 @@
   }
   .pp-btn:hover{background:var(--rupee);color:#fff;border-color:var(--rupee)}
 
-  /* CSS-only classic pin (no image files — survives strict previews) */
-  .css-pin{position:relative}
+  /* CSS-only classic pin (no image files — survives strict previews).
+     Must stay position:absolute — that's what leaflet.css's own
+     .leaflet-marker-icon rule sets, and it's required so Leaflet's
+     transform:translate3d(...) is the ONLY thing positioning this element.
+     A same-specificity position:relative here (even though it still works
+     fine as the .body/.dot children's containing block) puts the div back
+     into normal document flow, so it also occupies flow space in
+     .leaflet-marker-pane — each successive marker then stacks below the
+     last one, and Leaflet's transform lands on top of that already-wrong
+     flow position instead of replacing it, producing a per-marker
+     cumulative vertical drift that only gets worse as more markers render. */
+  .css-pin{position:absolute}
   .css-pin .body{
     position:absolute;left:3px;top:2px;width:22px;height:22px;
     background:#2A81CB;border:1.5px solid #19548C;
@@ -2274,12 +2284,16 @@ function render(){
         : Math.max(300, Math.min(Math.round(Math.max(1200, 2600 - normVal * 10)), nn * 500));
 
       // Prefetched static boundary (same data/boundaries.geojson the heatmap reads) —
-      // instant, no network round-trip, and covers a growing share of pincodes as the
-      // daily backfill cron runs. Try this before ever touching live Nominatim. Rejected
-      // if it's not actually locality-scale (see isReasonableBoundary) — a lot of the
-      // static file turned out to be mismatched city/district-scale OSM polygons.
+      // instant, no network round-trip. Most pincodes now resolve to the Dept. of Posts'
+      // official PIN-code-office polygon (properties._source === "govt") — that's an
+      // authoritative real boundary, not a same-named-place guess, so it skips
+      // isReasonableBoundary entirely; a genuinely large rural PIN code area is real,
+      // not a mismatch. The size check still applies to the remaining Nominatim-derived
+      // entries, which is what it was built to catch (city/district-scale OSM polygons
+      // mismatched onto a tight locality).
       const bf = d.pincode && boundariesByPincode[d.pincode];
-      if(bf && bf.geometry && isReasonableBoundary(bf.geometry, nn)){
+      const bfIsGovt = bf?.properties?._source === "govt";
+      if(bf && bf.geometry && (bfIsGovt || isReasonableBoundary(bf.geometry, nn))){
         L.geoJSON(bf.geometry, {style:()=>({...baseStyle}), interactive:false}).addTo(polyLayer);
         return;
       }

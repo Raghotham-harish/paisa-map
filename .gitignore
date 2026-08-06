@@ -13,3 +13,12 @@ paisamap-etl/data/raw/wdi.parquet
 # manually re-exported from https://data.rbi.org.in/DBIE/#/banking-outlet ;
 # parse_rbi_branch_master.py derives the small committed rbi_branch_counts_india.csv from it.
 paisamap-etl/data/reference/rbi_branch_master_india/
+
+# All-India PIN code boundary RAW master (90MB, 19,312 features, uncompressed/
+# unsimplified, Dept. of Posts via data.gov.in) — re-download per
+# fetch_boundaries.py's docstring, used only as the input to the one-off
+# mapshaper simplification pass. The *simplified* (~11MB) sibling file
+# india_pincode_boundaries_simplified.geojson in the same directory IS
+# committed — that's the actual reproducible national base layer
+# fetch_boundaries.py reads on every run.
+paisamap-etl/data/reference/pincode_boundary_master/All_India_pincode_Boundary-19312.geojson
