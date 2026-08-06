@@ -474,6 +474,11 @@
      flow position instead of replacing it, producing a per-marker
      cumulative vertical drift that only gets worse as more markers render. */
   .css-pin{position:absolute}
+
+  /* Heatmap mode: real locality polygons/circles blurred into a soft gradient instead
+     of crisp choropleth-style edges — the pane is scoped so this filter never touches
+     the search-radius circle or anything else on the map. */
+  .leaflet-heatPoly-pane{filter:blur(13px)}
   .css-pin .body{
     position:absolute;left:3px;top:2px;width:22px;height:22px;
     background:#2A81CB;border:1.5px solid #19548C;
@@ -1017,7 +1022,6 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.heat/0.2.0/leaflet-heat.js"></script>
 <!-- Optional ArcGIS vector basemap support — inert unless ARCGIS_API_KEY (below) is set.
      Official Esri plugins, MapLibre GL is bundled inside esri-leaflet-vector's dist file. -->
 <script src="https://unpkg.com/esri-leaflet/dist/esri-leaflet.js"></script>
@@ -1260,6 +1264,15 @@ map.createPane("labels");
 map.getPane("labels").style.zIndex = 450;          // above heat canvas (400)
 map.getPane("labels").style.pointerEvents = "none";
 
+// Heatmap mode's own pane: filled locality polygons/circles with a CSS blur applied to
+// just this pane's <svg>, so the search-radius circle (drawn in the default overlay
+// pane) and everything else stays crisp. A CSS blur is already in screen pixels, so it
+// stays visually consistent across zoom without needing a hand-tuned radius-per-zoom
+// table the way the old point-based Leaflet.heat approach did.
+map.createPane("heatPoly");
+map.getPane("heatPoly").style.zIndex = 405;
+map.getPane("heatPoly").style.pointerEvents = "none";
+
 const ATTR_OSM   = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 const ATTR_CARTO = ATTR_OSM + ' &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
@@ -1314,7 +1327,6 @@ osmClassic.on("tileerror", ()=>{
   }
 });
 
-let heatLayer = null;
 let circleLayer = null;
 let polyLayer = L.layerGroup().addTo(map);
 let markerGroup = L.layerGroup().addTo(map);
@@ -1979,13 +1991,6 @@ nearbyBtn.addEventListener("click", async ()=>{
   }
 });
 
-// distinct gradients per metric so switching PPI/Income/Spend is visually obvious
-const HEAT_GRADIENTS = {
-  ppi:    {0:"#922B21", 0.25:"#C9603A", 0.5:"#DFAE3A", 0.75:"#7DBB61", 1:"#1A7A4A"},
-  income: {0:"#1A237E", 0.25:"#1565C0", 0.5:"#0097A7", 0.75:"#F9A825", 1:"#E65100"},
-  spend:  {0:"#4A0030", 0.25:"#880E4F", 0.5:"#C2670C", 0.75:"#CDDC39", 1:"#1B5E20"},
-};
-
 // PPI — relative (computePPI normalises to mean=100) with absolute breakpoints
 function ppiColor(ppi){
   if(ppi >= 145) return "#1A7A4A";
@@ -2057,7 +2062,6 @@ function updateLegend(){
 let renderGen = 0;
 let liveData  = [];   // on-demand Overpass results
 let liveGen   = 0;
-let lastHeatPts = [];  // kept so zoomend can recreate heat layer at new radius
 
 /* ---------- live data: query Overpass when no static data in radius ---------- */
 async function loadLiveAreaData(lat, lng, cityKey){
@@ -2125,17 +2129,8 @@ async function loadLiveAreaData(lat, lng, cityKey){
   }
 }
 
-/* ---------- heat radius — scales with zoom so blobs stay geographically proportional ---------- */
-function heatRadiusForZoom(){
-  const z = map.getZoom();
-  return z<=9?55 : z<=10?45 : z<=11?35 : z<=12?28 : z<=13?22 : z<=14?18 : 14;
-}
 map.on("zoomend",()=>{
-  if(representation === "cluster"){ render(); return; }  // bucket size depends on zoom scale
-  if(representation !== "heatmap" || !heatLayer || !lastHeatPts.length) return;
-  heatLayer.remove();
-  const hr = heatRadiusForZoom();
-  heatLayer = L.heatLayer(lastHeatPts,{radius:hr,blur:Math.round(hr*.72),maxZoom:16,minOpacity:0.12,max:1.0,gradient:HEAT_GRADIENTS[metric]||HEAT_GRADIENTS.ppi}).addTo(map);
+  if(representation === "cluster"){ render(); }  // bucket size depends on zoom scale
 });
 
 /* ---------- core render ---------- */
@@ -2258,7 +2253,6 @@ function render(){
   }).addTo(map);
 
   // representation — one of six mutually exclusive ways to draw the same `rows`/metric
-  if(heatLayer){ heatLayer.remove(); heatLayer = null; }
   polyLayer.clearLayers();
 
   if(representation === "choropleth"){
@@ -2333,41 +2327,34 @@ function render(){
     });
 
   } else if(representation === "heatmap"){
-    // Always a blurred density gradient (Leaflet.heat), never hard-edged polygon fills —
-    // that's what distinguishes it from Choropleth, which already owns the "flat colour
-    // per real boundary" job. Previously this mode drew a flat-shaded real polygon per
-    // locality when one was cached, which (a) read as a second choropleth, not a heatmap,
-    // and (b) inherited the same oversized/wrong-admin-level boundary problem choropleth
-    // had — a hard edge from a bad polygon is a lot more visible than a soft blur is.
-    const heatRange = Math.max(metricMax - metricMin, 1);
-    const fallbackPts = [];
-    const rPin = rng(42);
-    for(let i=0;i<12;i++){
-      fallbackPts.push([center[0]+(rPin()-.5)*0.01, center[1]+(rPin()-.5)*0.01, 0.4]);
-    }
-
+    // Same real-boundary lookup as Choropleth (govt polygon, else a density-capped
+    // fallback circle), but stroke-free and drawn into the "heatPoly" pane, whose CSS
+    // applies a blur — real PIN-code polygons that share a border render as one
+    // continuous soft region, unlike the previous jittered-point Leaflet.heat approach
+    // (removed) whose kernel radius had to be hand-tuned per zoom level and still left
+    // gaps between any two localities farther apart on screen than that radius.
+    const nnKm = nearestNeighborKmMap(rows);
     rows.forEach(d=>{
-      // Weight is purely the locality's own metric value, normalized — NOT decayed by
-      // distance from the "You Are Here" pin. An earlier version multiplied by
-      // Math.exp(-distKm/10), which at 20km out (exp(-2)≈0.14) made a high-PPI locality
-      // render fainter than a mediocre one sitting next to the pin — inverting what a
-      // heatmap is for (show where the metric is high, not how close to the pin you are)
-      // and reading as sparse, disconnected smudges instead of a real gradient.
-      const w = 0.15 + 0.85 * ((metricValue(d) - metricMin) / heatRange);
-      const r = rng(d.id * 7 + 3);
-      for(let i = 0; i < 14; i++){
-        fallbackPts.push([d.lat+(r()-.5)*0.02, d.lng+(r()-.5)*0.02, w]);
-      }
-    });
+      const fill = zoneColor(d);
+      const distFromPin = haversine(center[0],center[1],d.lat,d.lng);
+      const pinProx = Math.exp(-distFromPin / 12);
+      const fillOpacity = 0.35 + 0.55 * pinProx;
+      const baseStyle = {pane:"heatPoly", stroke:false, fillColor:fill, fillOpacity, interactive:false};
+      const nn = nnKm.get(d.id) ?? 5;
+      const normVal = (metricMax > metricMin)
+        ? 50 + 150 * (metricValue(d) - metricMin) / (metricMax - metricMin)
+        : 100;
+      const coverM = usingEstimated ? 800
+        : Math.max(300, Math.min(Math.round(Math.max(1200, 2600 - normVal * 10)), nn * 500));
 
-    if(fallbackPts.length > 12){
-      lastHeatPts = fallbackPts;   // so zoomend can re-radius the layer instead of just stretching it
-      const hr = heatRadiusForZoom();
-      heatLayer = L.heatLayer(fallbackPts,{
-        radius:hr, blur:Math.round(hr*.72), maxZoom:16,
-        minOpacity:0.10, max:1.0, gradient:HEAT_GRADIENTS[metric]||HEAT_GRADIENTS.ppi
-      }).addTo(map);
-    }
+      const bf = d.pincode && boundariesByPincode[d.pincode];
+      const bfIsGovt = bf?.properties?._source === "govt";
+      if(bf && bf.geometry && (bfIsGovt || isReasonableBoundary(bf.geometry, nn))){
+        L.geoJSON(bf.geometry, {style:()=>({...baseStyle}), interactive:false}).addTo(polyLayer);
+        return;
+      }
+      L.circle([d.lat,d.lng],{radius:coverM,...baseStyle}).addTo(polyLayer);
+    });
 
   } else if(representation === "cluster"){
     // Grid-bucket nearby localities into one bubble — bubble size ~ count (area-proportional),
