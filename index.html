@@ -1496,10 +1496,14 @@ const tierPinCache = new Map();
 function tierPinIcon(color, iconGlyph){
   const key = color + "|" + iconGlyph;
   if(tierPinCache.has(key)) return tierPinCache.get(key);
+  // Anchored at the badge's own center (13,13 — where rotate(-45deg) pivots, same
+  // convention as pinIcon above), not the old [13,24] bottom-tip anchor, so this mode's
+  // marker lines up with the same-coordinate bubble/polygon the same way the other six
+  // representations' pins do.
   const icon = L.divIcon({
     className:"tier-pin-wrap",
     html:`<span class="tier-pin" style="background:${color}"><i class="ti ${iconGlyph}"></i></span>`,
-    iconSize:[26,26], iconAnchor:[13,24], popupAnchor:[0,-22], tooltipAnchor:[0,-22]
+    iconSize:[26,26], iconAnchor:[13,13], popupAnchor:[0,-11], tooltipAnchor:[0,-11]
   });
   tierPinCache.set(key, icon);
   return icon;
