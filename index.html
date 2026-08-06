@@ -2347,16 +2347,21 @@ function render(){
     }
 
     rows.forEach(d=>{
-      const distKm = haversine(center[0],center[1],d.lat,d.lng);
-      const w = 0.2 + 0.8 * ((metricValue(d) - metricMin) / heatRange);
+      // Weight is purely the locality's own metric value, normalized — NOT decayed by
+      // distance from the "You Are Here" pin. An earlier version multiplied by
+      // Math.exp(-distKm/10), which at 20km out (exp(-2)≈0.14) made a high-PPI locality
+      // render fainter than a mediocre one sitting next to the pin — inverting what a
+      // heatmap is for (show where the metric is high, not how close to the pin you are)
+      // and reading as sparse, disconnected smudges instead of a real gradient.
+      const w = 0.15 + 0.85 * ((metricValue(d) - metricMin) / heatRange);
       const r = rng(d.id * 7 + 3);
       for(let i = 0; i < 14; i++){
-        fallbackPts.push([d.lat+(r()-.5)*0.02, d.lng+(r()-.5)*0.02,
-                          Math.max(0.04, w * Math.exp(-distKm/10))]);
+        fallbackPts.push([d.lat+(r()-.5)*0.02, d.lng+(r()-.5)*0.02, w]);
       }
     });
 
     if(fallbackPts.length > 12){
+      lastHeatPts = fallbackPts;   // so zoomend can re-radius the layer instead of just stretching it
       const hr = heatRadiusForZoom();
       heatLayer = L.heatLayer(fallbackPts,{
         radius:hr, blur:Math.round(hr*.72), maxZoom:16,
