@@ -49,6 +49,8 @@ from sklearn.model_selection import LeaveOneOut
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 
+import _db
+
 ROOT = Path(__file__).resolve().parents[1]
 RAW  = ROOT / "data" / "raw"
 OUT  = ROOT / "data" / "output"
@@ -740,6 +742,28 @@ def main():
                 "est_monthly_income_hh","est_monthly_spend_hh"]
     out_df = income_df[[c for c in cols_out if c in income_df.columns]]
     out_df.sort_values("ppi_ml", ascending=False).to_csv(OUT / "ppi_ml_refined.csv")
+
+    # Dual-write to the database (no-op unless DATABASE_URL is set — see _db.py).
+    # Only enrich_single.py/batch_enrich_hces.py did this before — a full refit
+    # never has, so every full refit silently left the DB further behind the
+    # CSV (found 2026-08-08: DB had 409 pincodes, CSV had 600). CSV stays the
+    # source of truth; this just keeps the DB from drifting again.
+    try:
+        db_rows = [
+            {
+                "pincode": pc, "name": r.get("name") or pc,
+                "lat": r["lat"], "lng": r["lng"], "ppi_ml": r["ppi_ml"],
+                "ppi_original": r.get("ppi_original"),
+                "est_monthly_income_hh": r["est_monthly_income_hh"],
+                "est_monthly_spend_hh": r.get("est_monthly_spend_hh"),
+            }
+            for pc, r in out_df.iterrows()
+        ]
+        n = _db.bulk_upsert_pincodes(db_rows)
+        if n:
+            print(f"  DB dual-write: upserted {n} pincodes")
+    except Exception as e:
+        print(f"  WARN: DB dual-write failed (CSV write already succeeded): {e}", flush=True)
 
     # ppi_map_data.csv — frontend-facing format with poi column
     poi_path = RAW / "poi_density.csv"
