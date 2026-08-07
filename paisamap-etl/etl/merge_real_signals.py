@@ -59,6 +59,7 @@ def load_all_signals() -> pd.DataFrame:
         "radiance_mean"       : (RAW / "nightlights.csv",         "radiance_mean"),
         "premium_poi_per_km2" : (RAW / "poi_density.csv",         "premium_poi_per_km2"),
         "rate_per_sqft"       : (RAW / "property_rates.csv",      "rate_per_sqft"),
+        "per_capita_income_karnataka" : (RAW / "karnataka_income.csv", "per_capita_income_karnataka"),
     }
 
     loaded: dict[str, pd.Series] = {}
@@ -154,6 +155,7 @@ def coverage_report(signals: pd.DataFrame) -> None:
         "radiance_mean"       : "Nightlights (satellite)",
         "premium_poi_per_km2" : "Overpass / OSM",
         "rate_per_sqft"       : "Market property rates",
+        "per_capita_income_karnataka" : "Karnataka DES 2019-20 (Karnataka pincodes only)",
     }
 
     print("\n── Signal Coverage ───────────────────────────────────────────────")

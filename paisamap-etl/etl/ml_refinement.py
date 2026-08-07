@@ -127,6 +127,12 @@ def load_features() -> pd.DataFrame:
         ("itr_filers.csv",       "filers_per_capita"),
         ("poi_density.csv",      "premium_poi_per_km2"),
         ("financial_inclusion.csv", "fin_density_per_km2"),
+        # Real district-level income (Karnataka DES 2019-20, taluk-averaged) —
+        # see fetch_karnataka_income.py. Only ever populated for Karnataka
+        # pincodes; every other state's rows are simply absent from this
+        # column, same graceful-partial-coverage handling as every other
+        # signal here.
+        ("karnataka_income.csv", "per_capita_income_karnataka"),
     ]:
         p = RAW / fname
         if not p.exists():
