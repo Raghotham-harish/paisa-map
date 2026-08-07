@@ -127,12 +127,6 @@ def load_features() -> pd.DataFrame:
         ("itr_filers.csv",       "filers_per_capita"),
         ("poi_density.csv",      "premium_poi_per_km2"),
         ("financial_inclusion.csv", "fin_density_per_km2"),
-        # Real district-level income (Karnataka DES 2019-20, taluk-averaged) —
-        # see fetch_karnataka_income.py. Only ever populated for Karnataka
-        # pincodes; every other state's rows are simply absent from this
-        # column, same graceful-partial-coverage handling as every other
-        # signal here.
-        ("karnataka_income.csv", "per_capita_income_karnataka"),
     ]:
         p = RAW / fname
         if not p.exists():
@@ -268,6 +262,23 @@ def load_district_mpce() -> dict[str, float]:
         return {}
     df = pd.read_csv(p, dtype={"pincode": str}).dropna(subset=["mpce_combined"])
     return dict(zip(df["pincode"], df["mpce_combined"]))
+
+
+def load_karnataka_income() -> pd.Series:
+    """Real district-level income (Karnataka DES 2019-20, taluk-averaged) —
+    see fetch_karnataka_income.py. Only ever populated for Karnataka
+    pincodes (~58/585), so it's kept out of the shared PCA/HGB feature
+    matrix — median-imputing it for the other 90%+ of pincodes would make
+    a single-state signal perturb the whole-country model refit. Applied
+    instead as a targeted post-ensemble blend in main(), scoped to the
+    pincodes it actually describes."""
+    p = RAW / "karnataka_income.csv"
+    if not p.exists():
+        return pd.Series(dtype=float)
+    df = pd.read_csv(p, dtype={"pincode": str}).set_index("pincode")
+    if "per_capita_income_karnataka" not in df.columns:
+        return pd.Series(dtype=float)
+    return df["per_capita_income_karnataka"].dropna()
 
 
 def _group(pc: str, group_key: dict) -> str:
@@ -609,6 +620,26 @@ def main():
 
     # Re-standardise ensemble to avoid scale drift
     z_ens = (z_ens - z_ens.mean()) / (z_ens.std() or 1.0)
+
+    # ── Targeted Karnataka income blend ──────────────────────────────────────
+    # Real government income data, but only for ~58/585 pincodes — kept out of
+    # the shared feature matrix (see load_karnataka_income()) and blended in
+    # here so it only nudges the Karnataka rows it actually describes, not
+    # every pincode in the country via median-imputation leakage into the
+    # global PCA/HGB refit.
+    KA_BLEND_WEIGHT = 0.3
+    ka_income = load_karnataka_income()
+    ka_common = [pc for pc in pincodes if pc in ka_income.index]
+    if len(ka_common) >= 2:
+        pc_to_idx = {pc: i for i, pc in enumerate(pincodes)}
+        ka_vals = ka_income.loc[ka_common]
+        ka_std = ka_vals.std() or 1.0
+        ka_z = (ka_vals - ka_vals.mean()) / ka_std
+        for pc in ka_common:
+            i = pc_to_idx[pc]
+            z_ens[i] = (1 - KA_BLEND_WEIGHT) * z_ens[i] + KA_BLEND_WEIGHT * float(ka_z[pc])
+        print(f"\nKarnataka income blend: {len(ka_common)} pincodes "
+              f"(weight={KA_BLEND_WEIGHT}, real DES 2019-20 taluk income)")
 
     # ── Anomaly detection ─────────────────────────────────────────────────────
     print("\nAnomaly detection (IsolationForest)…")
