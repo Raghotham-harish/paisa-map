@@ -286,7 +286,8 @@ def _group(pc: str, group_key: dict) -> str:
     return group_key.get(pc) or _state(pc)
 
 
-def within_city_normalize(df: pd.DataFrame, cols: set, group_key: dict | None = None) -> pd.DataFrame:
+def within_city_normalize(df: pd.DataFrame, cols: set, group_key: dict | None = None,
+                           min_group_size: int = 5) -> pd.DataFrame:
     """
     For each column in `cols`, subtract the city-group mean and divide by std.
     This removes inter-city policy / denominator effects (e.g. Karnataka EV incentives,
@@ -294,15 +295,38 @@ def within_city_normalize(df: pd.DataFrame, cols: set, group_key: dict | None = 
     Groups come from `group_key` (real HCES district, see load_district_groups())
     where available, falling back to _state() (explicit table → prefix) otherwise.
     Columns not in `cols` are returned unchanged.
+
+    Groups smaller than `min_group_size` are too thin for a stable mean/std —
+    found 2026-08-08: Narela's 3-pincode HCES district group ('DELHI|NORTH')
+    let one real but outlying VAHAN car_2w_ratio value swing its normalized
+    z-score to +1.15, nearly outranking Saket (PPI validation gate went from
+    PASS to FAIL) despite Saket having 2-3x stronger property-rate/nightlight/
+    POI/ITR fundamentals. 86% of district groups in the current dataset have
+    <5 members, so this isn't a one-off — pincodes in a too-thin district
+    group fall back to their coarser but more stable state-level group
+    ("STATE|DISTRICT" -> "STATE") instead of a noisy district-only estimate.
     """
     result = df.copy()
     group_key = group_key or {}
     pc_group = {pc: _group(pc, group_key) for pc in df.index}
+
+    group_sizes: dict[str, int] = {}
+    for grp in pc_group.values():
+        group_sizes[grp] = group_sizes.get(grp, 0) + 1
+
+    def _effective_group(pc: str) -> str:
+        grp = pc_group[pc]
+        if group_sizes[grp] >= min_group_size:
+            return grp
+        return grp.split("|")[0] if "|" in grp else _state(pc)
+
+    pc_group_eff = {pc: _effective_group(pc) for pc in df.index}
+
     for col in cols:
         if col not in df.columns:
             continue
-        for grp in set(pc_group.values()):
-            mask = [pc_group[pc] == grp for pc in df.index]
+        for grp in set(pc_group_eff.values()):
+            mask = [pc_group_eff[pc] == grp for pc in df.index]
             vals = df.loc[mask, col]
             if len(vals) < 2:
                 # Single-pincode group: set to 0 (no within-group variation to learn)
