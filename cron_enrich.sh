@@ -15,9 +15,19 @@
 #      back to a synthetic circle for it until this catches up. Previously this
 #      only ever ran as a manual one-off, so coverage quietly eroded back down
 #      as new pincodes accumulated with nothing backfilling them.
-#   5. Mirror the output CSVs to nginx's static root so the live map picks up
+#   5. On Sundays only: full ML ensemble refit (ml_refinement.py). Steps 2/3
+#      only ever append new pincodes via IDW interpolation — they never
+#      recalibrate the PCA/Ridge/HGB ensemble itself, so its global
+#      normalization stats silently go stale as the dataset grows. Found
+#      2026-08-07: 3+ weeks with no full refit meant 53% of pincodes had
+#      never been through the real model. Weekly keeps each recalibration
+#      small enough to review instead of letting drift pile up for weeks.
+#      Reverts its own output (doesn't commit) if any of the 10 core
+#      validation gates FAIL — a stale-but-correct PPI beats an unreviewed
+#      regression going live unattended.
+#   6. Mirror the output CSVs to nginx's static root so the live map picks up
 #      today's enrichment right away, not just at the next full deploy
-#   6. Commit and push all touched data files directly — nothing else pushes
+#   7. Commit and push all touched data files directly — nothing else pushes
 #      these on our behalf, so a missed push here means the next `deploy.sh`
 #      hard-reset silently erases the night's work (see 2026-07-14 incident).
 
@@ -40,7 +50,7 @@ cd "$REPO"
 
 # ── 1. Pull latest (enrichment_log synced by GitHub Actions every 6h) ──────────
 echo ""
-echo "[1/6] Pulling latest code..."
+echo "[1/7] Pulling latest code..."
 git fetch origin main --quiet
 # Only fast-forward merge data files — don't discard local enrichment data
 git merge --ff-only origin/main --quiet || {
@@ -49,14 +59,14 @@ git merge --ff-only origin/main --quiet || {
 
 # ── 2. Enrich user-visited pincodes ─────────────────────────────────────────────
 echo ""
-echo "[2/6] Auto-enriching user-visited pincodes (last 7 days)..."
+echo "[2/7] Auto-enriching user-visited pincodes (last 7 days)..."
 "$PYTHON" "$ETL/etl/auto_enrich_visited.py" --days 7 || {
     echo "  auto_enrich_visited.py exited non-zero — continuing"
 }
 
 # ── 3. Batch pre-enrich HCES districts (30 per day) ─────────────────────────────
 echo ""
-echo "[3/6] Batch pre-enriching HCES districts (up to 30 today)..."
+echo "[3/7] Batch pre-enriching HCES districts (up to 30 today)..."
 "$PYTHON" "$ETL/etl/batch_enrich_hces.py" --limit 30 || {
     echo "  batch_enrich_hces.py exited non-zero — continuing"
 }
@@ -67,19 +77,44 @@ echo "[3/6] Batch pre-enriching HCES districts (up to 30 today)..."
 # choropleth/heatmap fall back to synthetic-looking circles for any pincode without
 # a real boundary yet.
 echo ""
-echo "[4/6] Backfilling boundary polygons (up to 60 new today)..."
+echo "[4/7] Backfilling boundary polygons (up to 60 new today)..."
 "$PYTHON" "$ETL/etl/fetch_boundaries.py" --resume --limit 60 || {
     echo "  fetch_boundaries.py exited non-zero — continuing"
 }
 
-# ── 5. Mirror to nginx's static root — that's what the live map actually
+# ── 5. Weekly full ML ensemble refit (Sundays only) ──────────────────────────────
+if [ "$(date +%u)" = "7" ]; then
+    echo ""
+    echo "[5/7] Sunday — running full ML ensemble refit..."
+    REFIT_LOG="$LOG_DIR/full_refit_${DATE}.log"
+    if (cd "$ETL" && "$PYTHON" etl/ml_refinement.py) > "$REFIT_LOG" 2>&1; then
+        if grep -q "^  FAIL" "$REFIT_LOG"; then
+            echo "  Validation gate FAILED — see $REFIT_LOG"
+            echo "  Reverting refit output, keeping last known-good PPI live."
+            git checkout -- \
+                data/output/ppi_map_data.csv \
+                paisamap-etl/data/output/ppi_map_data.csv \
+                paisamap-etl/data/output/ppi_ml_refined.csv \
+                paisamap-etl/data/output/ml_diagnostics.json 2>/dev/null || true
+        else
+            echo "  Full refit OK — see $REFIT_LOG for gate/swing summary."
+        fi
+    else
+        echo "  ml_refinement.py exited non-zero — see $REFIT_LOG, skipping this week's refit"
+    fi
+else
+    echo ""
+    echo "[5/7] Not Sunday — skipping weekly full refit."
+fi
+
+# ── 6. Mirror to nginx's static root — that's what the live map actually
 #      reads (see /var/www/paisamap), and it's only otherwise refreshed by
 #      a full deploy. Copying here means today's enrichment shows up on the
 #      map right away instead of waiting on the next non-cron push. ───────────
 STATIC_OUT="/var/www/paisamap/data/output"
 if [ -d "$STATIC_OUT" ]; then
     echo ""
-    echo "[5/6] Mirroring output CSVs to $STATIC_OUT..."
+    echo "[6/7] Mirroring output CSVs to $STATIC_OUT..."
     cp -f data/output/enrichment_log.csv data/output/ppi_map_data.csv "$STATIC_OUT/" 2>/dev/null || true
 fi
 STATIC_ROOT="/var/www/paisamap/data"
@@ -87,7 +122,7 @@ if [ -d "$STATIC_ROOT" ]; then
     cp -f data/boundaries.geojson "$STATIC_ROOT/" 2>/dev/null || true
 fi
 
-# ── 6. Stage any new/updated data files ─────────────────────────────────────────
+# ── 7. Stage any new/updated data files ─────────────────────────────────────────
 echo ""
 echo "Staging updated data files..."
 cd "$REPO"
@@ -97,6 +132,7 @@ git add \
     data/boundaries.geojson \
     paisamap-etl/data/output/ppi_ml_refined.csv \
     paisamap-etl/data/output/ppi_map_data.csv \
+    paisamap-etl/data/output/ml_diagnostics.json \
     paisamap-etl/data/output/batch_enrich_log.csv \
     paisamap-etl/data/raw/pincode_coords.csv \
     paisamap-etl/data/raw/pincode_names.csv \
@@ -115,7 +151,11 @@ if git diff --staged --quiet; then
     echo "  No new data — nothing to commit."
 else
     TOTAL=$(tail -n +2 data/output/ppi_map_data.csv 2>/dev/null | wc -l | tr -d ' ')
-    git commit -m "cron: daily enrich ${DATE} — ${TOTAL} pincodes total [skip ci]" \
+    REFIT_SUFFIX=""
+    if [ "$(date +%u)" = "7" ] && git diff --staged --name-only | grep -q "paisamap-etl/data/output/ppi_ml_refined.csv"; then
+        REFIT_SUFFIX=" + weekly full refit"
+    fi
+    git commit -m "cron: daily enrich ${DATE} — ${TOTAL} pincodes total${REFIT_SUFFIX} [skip ci]" \
         --author "PaisaMap Cron <noreply@cooterlabs.com>" --quiet
     echo "  Committed. Total pincodes: $TOTAL"
 
