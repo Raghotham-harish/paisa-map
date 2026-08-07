@@ -411,6 +411,14 @@ def main():
         mpce     = float(row.mpce_combined)
         print(f"\n[{i}/{total}] {state} / {district}  (MPCE ₹{mpce:,.0f})")
 
+        # A handful of hces_mpce.csv rows have a missing state/district (1 as of
+        # 2026-08-08, a pre-existing gap in the source fetch, not fixable here —
+        # skip rather than crash the whole batch on a .title() call against NaN.
+        if pd.isna(state) or pd.isna(district):
+            print(f"  SKIP — missing state/district in source data")
+            skipped += 1
+            continue
+
         # 1. Geocode
         geo = geocode_district(district, state)
         if not geo:
