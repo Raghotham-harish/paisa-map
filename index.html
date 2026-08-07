@@ -1353,8 +1353,11 @@ async function loadBoundaries(){
       if(pc) boundariesByPincode[pc] = f;
     });
     boundariesLoaded = true;
-    // If already showing the heatmap representation, re-render with real polygons
-    if(representation === "heatmap") render();
+    // Re-render so any localities already painted with a fallback circle (the initial
+    // render() fires before this fetch resolves) upgrade to their real polygon — every
+    // representation that draws boundaries (choropleth, heatmap) reads boundariesByPincode
+    // inside render(), so this isn't limited to whichever mode happened to be active.
+    render();
   }catch(e){ /* boundaries optional — zones view still works */ }
 }
 
