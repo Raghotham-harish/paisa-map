@@ -1361,6 +1361,19 @@ async function loadBoundaries(){
   }catch(e){ /* boundaries optional — zones view still works */ }
 }
 
+// A discovered pincode's real government polygon centroid, if we have it loaded —
+// preferred over whatever arbitrary sample point (ring/hex-prefetch coordinate) happened
+// to reverse-geocode to that pincode, since that point can land in water/unbuilt land
+// nowhere near the actual pincode area.
+function boundaryCentroid(pc){
+  const bf = boundariesByPincode[pc];
+  if(!bf || !bf.geometry) return null;
+  try{
+    const c = L.geoJSON(bf.geometry).getBounds().getCenter();
+    return [c.lat, c.lng];
+  }catch(e){ return null; }
+}
+
 // Nominatim's usage policy is ~1 request/sec — rendering 20-30 localities at once used to
 // fire that many reverse-geocode calls simultaneously, which gets the whole burst
 // rate-limited (choropleth silently stayed circles instead of upgrading to real shapes).
@@ -1831,7 +1844,10 @@ async function bulkEnrichNearby(lat, lng){
       if(!/^\d{6}$/.test(pc)) continue;
       if(pincodeMap[pc]) continue;
       if(toEnrich.some(e=>e.pc===pc)) continue;
-      toEnrich.push({pc, lat:pLat, lng:pLng, name:name||pc, done:false});
+      // pLat/pLng is just where the speculative ring-sample landed, not anywhere tied to
+      // the pincode itself — prefer the real government polygon's centroid when we have it.
+      const [eLat, eLng] = boundaryCentroid(pc) || [pLat, pLng];
+      toEnrich.push({pc, lat:eLat, lng:eLng, name:name||pc, done:false});
     }catch(e){}
   }
 
@@ -1924,8 +1940,12 @@ async function prefetchHexNeighbors(lat, lng){
       if(knownPincodes.has(pc) || pincodeMap[pc] || queued.has(pc)) continue;
 
       queued.add(pc);
+      // hLat/hLng is just where the speculative ring-sample landed, not anywhere tied to
+      // the pincode itself — prefer the real government polygon's centroid when we have it,
+      // so the stored locality doesn't end up plotted in water/open land near its name.
+      const [eLat, eLng] = boundaryCentroid(pc) || [hLat, hLng];
       // Fire-and-forget — no loader, no status polling, purely speculative
-      fetch(`/api/enrich?pincode=${pc}&lat=${hLat}&lng=${hLng}&name=${encodeURIComponent(name||pc)}&source=prefetch`)
+      fetch(`/api/enrich?pincode=${pc}&lat=${eLat}&lng=${eLng}&name=${encodeURIComponent(name||pc)}&source=prefetch`)
         .catch(() => {});
       console.debug(`[hex-prefetch] queued ${pc} (${name}) dir=${Math.round(ang*180/Math.PI)}°`);
     }catch(e){}
