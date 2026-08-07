@@ -2886,10 +2886,10 @@ function selectSignalMetric(sigId, label){
       row.innerHTML = `<span class="sig-row-label"><span>${c.label}</span></span>` +
         (c.pro ? '<span class="pro-badge">PRO</span>' : '');
       row.addEventListener("click", ()=>{
-        if(c.pro){
-          toast(`🔒 ${c.label} is a Pro signal — upgrade to unlock`, 3000);
-          return;
-        }
+        // Pro entitlement isn't enforced anywhere yet (no billing backend) — the
+        // PRO badge/locked-row styling stays as a visual preview of the future
+        // gate, but the click itself isn't blocked. Re-add the toast+return guard
+        // here once a real entitlement check exists.
         selectSignal(c.id, c.label);
       });
       listEl.appendChild(row);
@@ -3120,10 +3120,9 @@ function selectSignalMetric(sigId, label){
           </div>
         </div>`;
       card.querySelector(".catalog-card-use").addEventListener("click", ()=>{
-        if(c.pro){
-          toast(`🔒 ${c.label} is a Pro signal — upgrade to unlock`, 3000);
-          return;
-        }
+        // Same as the Signal Explorer list: PRO badge/lock styling stays as a
+        // preview of the future gate, but no billing backend exists yet to
+        // actually enforce it — see the matching comment at the list click handler.
         selectSignalMetric(c.id, c.label);
         overlay.hidden = true;
       });
