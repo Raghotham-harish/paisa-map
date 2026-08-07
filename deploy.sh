@@ -53,18 +53,38 @@ ENRICHMENT_FILES=(
   "paisamap-etl/data/reference/pincode_district_map.csv"
 )
 
-for f in "${ENRICHMENT_FILES[@]}"; do
-  _save_if_newer "$f"
-done
+# The snapshot/reset/restore sequence below races enrich_single.py /
+# batch_enrich_hces.py's own writes to these same files: a deploy can
+# snapshot a file a moment BEFORE a live enrichment finishes writing it,
+# then overwrite that fresh write with its own stale snapshot after the
+# fact — a live user's real visit lost, no error anywhere (found
+# 2026-08-08: an 11-pincode live visit vanished this way). Both those
+# scripts serialize their own read-modify-write cycles through the same
+# _filelock.py flock() on paisamap-etl/data/.write.lock — acquiring that
+# same lock here (bash's flock is fully interoperable with Python's
+# fcntl.flock() on the same file) closes the race: a live write in
+# progress now makes this whole block wait, and vice versa, instead of
+# either one silently clobbering the other.
+LOCKFILE="$REPO/paisamap-etl/data/.write.lock"
+mkdir -p "$(dirname "$LOCKFILE")"
+echo "[deploy] acquiring write lock (shared with enrich_single.py/batch_enrich_hces.py)..."
+(
+  flock -x 200
 
-# Pull latest code
-git fetch origin main
-git reset --hard origin/main
-echo "[deploy] code updated"
+  for f in "${ENRICHMENT_FILES[@]}"; do
+    _save_if_newer "$f"
+  done
 
-for f in "${ENRICHMENT_FILES[@]}"; do
-  _restore_if_newer "$f"
-done
+  # Pull latest code
+  git fetch origin main
+  git reset --hard origin/main
+  echo "[deploy] code updated"
+
+  for f in "${ENRICHMENT_FILES[@]}"; do
+    _restore_if_newer "$f"
+  done
+) 200>"$LOCKFILE"
+echo "[deploy] write lock released"
 
 # Mirror app files to nginx's static root (serves /data/, frontend assets;
 # /api/ is proxied straight to the Flask service above, not through here).
