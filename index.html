@@ -299,6 +299,7 @@
     display:flex;align-items:center;gap:7px;font-size:11px;line-height:1.4;color:var(--ink-soft);
     background:var(--paper-2);border:1px dashed var(--border);border-radius:var(--radius);padding:9px 10px;
   }
+  .sig-filter-locked[hidden]{display:none}
   .sig-filter-locked i{color:var(--amber);font-size:14px;flex-shrink:0}
   .sig-filter-builder[hidden]{display:none}
   .sig-filter-builder{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
@@ -2884,11 +2885,12 @@ document.querySelectorAll("#metricSeg button").forEach(b=>{
 // discoverable via search/category instead of scrolling a native optgroup list, and it's
 // the one place Pro-badging/locking lives instead of duplicating that logic in two UIs.
 //
-// SIGNAL_FILTERS_PRO is a dev-only flag: the advanced filter builder ships permanently
-// locked (cosmetic-only Pro gating — there's no real upgrade path yet), but the underlying
-// add/remove/render() filtering logic (see signalFilters/passesFilters above) is fully real
-// and needs to be exercised somehow. Flip to true locally to verify end-to-end; ships false.
-const SIGNAL_FILTERS_PRO = false;
+// Same as the Signal Explorer list / Signals Catalog (see selectSignal's click
+// handler comment above) — no real billing backend exists yet, so this stays
+// unlocked. The "PRO" badge next to "Advanced filter" in the markup is static
+// (not tied to this flag) and keeps showing regardless, as the visual preview
+// of the future real gate.
+const SIGNAL_FILTERS_PRO = true;
 
 // Shared between the Signal Explorer popover and the Signals Catalog (below) — one list of
 // every pickable signal, core (always-free) triad first.
