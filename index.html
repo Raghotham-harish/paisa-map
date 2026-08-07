@@ -1182,6 +1182,18 @@ const SIGNAL_GROUPS = [
     {id:"luxury_share",   label:"Luxury vehicle share", fmt:v=>(v*100).toFixed(1)+"%", viz:"choropleth"},
     {id:"ev_share",       label:"EV share",         fmt:v=>(v*100).toFixed(1)+"%", viz:"choropleth"},
   ]},
+  // Real pan-India data (18,338 pincodes — RBI branch master + HCES 2023-24
+  // district spend survey) independent of the ~600-pincode deep-enriched PPI
+  // set. Coarser than the full ML ensemble (branch counts aren't population-
+  // normalized here, hces_ppi is a simple min-max scale of district MPCE, not
+  // the calibrated multi-model PPI) but real, government-sourced, and covers
+  // most of the country the deep-enriched set doesn't reach yet. Not Pro —
+  // this is a coverage floor, not a premium tier.
+  { label:"Nationwide coverage", pro:false, cols:[
+    {id:"psu_branch_count", label:"PSU bank branches",     fmt:v=>v.toFixed(0), viz:"symbol"},
+    {id:"mpce_combined",    label:"Household spend (MPCE)",fmt:v=>fmtINR(v),    viz:"choropleth"},
+    {id:"hces_ppi",         label:"HCES spend index (0-100)", fmt:v=>v.toFixed(1), viz:"choropleth"},
+  ]},
 ];
 const SIGNAL_DEFS = {};
 SIGNAL_GROUPS.forEach(g => g.cols.forEach(c => {
@@ -1196,6 +1208,7 @@ const CATEGORY_ICONS = {
   "All":"ti-apps", "Core":"ti-chart-histogram", "Property":"ti-building",
   "Banking & UPI":"ti-building-bank", "Tax & economy":"ti-receipt-tax",
   "Infrastructure":"ti-bulb", "Vehicles":"ti-car",
+  "Nationwide coverage":"ti-world",
 };
 
 // pincode → joined raw-signal row, loaded once from /api/export (json, all columns)
@@ -1210,6 +1223,43 @@ async function loadSignalData(){
     (data.rows||[]).forEach(r => { if(r.pincode) m[r.pincode] = r; });
     signalMap = m;
   }catch(e){ /* "more signals" simply stays unavailable — PPI/income/spend unaffected */ }
+}
+
+// Broad-coverage signals (bank branch count, HCES MPCE) — real pan-India data
+// (18,338 pincodes) independent of full PPI, which only covers the ~600
+// deep-enriched pincodes. See build_broad_coverage.py. These pincodes have NO
+// income/spend/PPI figure — every place that reads d.income/d.spend/d.ppi has
+// to tolerate that (computePPI, the headline avg stats, popupHTML all guard
+// on Number.isFinite(d.income) / d.isBroadOnly, search those call sites
+// before assuming every row in `rows` has a real income).
+const BROAD_SIGNAL_IDS = new Set(["psu_branch_count", "mpce_combined", "hces_ppi"]);
+let broadDataset = [];
+async function loadBroadCoverage(){
+  try{
+    const res = await fetch(`data/output/broad_coverage.csv?t=${Date.now()}`);
+    if(!res.ok) return;
+    const text = await res.text();
+    const lines = text.trim().split("\n");
+    const records = [];
+    lines.slice(1).forEach((line, i) => {
+      const [pincode,name,lat,lng,psu_branch_count,mpce_combined,hces_ppi,state,district] = splitCsvLine(line);
+      const latN = +lat, lngN = +lng;
+      if(!latN || !lngN) return;
+      if(pincodeMap[pincode]) return;   // already has full PPI data — don't duplicate
+      records.push({
+        id: `broad-${pincode}`, name: name || pincode, lat: latN, lng: lngN,
+        pincode, income: null, spend: null, isBroadOnly: true, state, district,
+      });
+      signalMap[pincode] = {
+        ...(signalMap[pincode] || {}), pincode,
+        psu_branch_count: psu_branch_count || "",
+        mpce_combined: mpce_combined || "",
+        hces_ppi: hces_ppi || "",
+      };
+    });
+    broadDataset = records;
+    render();
+  }catch(e){ /* broad coverage optional — core PPI/income/spend unaffected */ }
 }
 
 // deterministic pseudo-random (so heat jitter is stable per locality)
@@ -2162,15 +2212,24 @@ map.on("zoomend",()=>{
 
 /* ---------- core render ---------- */
 function withinRadius(){
-  const base = dataset.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm);
+  // Broad-coverage (income-less) pincodes only enter `rows` when a broad
+  // signal is actually selected — every other metric keeps reading from the
+  // same 600-pincode `dataset` as before, so nothing about the default
+  // PPI/income/spend view or existing Pro signals can regress.
+  const src = BROAD_SIGNAL_IDS.has(metric) ? [...dataset, ...broadDataset] : dataset;
+  const base = src.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm);
   const live = liveData.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm);
   return [...base, ...live];
 }
 
 function computePPI(rows){
-  const avgI = rows.reduce((s,d)=>s+d.income,0)/rows.length || 1;
-  const avgS = rows.reduce((s,d)=>s+d.spend,0)/rows.length || 1;
-  rows.forEach(d => d.ppi = Math.round(100*(0.6*d.income/avgI + 0.4*d.spend/avgS)));
+  // Broad-coverage rows have no income/spend — exclude them from the average
+  // (and leave their .ppi unset) rather than letting a null income silently
+  // drag every other row's computed PPI toward zero.
+  const withIncome = rows.filter(d => Number.isFinite(d.income));
+  const avgI = withIncome.reduce((s,d)=>s+d.income,0)/withIncome.length || 1;
+  const avgS = withIncome.reduce((s,d)=>s+d.spend,0)/withIncome.length || 1;
+  withIncome.forEach(d => d.ppi = Math.round(100*(0.6*d.income/avgI + 0.4*d.spend/avgS)));
   return rows;
 }
 
@@ -2470,9 +2529,12 @@ function render(){
 
   // headline
   const avg = arr => arr.reduce((s,x)=>s+x,0)/(arr.length||1);
-  const avgIncome = rows.length ? avg(rows.map(r=>r.income)) : 0;
-  const avgSpend  = rows.length ? avg(rows.map(r=>r.spend))  : 0;
-  const avgPpi    = rows.length ? Math.round(avg(rows.map(r=>r.ppi))) : 0;
+  // Broad-coverage rows have no income/spend/ppi — average over only the rows
+  // that do, so a null mixed in doesn't drag the average toward zero.
+  const rowsWithIncome = rows.filter(r => Number.isFinite(r.income));
+  const avgIncome = rowsWithIncome.length ? avg(rowsWithIncome.map(r=>r.income)) : 0;
+  const avgSpend  = rowsWithIncome.length ? avg(rowsWithIncome.map(r=>r.spend))  : 0;
+  const avgPpi    = rowsWithIncome.length ? Math.round(avg(rowsWithIncome.map(r=>r.ppi))) : 0;
   const sigDef = SIGNAL_DEFS[metric];
   if(metric === "income"){
     document.getElementById("hlValue").textContent     = rows.length ? fmtShort(avgIncome) : "—";
@@ -2492,8 +2554,8 @@ function render(){
     document.getElementById("hlDenominator").textContent = " / 200";
     document.getElementById("hlBaseLine").textContent  = "base 100";
   }
-  document.getElementById("hlIncome").textContent = rows.length ? fmtShort(avgIncome) : "—";
-  document.getElementById("hlSpend").textContent  = rows.length ? fmtShort(avgSpend)  : "—";
+  document.getElementById("hlIncome").textContent = rowsWithIncome.length ? fmtShort(avgIncome) : "—";
+  document.getElementById("hlSpend").textContent  = rowsWithIncome.length ? fmtShort(avgSpend)  : "—";
   document.getElementById("hlCount").textContent  = rows.length;
 
   // filter-status line — only shown once an advanced filter has actually narrowed the view
@@ -2524,7 +2586,7 @@ function render(){
     b.innerHTML = `<span class="rank">${String(i+1).padStart(2,"0")}</span>
       <span class="name">${d.name}</span>
       <span class="val">${valText}</span>
-      <span class="ppi">${d.ppi}</span>
+      <span class="ppi">${d.isBroadOnly ? "—" : d.ppi}</span>
       <span class="row-bar" style="width:${Math.max(2,Math.round(pct*100))}%"></span>`;
     b.addEventListener("click",()=>{
       setActive(d.id,true);
@@ -2561,6 +2623,30 @@ const POPUP_SNAPSHOT_PRIORITY = [
 ];
 
 function popupHTML(d, rows){
+  // Broad-coverage pincodes (real RBI branch/MPCE data, no full PPI/income —
+  // see loadBroadCoverage()) get their own simpler popup: no PPI/income/spend
+  // table rows to fabricate, just whichever of the 3 broad signals this
+  // pincode actually has a real value for.
+  if(d.isBroadOnly){
+    const sigRow = d.pincode && signalMap[d.pincode];
+    const broadVals = [...BROAD_SIGNAL_IDS].map(id => ({id, v: sigRow ? +sigRow[id] : NaN}))
+      .filter(s => Number.isFinite(s.v));
+    const primary = broadVals.find(s => s.id === metric) || broadVals[0];
+    const rest = broadVals.filter(s => s !== primary);
+    return `<div class="pp">
+      <h3>${d.name}</h3>
+      <div class="tag">Real government data · ${d.district ? d.district + ", " : ""}${d.state || "India"}</div>
+      ${primary ? `<div class="ppi-big">${SIGNAL_DEFS[primary.id].fmt(primary.v)} <span style="font-size:11px;color:var(--ink-soft)">${SIGNAL_DEFS[primary.id].label}</span></div>` : ""}
+      <table>
+        ${rest.map(s => `<tr><td>${SIGNAL_DEFS[s.id].label}</td><td>${SIGNAL_DEFS[s.id].fmt(s.v)}</td></tr>`).join("")}
+      </table>
+      <div class="snapshot">
+        <div class="snapshot-label">Not yet deep-enriched — PPI/income unavailable for this pincode</div>
+      </div>
+      <button class="pp-btn" onclick="showBoundary(${d.id})">Show area boundary</button>
+    </div>`;
+  }
+
   // Give the currently selected map signal top billing in the popup, same
   // metric the sidebar headline and map colouring are keyed off — PPI drops
   // into the table (instead of always being the big number) whenever some
@@ -3476,7 +3562,7 @@ document.getElementById('spiderBtn').addEventListener('click', ()=>{
 render();
 dataPromise = loadPPIData();
 loadBoundaries();   // async — choropleth upgrades from blur to real polygons when ready
-loadSignalData();   // async — "more signals" map colouring, doesn't block initial render
+loadSignalData().then(loadBroadCoverage);   // broad coverage merges into signalMap — load after it
 
 // On load: instantly restore last saved location, then refresh from GPS
 (async ()=>{
