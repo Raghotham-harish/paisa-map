@@ -1190,9 +1190,10 @@ const SIGNAL_GROUPS = [
   // most of the country the deep-enriched set doesn't reach yet. Not Pro —
   // this is a coverage floor, not a premium tier.
   { label:"Nationwide coverage", pro:false, cols:[
-    {id:"psu_branch_count", label:"PSU bank branches",     fmt:v=>v.toFixed(0), viz:"symbol"},
-    {id:"mpce_combined",    label:"Household spend (MPCE)",fmt:v=>fmtINR(v),    viz:"choropleth"},
-    {id:"hces_ppi",         label:"HCES spend index (0-100)", fmt:v=>v.toFixed(1), viz:"choropleth"},
+    {id:"psu_branch_count",     label:"PSU bank branches",     fmt:v=>v.toFixed(0), viz:"symbol"},
+    {id:"mpce_combined",        label:"Household spend (MPCE)",fmt:v=>fmtINR(v),    viz:"choropleth"},
+    {id:"hces_ppi",             label:"HCES spend index (0-100)", fmt:v=>v.toFixed(1), viz:"choropleth"},
+    {id:"upi_txn_count_nearby", label:"UPI transactions (nearby, live)", fmt:v=>(v/1e6).toFixed(1)+"M", viz:"heatmap"},
   ]},
 ];
 const SIGNAL_DEFS = {};
@@ -1232,7 +1233,7 @@ async function loadSignalData(){
 // to tolerate that (computePPI, the headline avg stats, popupHTML all guard
 // on Number.isFinite(d.income) / d.isBroadOnly, search those call sites
 // before assuming every row in `rows` has a real income).
-const BROAD_SIGNAL_IDS = new Set(["psu_branch_count", "mpce_combined", "hces_ppi"]);
+const BROAD_SIGNAL_IDS = new Set(["psu_branch_count", "mpce_combined", "hces_ppi", "upi_txn_count_nearby"]);
 let broadDataset = [];
 async function loadBroadCoverage(){
   try{
@@ -1242,19 +1243,26 @@ async function loadBroadCoverage(){
     const lines = text.trim().split("\n");
     const records = [];
     lines.slice(1).forEach((line, i) => {
-      const [pincode,name,lat,lng,psu_branch_count,mpce_combined,hces_ppi,state,district] = splitCsvLine(line);
+      const [pincode,name,lat,lng,psu_branch_count,mpce_combined,hces_ppi,upi_txn_count_nearby,state,district] = splitCsvLine(line);
       const latN = +lat, lngN = +lng;
       if(!latN || !lngN) return;
-      if(pincodeMap[pincode]) return;   // already has full PPI data — don't duplicate
-      records.push({
-        id: `broad-${pincode}`, name: name || pincode, lat: latN, lng: lngN,
-        pincode, income: null, spend: null, isBroadOnly: true, state, district,
-      });
+      // Merge the broad-coverage columns into signalMap regardless — a pincode
+      // that already has full PPI data (e.g. Delhi/Bangalore core set) can
+      // still genuinely have real branch/MPCE/UPI values worth showing when
+      // that specific signal is selected. Only skip adding a *second*,
+      // duplicate locality row to the search-radius dataset for it.
+      if(!pincodeMap[pincode]){
+        records.push({
+          id: `broad-${pincode}`, name: name || pincode, lat: latN, lng: lngN,
+          pincode, income: null, spend: null, isBroadOnly: true, state, district,
+        });
+      }
       signalMap[pincode] = {
         ...(signalMap[pincode] || {}), pincode,
         psu_branch_count: psu_branch_count || "",
         mpce_combined: mpce_combined || "",
         hces_ppi: hces_ppi || "",
+        upi_txn_count_nearby: upi_txn_count_nearby || "",
       };
     });
     broadDataset = records;

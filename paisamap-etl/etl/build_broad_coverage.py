@@ -94,6 +94,20 @@ def build() -> pd.DataFrame:
     merged["district"] = merged["district"].fillna(merged["hces_district"])
     merged = merged.drop(columns=["hces_state", "hces_district"])
 
+    # PhonePe Pulse transaction-count grid (fetch_phonepe_grid.py) — already
+    # IDW-interpolated onto every boundary-centroid pincode, so this is a
+    # plain left-merge, not another outer-join. Broadest of the three sources
+    # (19,322 pincodes) since it's a dense spatial grid, not an administrative
+    # join. Optional file — build_broad_coverage.py still works without it.
+    grid_path = RAW / "upi_txn_density_grid.csv"
+    if grid_path.exists():
+        grid = pd.read_csv(grid_path, dtype={"pincode": str})
+        merged = merged.merge(grid[["pincode", "upi_txn_count_nearby"]], on="pincode", how="outer")
+        print(f"  UPI transaction-count grid: {len(grid)} pincodes")
+    else:
+        merged["upi_txn_count_nearby"] = pd.NA
+        print("  · upi_txn_density_grid.csv (not present — run fetch_phonepe_grid.py first)")
+
     merged["lat"] = merged["pincode"].map(lambda pc: centroids.get(pc, (None, None))[0])
     merged["lng"] = merged["pincode"].map(lambda pc: centroids.get(pc, (None, None))[1])
 
@@ -104,7 +118,7 @@ def build() -> pd.DataFrame:
 
     merged["name"] = merged["pincode"]
     out = merged[["pincode", "name", "lat", "lng", "psu_branch_count",
-                  "mpce_combined", "hces_ppi", "state", "district"]]
+                  "mpce_combined", "hces_ppi", "upi_txn_count_nearby", "state", "district"]]
     out = out.sort_values("pincode")
     return out
 
