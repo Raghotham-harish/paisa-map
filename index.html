@@ -82,8 +82,46 @@
     display:flex;justify-content:space-between;
   }
   .brand-logo{
-    display:block;margin-top:6px;height:36px;width:auto;
+    display:block;height:36px;width:auto;
   }
+  .brand-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px}
+  .brand-actions{display:flex;align-items:center;gap:5px}
+  .plan-pill{align-self:center}
+  .dd-wrap{position:relative}
+  .icon-btn{
+    position:relative;width:28px;height:28px;display:flex;align-items:center;justify-content:center;
+    background:transparent;border:1px solid transparent;border-radius:50%;color:var(--ink-soft);
+    cursor:pointer;font-size:15px;padding:0;
+  }
+  .icon-btn:hover{background:var(--paper-2);color:var(--ink);border-color:var(--border)}
+  .icon-btn img{width:24px;height:24px;border-radius:50%;object-fit:cover}
+  .auth-btn{
+    font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+    background:var(--rupee);color:#fff;border:1px solid var(--rupee);border-radius:var(--radius);
+    padding:6px 9px;cursor:pointer;white-space:nowrap;
+  }
+  .auth-btn:hover{background:var(--rupee-deep);border-color:var(--rupee-deep)}
+  .auth-btn[hidden],.icon-btn[hidden]{display:none}
+  .dropdown-panel{
+    position:absolute;top:calc(100% + 8px);right:0;z-index:1700;min-width:230px;
+    background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-2);
+    padding:10px;display:flex;flex-direction:column;gap:8px;
+  }
+  .dropdown-panel[hidden]{display:none}
+  .dropdown-title{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+  .notif-empty{font-size:12px;color:var(--ink-soft);padding:12px 4px;text-align:center}
+  .user-menu-body{display:flex;flex-direction:column;gap:2px}
+  .user-menu-name{font-weight:600;font-size:13px;color:var(--ink)}
+  .user-menu-email{font-size:11px;color:var(--ink-soft);word-break:break-all}
+  .user-menu-plan{display:flex;align-items:center;gap:5px;margin-top:5px;font-size:11px;color:var(--rupee-deep)}
+  .user-menu-divider{border-top:1px solid var(--hairline);margin:2px 0}
+  .user-menu-signout{
+    display:flex;align-items:center;gap:6px;background:transparent;border:0;color:var(--flame);
+    font-size:12.5px;cursor:pointer;padding:4px 2px;text-align:left;font-family:var(--sans);
+  }
+  .gsi-btn-wrap{display:flex;justify-content:center;min-height:40px}
+  .auth-note{font-size:10.5px;color:var(--ink-soft);text-align:center}
+  .auth-note[hidden]{display:none}
 
   .controls{
     padding:10px 14px;border-bottom:1px solid var(--hairline);
@@ -182,11 +220,11 @@
   /* representation picker — one unambiguous Tabler glyph per mode instead of small
      multi-part CSS-drawn thumbnails (those read as near-identical at this size) */
   .repr-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft)}
-  .repr-picker{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+  .repr-picker{display:flex;flex-wrap:wrap;gap:6px}
   .repr-btn{
     flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:4px;
     background:var(--paper);border:1px solid var(--border);border-radius:var(--radius);
-    padding:6px 8px;cursor:pointer;min-width:54px;
+    padding:6px 8px;cursor:pointer;min-width:50px;
   }
   .repr-btn[aria-pressed="true"]{border-color:var(--rupee);background:rgba(33,106,11,.08)}
   .repr-btn[aria-pressed="true"] .repr-thumb{color:var(--rupee-deep)}
@@ -766,7 +804,47 @@
 <aside>
   <div class="brand">
     <div class="eyebrow"><span>Purchasing-power atlas</span><span>v3.7 · Live</span></div>
-    <img class="brand-logo" src="assets/logo-horizontal.svg" alt="PaisaMap" height="36">
+    <div class="brand-row">
+      <img class="brand-logo" src="assets/logo-horizontal.svg" alt="PaisaMap" height="36">
+      <div class="brand-actions">
+        <span class="pro-badge plan-pill" id="planPill" title="Current plan">PRO</span>
+
+        <div class="dd-wrap">
+          <button class="icon-btn" id="notifBtn" type="button" aria-label="Notifications" aria-expanded="false" aria-controls="notifPanel">
+            <i class="ti ti-bell"></i>
+          </button>
+          <div class="dropdown-panel" id="notifPanel" hidden>
+            <div class="dropdown-title">Notifications</div>
+            <div class="notif-empty">You're all caught up — nothing new yet.</div>
+          </div>
+        </div>
+
+        <div class="dd-wrap">
+          <button class="icon-btn" id="userMenuBtn" type="button" aria-label="Account menu" aria-expanded="false" aria-controls="userMenuPanel" hidden>
+            <img id="userAvatarImg" alt="" hidden>
+            <i class="ti ti-user-circle" id="userAvatarFallback"></i>
+          </button>
+          <div class="dropdown-panel" id="userMenuPanel" hidden>
+            <div class="user-menu-body">
+              <span class="user-menu-name" id="userMenuName"></span>
+              <span class="user-menu-email" id="userMenuEmail"></span>
+              <span class="user-menu-plan"><i class="ti ti-crown"></i> Pro plan</span>
+            </div>
+            <div class="user-menu-divider"></div>
+            <button type="button" class="user-menu-signout" id="signOutBtn"><i class="ti ti-logout"></i> Sign out</button>
+          </div>
+        </div>
+
+        <div class="dd-wrap">
+          <button class="auth-btn" id="authBtn" type="button" aria-expanded="false" aria-controls="authPanel">Sign in</button>
+          <div class="dropdown-panel auth-panel" id="authPanel" hidden>
+            <div class="dropdown-title">Sign in to PaisaMap</div>
+            <div class="gsi-btn-wrap" id="gsiButtonContainer"></div>
+            <div class="auth-note" id="authNote" hidden>Google sign-in isn't configured on this deployment yet.</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="aside-body">
@@ -839,6 +917,11 @@
         <div class="repr-sub" id="reprTopNSub" hidden>
           <label>Show top&nbsp;<select id="reprTopNSel"><option value="10">10</option><option value="25">25</option></select></label>
         </div>
+      </div>
+      <div class="action-row">
+        <button id="dashboardBtn" class="export-btn" type="button">
+          <i class="ti ti-layout-dashboard"></i> Dashboard
+        </button>
       </div>
       <div class="action-row" style="position:relative">
         <button id="sigExplorerBtn" class="export-btn" type="button" aria-expanded="false" aria-controls="sigExplorerPanel">
@@ -2259,9 +2342,8 @@ function metricValue(d){
 }
 
 // Advanced filter builder conditions — [{sig, op, val}], AND-combined.
-// Cosmetically Pro-gated (see SIGNAL_FILTERS_PRO) but the filtering logic
-// itself is real: it narrows `rows` by an actual signal comparison, same
-// data already flowing through signalMap.
+// Pro-gated (see isProPlan()) — the filtering logic itself is real: it narrows
+// `rows` by an actual signal comparison, same data already flowing through signalMap.
 let signalFilters = [];
 function passesFilters(d){
   return signalFilters.every(f=>{
@@ -2880,17 +2962,116 @@ document.querySelectorAll("#metricSeg button").forEach(b=>{
   });
 });
 
+// ── Entitlements — a REAL gate now, not just cosmetic PRO badge/lock styling. Every
+// Pro-only surface below (signal rows, catalog cards, the advanced filter builder) actually
+// checks isProPlan(). Defaulted to "pro" for every visitor until real billing/auth ships
+// (next session) — flip this default, or better, compute it from the signed-in account's
+// actual subscription, to start restricting free users for real.
+let userPlan = "pro"; // "free" | "pro"
+function isProPlan(){ return userPlan === "pro"; }
+
+// ── Header: notifications / account menu / sign-in (Google Identity Services) ──────────
+// No auth backend yet (next session). The Google ID token is decoded client-side purely for
+// display (name/email/avatar) — that's a UI convenience, not a security boundary; verifying
+// it server-side and issuing a real session is part of the deferred backend work.
+const GOOGLE_CLIENT_ID = ""; // populated at deploy time — same blank-in-git pattern as ARCGIS_API_KEY, see deploy.sh
+
+function wireDropdown(btnId, panelId){
+  const btn = document.getElementById(btnId), panel = document.getElementById(panelId);
+  btn.addEventListener("click", e=>{
+    e.stopPropagation();
+    const opening = panel.hidden;
+    document.querySelectorAll(".dropdown-panel").forEach(p=>{ if(p!==panel) p.hidden = true; });
+    document.querySelectorAll(".dd-wrap [aria-expanded]").forEach(b=>{ if(b!==btn) b.setAttribute("aria-expanded","false"); });
+    panel.hidden = !opening;
+    btn.setAttribute("aria-expanded", String(opening));
+  });
+  panel.addEventListener("click", e=>e.stopPropagation());
+}
+wireDropdown("notifBtn", "notifPanel");
+wireDropdown("userMenuBtn", "userMenuPanel");
+wireDropdown("authBtn", "authPanel");
+document.addEventListener("click", ()=>{
+  document.querySelectorAll(".dropdown-panel").forEach(p=>p.hidden = true);
+  document.querySelectorAll(".dd-wrap [aria-expanded]").forEach(b=>b.setAttribute("aria-expanded","false"));
+});
+document.addEventListener("keydown", e=>{
+  if(e.key === "Escape") document.querySelectorAll(".dropdown-panel").forEach(p=>p.hidden = true);
+});
+
+function decodeJwt(token){
+  try{
+    const b64 = token.split(".")[1].replace(/-/g,"+").replace(/_/g,"/");
+    const json = decodeURIComponent(atob(b64).split("").map(c=>"%"+("00"+c.charCodeAt(0).toString(16)).slice(-2)).join(""));
+    return JSON.parse(json);
+  }catch(e){ return null; }
+}
+
+let currentUser = null;
+function renderAuthUI(){
+  const authBtn = document.getElementById("authBtn"), userBtn = document.getElementById("userMenuBtn");
+  const avatarImg = document.getElementById("userAvatarImg"), avatarFallback = document.getElementById("userAvatarFallback");
+  if(currentUser){
+    authBtn.hidden = true;
+    userBtn.hidden = false;
+    document.getElementById("userMenuName").textContent = currentUser.name || currentUser.email;
+    document.getElementById("userMenuEmail").textContent = currentUser.email || "";
+    if(currentUser.picture){ avatarImg.src = currentUser.picture; avatarImg.hidden = false; avatarFallback.hidden = true; }
+    else { avatarImg.hidden = true; avatarFallback.hidden = false; }
+  } else {
+    authBtn.hidden = false;
+    userBtn.hidden = true;
+  }
+}
+function persistUser(u){
+  currentUser = u;
+  try{ if(u) localStorage.setItem("pm_user", JSON.stringify(u)); else localStorage.removeItem("pm_user"); }catch(e){}
+  renderAuthUI();
+}
+(function(){
+  try{ const raw = localStorage.getItem("pm_user"); if(raw) currentUser = JSON.parse(raw); }catch(e){}
+  renderAuthUI();
+})();
+
+function handleGoogleCredential(response){
+  const payload = decodeJwt(response.credential);
+  if(!payload) return;
+  persistUser({ name: payload.name, email: payload.email, picture: payload.picture });
+  document.getElementById("authPanel").hidden = true;
+  document.getElementById("authBtn").setAttribute("aria-expanded","false");
+  toast(`Signed in as ${(payload.name||payload.email).split(" ")[0]}`, 2500);
+}
+
+document.getElementById("signOutBtn").addEventListener("click", ()=>{
+  persistUser(null);
+  if(window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
+  document.getElementById("userMenuPanel").hidden = true;
+  toast("Signed out", 1800);
+});
+
+if(GOOGLE_CLIENT_ID){
+  const gsiScript = document.createElement("script");
+  gsiScript.src = "https://accounts.google.com/gsi/client";
+  gsiScript.async = true; gsiScript.defer = true;
+  gsiScript.onload = ()=>{
+    google.accounts.id.initialize({ client_id: GOOGLE_CLIENT_ID, callback: handleGoogleCredential, use_fedcm_for_prompt: true });
+    google.accounts.id.renderButton(document.getElementById("gsiButtonContainer"),
+      { theme:"outline", size:"large", type:"standard", shape:"pill", width:220 });
+  };
+  document.head.appendChild(gsiScript);
+} else {
+  document.getElementById("authNote").hidden = false;
+}
+
+// Dashboard — placeholder entry point; scope/content to be defined in a future session.
+document.getElementById("dashboardBtn").addEventListener("click", ()=>{
+  toast("Dashboard — coming soon", 2200);
+});
+
 // ── Signal Explorer — search + category chips + signal picker + advanced filter builder ──
 // Replaces the old bare <select> "more signals" dropdown: same job (sets `metric`), but
 // discoverable via search/category instead of scrolling a native optgroup list, and it's
 // the one place Pro-badging/locking lives instead of duplicating that logic in two UIs.
-//
-// Same as the Signal Explorer list / Signals Catalog (see selectSignal's click
-// handler comment above) — no real billing backend exists yet, so this stays
-// unlocked. The "PRO" badge next to "Advanced filter" in the markup is static
-// (not tied to this flag) and keeps showing regardless, as the visual preview
-// of the future real gate.
-const SIGNAL_FILTERS_PRO = true;
 
 // Shared between the Signal Explorer popover and the Signals Catalog (below) — one list of
 // every pickable signal, core (always-free) triad first.
@@ -2976,16 +3157,14 @@ function selectSignalMetric(sigId, label){
       if(activeCats.size && c.group !== "Core" && !activeCats.has(c.group)) return;
       if(!matchesSearch(c)) return;
       shown++;
+      const locked = c.pro && !isProPlan();
       const row = document.createElement("button");
       row.type = "button";
-      row.className = "sig-row" + (c.id===metric ? " active" : "") + (c.pro ? " locked-row" : "");
+      row.className = "sig-row" + (c.id===metric ? " active" : "") + (locked ? " locked-row" : "");
       row.innerHTML = `<span class="sig-row-label"><span>${c.label}</span></span>` +
         (c.pro ? '<span class="pro-badge">PRO</span>' : '');
       row.addEventListener("click", ()=>{
-        // Pro entitlement isn't enforced anywhere yet (no billing backend) — the
-        // PRO badge/locked-row styling stays as a visual preview of the future
-        // gate, but the click itself isn't blocked. Re-add the toast+return guard
-        // here once a real entitlement check exists.
+        if(locked){ toast("Pro signal — upgrade to unlock", 2200); return; }
         selectSignal(c.id, c.label);
       });
       listEl.appendChild(row);
@@ -3029,7 +3208,7 @@ function selectSignalMetric(sigId, label){
     filterClearBtn.hidden = signalFilters.length === 0;
   }
 
-  if(SIGNAL_FILTERS_PRO){
+  if(isProPlan()){
     filterLockedEl.hidden = true;
     filterBuilderEl.hidden = false;
     filterAddBtn.addEventListener("click", ()=>{
@@ -3197,8 +3376,9 @@ function selectSignalMetric(sigId, label){
 
     items.forEach(c=>{
       const {have, total} = coverageFor(c.id);
+      const locked = c.pro && !isProPlan();
       const card = document.createElement("div");
-      card.className = "catalog-card" + (c.pro ? " locked" : "");
+      card.className = "catalog-card" + (locked ? " locked" : "");
       const coverageText = total===null ? "All captured localities" : `${have} of ${total} pincodes`;
       const sw = swatchFor(c);
       card.innerHTML = `
@@ -3212,13 +3392,11 @@ function selectSignalMetric(sigId, label){
           <div class="catalog-card-desc">${coverageText}</div>
           <div class="catalog-card-actions">
             <span class="catalog-card-coverage">${total ? Math.round(have/total*100)+"% coverage" : ""}</span>
-            <button type="button" class="catalog-card-use">${c.pro ? "🔒 Pro" : "Use on map"}</button>
+            <button type="button" class="catalog-card-use">${locked ? "🔒 Pro" : "Use on map"}</button>
           </div>
         </div>`;
       card.querySelector(".catalog-card-use").addEventListener("click", ()=>{
-        // Same as the Signal Explorer list: PRO badge/lock styling stays as a
-        // preview of the future gate, but no billing backend exists yet to
-        // actually enforce it — see the matching comment at the list click handler.
+        if(locked){ toast("Pro signal — upgrade to unlock", 2200); return; }
         selectSignalMetric(c.id, c.label);
         overlay.hidden = true;
       });

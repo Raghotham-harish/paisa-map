@@ -111,6 +111,14 @@ if [ -f /etc/paisamap/arcgis_api_key.env ]; then
   echo "[deploy] ArcGIS API key injected into static index.html"
 fi
 
+# Same pattern, for the Google Identity Services (Sign in with Google) client ID.
+if [ -f /etc/paisamap/google_client_id.env ]; then
+  . /etc/paisamap/google_client_id.env
+  sudo sed -i "s|const GOOGLE_CLIENT_ID = \"\";|const GOOGLE_CLIENT_ID = \"${GOOGLE_CLIENT_ID}\";|" \
+    /var/www/paisamap/index.html
+  echo "[deploy] Google OAuth client ID injected into static index.html"
+fi
+
 # Install any new Python deps for Flask server
 if [ -f venv-flask/bin/activate ]; then
   source venv-flask/bin/activate
