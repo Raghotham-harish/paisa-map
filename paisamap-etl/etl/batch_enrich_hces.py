@@ -471,7 +471,11 @@ def main():
         # 6. Append to ML output (kept in-memory only for this run's own
         # interpolation source below — the authoritative on-disk merge
         # happens in write_to_app() against a fresh read, not this snapshot)
-        name = f"{district.title()}, {state.title()}"
+        # District+state alone isn't unique (this mechanism only ever adds one
+        # representative pincode per district, but a name collision across
+        # different districts is still possible) — append the pincode, same
+        # fix as expand_core_idw.py's identical pattern, found 2026-08-08.
+        name = f"{district.title()}, {state.title()} · {pincode}"
         new_row = {
             "name":                  name,
             "lat":                   lat,

@@ -165,7 +165,13 @@ def main():
     mpce["ppi_ml"] = np.round(idw["ppi_ml"] * adj).astype(int)
     mpce["est_monthly_income_hh"] = np.round(idw["income"] * adj, -2)
     mpce["est_monthly_spend_hh"]  = np.round(idw["spend"]  * adj, -2)
-    mpce["name"] = mpce["hces_district"].str.title() + ", " + mpce["hces_state"].str.title()
+    # District+state alone is NOT unique per pincode — up to ~167 real, distinct
+    # pincodes share one HCES district (found 2026-08-08 live: 97% of the
+    # expanded set ended up with a duplicate name, e.g. "Thrissur, Kerala"
+    # shown identically for 167 different localities in the UI). Append the
+    # pincode so every row has a genuinely unique, still-informative name.
+    mpce["name"] = (mpce["hces_district"].str.title() + ", " + mpce["hces_state"].str.title()
+                     + " · " + mpce["pincode"])
 
     print(f"  PPI range: {mpce['ppi_ml'].min()}-{mpce['ppi_ml'].max()}, "
           f"median {mpce['ppi_ml'].median():.0f}")
