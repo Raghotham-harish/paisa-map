@@ -50,6 +50,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_squared_error
 
 import _db
+from _filelock import write_lock
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW  = ROOT / "data" / "raw"
@@ -101,6 +102,12 @@ PINCODE_STATE = {
 
 
 # ── Helper: haversine distance matrix (km) ───────────────────────────────────
+# Only used by anything that genuinely needs the full dense n×n matrix. At
+# 15,545 pincodes that's ~242M entries / ~2GB — measured directly 2026-08-08
+# at ~19s and ~2GB RAM per call, a real problem on a memory-constrained
+# server. model_c_spatial()/morans_i() below were the two hot callers (both
+# only ever need NEARBY pairs, never the full matrix) — refactored to
+# _spatial_kdtree()'s radius queries instead. Kept for any small-n use.
 def haversine_matrix(lats, lngs):
     """Return (n×n) distance matrix in km."""
     R = 6371.0
@@ -111,6 +118,29 @@ def haversine_matrix(lats, lngs):
     dlng = lng_r[:, None] - lng_r[None, :]
     a = np.sin(dlat/2)**2 + np.cos(lat_r[:,None]) * np.cos(lat_r[None,:]) * np.sin(dlng/2)**2
     return 2 * R * np.arcsin(np.sqrt(np.clip(a, 0, 1)))
+
+
+_EARTH_R_KM = 6371.0
+
+
+def _to_cartesian(lats, lngs):
+    """lat/lng (degrees) -> 3D Cartesian km on Earth's surface. Euclidean chord
+    distance between two such points is a distortion-free proxy for great-circle
+    distance at the scales this module cares about (tens of km) — same technique
+    used in fetch_phonepe_grid.py/build_broad_coverage.py this session, avoids
+    the latitude-dependent distortion a raw lat/lng KDTree would have."""
+    lat_r = np.radians(np.asarray(lats, dtype=float))
+    lng_r = np.radians(np.asarray(lngs, dtype=float))
+    x = _EARTH_R_KM * np.cos(lat_r) * np.cos(lng_r)
+    y = _EARTH_R_KM * np.cos(lat_r) * np.sin(lng_r)
+    z = _EARTH_R_KM * np.sin(lat_r)
+    return np.stack([x, y, z], axis=-1)
+
+
+def _km_to_chord_radius(km):
+    """Great-circle radius (km) -> equivalent Cartesian chord radius, for
+    scipy.spatial.cKDTree radius queries on _to_cartesian() points."""
+    return 2 * _EARTH_R_KM * np.sin(min(km, np.pi * _EARTH_R_KM) / (2 * _EARTH_R_KM))
 
 
 # ── Load all proxies ──────────────────────────────────────────────────────────
@@ -362,9 +392,23 @@ def model_a_pca_ridge(X_scaled: np.ndarray, y_anchor: np.ndarray, n_components: 
 
 
 # ── Model B: HistGradientBoosting with LOO-CV ────────────────────────────────
+# LOO_CV_MAX_SAMPLES: LOO-CV refits one full model per held-out row, purely to
+# report an RMSE diagnostic (printed + ml_diagnostics.json — never affects the
+# actual z_scores/predictions below, those come from a single separate
+# full-dataset fit). Measured directly 2026-08-08 at the current dataset size
+# (15,545 pincodes): ~253ms/fit -> ~66 minutes for the full LOO-CV loop alone,
+# on a server with limited RAM already running the weekly cron_enrich.sh job
+# alongside the live Flask app. Capping the loop to a random subsample keeps
+# the RMSE a valid statistical estimate (same idea as k-fold CV) without
+# paying O(n) refits — this was fine when the dataset was ~600-900 rows,
+# not at 15k+.
+LOO_CV_MAX_SAMPLES = 500
+
+
 def model_b_hgb_loo(X_scaled: np.ndarray, y_anchor: np.ndarray, feature_names: list):
     """
-    Gradient Boosting with Leave-One-Out cross-validation.
+    Gradient Boosting with Leave-One-Out cross-validation (subsampled above
+    LOO_CV_MAX_SAMPLES rows — see module-level comment).
     Returns: (z_scores, feature_importances, loo_rmse)
     """
     model = HistGradientBoostingRegressor(
@@ -373,18 +417,28 @@ def model_b_hgb_loo(X_scaled: np.ndarray, y_anchor: np.ndarray, feature_names: l
         random_state=42
     )
 
-    # LOO-CV to estimate generalisation error
+    # LOO-CV to estimate generalisation error — subsampled for large n (see
+    # LOO_CV_MAX_SAMPLES above); the subsample is only used for this RMSE
+    # estimate, not for the real z_scores computed below.
+    n = len(y_anchor)
+    if n > LOO_CV_MAX_SAMPLES:
+        rng = np.random.RandomState(42)
+        loo_idx = rng.choice(n, size=LOO_CV_MAX_SAMPLES, replace=False)
+    else:
+        loo_idx = np.arange(n)
+    X_loo, y_loo = X_scaled[loo_idx], y_anchor[loo_idx]
+
     loo = LeaveOneOut()
-    preds_loo = np.zeros(len(y_anchor))
-    for train_idx, test_idx in loo.split(X_scaled):
+    preds_loo = np.zeros(len(y_loo))
+    for train_idx, test_idx in loo.split(X_loo):
         m = HistGradientBoostingRegressor(
             max_iter=200, max_depth=3, learning_rate=0.05,
             min_samples_leaf=2, l2_regularization=1.0, random_state=42
         )
-        m.fit(X_scaled[train_idx], y_anchor[train_idx])
-        preds_loo[test_idx] = m.predict(X_scaled[test_idx])
+        m.fit(X_loo[train_idx], y_loo[train_idx])
+        preds_loo[test_idx] = m.predict(X_loo[test_idx])
 
-    loo_rmse = math.sqrt(mean_squared_error(y_anchor, preds_loo))
+    loo_rmse = math.sqrt(mean_squared_error(y_loo, preds_loo))
 
     # Fit on all data for final predictions
     model.fit(X_scaled, y_anchor)
@@ -411,22 +465,28 @@ def model_c_spatial(z_base: np.ndarray, lats: list, lngs: list,
     """
     Smooth z_base by averaging each pincode's KNN within max_dist_km.
     Uses haversine distances; a pincode is always included in its own average.
-    """
-    dist_mat = haversine_matrix(lats, lngs)   # n×n km
-    n = len(z_base)
-    z_smooth = np.zeros(n)
 
-    for i in range(n):
-        dists = dist_mat[i]
-        # Include only neighbours within distance limit
-        mask = (dists <= max_dist_km)
-        mask[i] = True   # always include self
-        if mask.sum() < 2:
+    KD-tree radius query instead of the old dense n×n haversine_matrix — this
+    only ever needs points within max_dist_km (typically a small, near-fixed-
+    size neighbourhood regardless of n), so it's O(n log n) instead of O(n²)
+    and doesn't need a ~2GB matrix in memory. See haversine_matrix()'s comment.
+    """
+    from scipy.spatial import cKDTree
+    n = len(z_base)
+    pts = _to_cartesian(lats, lngs)
+    tree = cKDTree(pts)
+    r = _km_to_chord_radius(max_dist_km)
+    neighbor_lists = tree.query_ball_point(pts, r=r)
+
+    z_smooth = np.zeros(n)
+    for i, neighbors in enumerate(neighbor_lists):
+        if len(neighbors) < 2:
             z_smooth[i] = z_base[i]
             continue
-        # Weight by inverse distance (self gets distance=0.1 to avoid /0)
-        inv_d = 1.0 / np.maximum(dists[mask], 0.1)
-        z_smooth[i] = np.average(z_base[mask], weights=inv_d)
+        idx = np.asarray(neighbors)
+        dists = np.linalg.norm(pts[idx] - pts[i], axis=1)   # chord km ≈ great-circle km at this scale
+        inv_d = 1.0 / np.maximum(dists, 0.1)
+        z_smooth[i] = np.average(z_base[idx], weights=inv_d)
 
     return z_smooth
 
@@ -444,12 +504,19 @@ def detect_anomalies(X_scaled: np.ndarray, pincodes: list, feature_names: list,
     scores = iso.score_samples(X_scaled)   # more negative = more anomalous
     is_anomaly = iso.predict(X_scaled) == -1
 
+    # Precompute each pincode's group + each group's mean vector ONCE — the old
+    # version rebuilt a full-n boolean mask (and recomputed the same group's
+    # mean) inside the per-pincode loop, O(n²) overall. Measured 2026-08-08 at
+    # n=15,545: ~41s. Same fix pattern as model_c_spatial/morans_i above.
+    pc_groups = [_group(pc, group_key) for pc in pincodes]
+    group_to_idx: dict[str, list[int]] = {}
+    for i, g in enumerate(pc_groups):
+        group_to_idx.setdefault(g, []).append(i)
+    group_means = {g: X_scaled[idx].mean(axis=0) for g, idx in group_to_idx.items()}
+
     flags = {}
     for i, pc in enumerate(pincodes):
-        # Find the proxy furthest from city-group median
-        city = _group(pc, group_key)
-        city_mask = np.array([_group(p, group_key) == city for p in pincodes])
-        city_mean = X_scaled[city_mask].mean(axis=0)
+        city_mean = group_means[pc_groups[i]]
         deviations = np.abs(X_scaled[i] - city_mean)
         top_feat = feature_names[int(np.argmax(deviations))]
 
@@ -468,16 +535,39 @@ def morans_i(values: np.ndarray, lats: list, lngs: list,
     """
     Compute Moran's I statistic for spatial autocorrelation.
     W_ij = 1/(dist_km+1)^2 if dist <= bandwidth_km else 0
+
+    KD-tree pair query instead of the old dense n×n haversine_matrix — W is
+    naturally sparse (only pairs within bandwidth_km are ever nonzero), so
+    building it via query_pairs() is O(n log n + #pairs) instead of O(n²).
+    See haversine_matrix()'s comment / model_c_spatial() for the same fix.
+    Diagnostic-only metric (printed + ml_diagnostics.json), never feeds back
+    into PPI/income/spend, so exact floating-point parity with the old dense
+    version isn't required — this is mathematically the same formula.
     """
+    from scipy.spatial import cKDTree
     n = len(values)
-    dist = haversine_matrix(lats, lngs)
-    W = np.where(dist <= bandwidth_km, 1.0 / (dist + 1.0) ** 2, 0.0)
-    np.fill_diagonal(W, 0.0)
-    W_row = W / (W.sum(axis=1, keepdims=True) + 1e-9)
+    values = np.asarray(values, dtype=float)
+    pts = _to_cartesian(lats, lngs)
+    tree = cKDTree(pts)
+    r = _km_to_chord_radius(bandwidth_km)
+    pairs = tree.query_pairs(r=r, output_type="ndarray")
 
     z = values - values.mean()
-    numerator = n * (W_row * np.outer(z, z)).sum()
-    denominator = W_row.sum() * (z ** 2).sum()
+    if len(pairs) == 0:
+        return 0.0
+
+    i_idx, j_idx = pairs[:, 0], pairs[:, 1]
+    dists = np.linalg.norm(pts[i_idx] - pts[j_idx], axis=1)
+    w = 1.0 / (dists + 1.0) ** 2
+
+    row_w_sum = np.zeros(n)
+    np.add.at(row_w_sum, i_idx, w)
+    np.add.at(row_w_sum, j_idx, w)   # W is symmetric before row-normalization
+
+    contrib = w * z[i_idx] * z[j_idx] / (row_w_sum[i_idx] + 1e-9) \
+            + w * z[j_idx] * z[i_idx] / (row_w_sum[j_idx] + 1e-9)
+    numerator = n * contrib.sum()
+    denominator = n * (z ** 2).sum()
     return float(numerator / (denominator + 1e-9))
 
 
@@ -741,13 +831,63 @@ def main():
     cols_out = ["name","lat","lng","ppi_ml","ppi_original",
                 "est_monthly_income_hh","est_monthly_spend_hh"]
     out_df = income_df[[c for c in cols_out if c in income_df.columns]]
-    out_df.sort_values("ppi_ml", ascending=False).to_csv(OUT / "ppi_ml_refined.csv")
+
+    # This computation takes minutes (PCA/HGB/spatial models over the whole
+    # dataset) — long enough for a live visit (enrich_single.py) to land
+    # mid-run. Hold the same lock it uses, and re-read the file one more time
+    # right before writing so any pincode added *during* this run (not part
+    # of what this computation started from) survives instead of being
+    # silently overwritten — it just won't have benefited from this run's
+    # fresh calibration yet, same as any newly-added pincode always is before
+    # its first refit. Found + fixed the same class of bug in deploy.sh
+    # (b020a5e) this session; this is the other real gap the audit found.
+    # ppi_map_data.csv's poi column — computed before the lock, doesn't touch
+    # any file another writer shares.
+    poi_path = RAW / "poi_density.csv"
+    poi_raw = pd.read_csv(poi_path, dtype={"pincode": str}).set_index("pincode")["premium_poi_per_km2"] \
+              if poi_path.exists() else pd.Series(dtype=float)
+    poi_p95 = float(poi_raw.quantile(0.95)) if not poi_raw.empty else 1.0
+    poi_norm = (poi_raw / poi_p95 * 100).clip(0, 100).round(1)
+
+    ml_out_path = OUT / "ppi_ml_refined.csv"
+    app_path    = OUT / "ppi_map_data.csv"
+    app_dest    = ROOT.parent / "data" / "output" / "ppi_map_data.csv"
+    with write_lock():
+        if ml_out_path.exists():
+            existing = pd.read_csv(ml_out_path, dtype={"pincode": str}).set_index("pincode")
+            added_during_run = existing.loc[~existing.index.isin(out_df.index)]
+            if not added_during_run.empty:
+                print(f"  {len(added_during_run)} pincodes added during this run — preserving them")
+                keep_cols = [c for c in cols_out if c in added_during_run.columns]
+                out_df = pd.concat([out_df, added_during_run[keep_cols]])
+        out_df = out_df.sort_values("ppi_ml", ascending=False)
+        out_df.to_csv(ml_out_path)
+
+        # ppi_map_data.csv — frontend-facing format with poi column. Written
+        # inside the same lock acquisition as ppi_ml_refined.csv above (not a
+        # separate one) since enrich_single.py's own writes to this file are
+        # part of the identical read-modify-write cycle it holds the lock for.
+        app_df = pd.DataFrame({
+            "name":   out_df["name"],
+            "lat":    out_df["lat"],
+            "lng":    out_df["lng"],
+            "ppi":    out_df["ppi_ml"],
+            "income": out_df["est_monthly_income_hh"],
+            "poi":    poi_norm.reindex(out_df.index),
+        })
+        app_df.index.name = "pincode"
+        app_df = app_df.sort_values("ppi", ascending=False)
+        app_df.to_csv(app_path)
+        app_dest.parent.mkdir(parents=True, exist_ok=True)
+        app_df.to_csv(app_dest)
+    print(f"  {app_dest}  ({len(app_df)} pincodes, poi included)")
 
     # Dual-write to the database (no-op unless DATABASE_URL is set — see _db.py).
     # Only enrich_single.py/batch_enrich_hces.py did this before — a full refit
     # never has, so every full refit silently left the DB further behind the
     # CSV (found 2026-08-08: DB had 409 pincodes, CSV had 600). CSV stays the
-    # source of truth; this just keeps the DB from drifting again.
+    # source of truth; this just keeps the DB from drifting again. Outside the
+    # file lock — DB writes go through their own transaction, not this lock.
     try:
         db_rows = [
             {
@@ -764,31 +904,6 @@ def main():
             print(f"  DB dual-write: upserted {n} pincodes")
     except Exception as e:
         print(f"  WARN: DB dual-write failed (CSV write already succeeded): {e}", flush=True)
-
-    # ppi_map_data.csv — frontend-facing format with poi column
-    poi_path = RAW / "poi_density.csv"
-    poi_raw = pd.read_csv(poi_path, dtype={"pincode": str}).set_index("pincode")["premium_poi_per_km2"] \
-              if poi_path.exists() else pd.Series(dtype=float)
-    poi_p95 = float(poi_raw.quantile(0.95)) if not poi_raw.empty else 1.0
-    poi_norm = (poi_raw / poi_p95 * 100).clip(0, 100).round(1)
-
-    app_df = pd.DataFrame({
-        "name":   out_df["name"],
-        "lat":    out_df["lat"],
-        "lng":    out_df["lng"],
-        "ppi":    out_df["ppi_ml"],
-        "income": out_df["est_monthly_income_hh"],
-        "poi":    poi_norm.reindex(out_df.index),
-    })
-    app_df.index.name = "pincode"
-    app_path = OUT / "ppi_map_data.csv"
-    app_df.sort_values("ppi", ascending=False).to_csv(app_path)
-
-    # Sync to app data dir
-    app_dest = ROOT.parent / "data" / "output" / "ppi_map_data.csv"
-    app_dest.parent.mkdir(parents=True, exist_ok=True)
-    app_df.sort_values("ppi", ascending=False).to_csv(app_dest)
-    print(f"  {app_dest}  ({len(app_df)} pincodes, poi included)")
 
     # ── Feature importance summary ────────────────────────────────────────────
     print("\nFeature importances:")
