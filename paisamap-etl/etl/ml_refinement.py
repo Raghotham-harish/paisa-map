@@ -153,7 +153,21 @@ def load_features() -> pd.DataFrame:
         ("bank_deposits.csv",    "deposits_per_capita"),
         ("bank_deposits.csv",    "bank_branches_per_lakh"),
         ("bank_deposits.csv",    "credit_deposit_ratio"),
-        ("upi_activity.csv",     "upi_txn_value_per_capita"),
+        # upi_txn_value_per_capita (upi_activity.csv) deliberately excluded from the shared
+        # feature matrix: its source (PhonePe Pulse district-level data) is a confirmed dead
+        # end frozen at 2024 Q4, real for only 195/15,551 pincodes (1.3%) — the pincode
+        # universe grew ~79x around it since it shipped, while a district-level source can't
+        # grow past ~195-219 pincodes no matter what. X_df.fillna(X_df.median()) below would
+        # median-impute it for the other 98.7%, and because the whole ensemble refits from
+        # scratch every run, that imputed value leaks into everyone's PPI — measured directly
+        # (A/B, same snapshot, with vs without this column): 672 pincodes (4.3%) moved >10pt,
+        # some flipping the full 40-200 floor-to-ceiling range. Same leakage class already
+        # fixed once for Karnataka income (see load_karnataka_income() below) — that one was
+        # worth a scoped post-ensemble blend since it had real regional coverage; this one
+        # doesn't (it's superseded pan-India by fetch_phonepe_grid.py's upi_txn_count_nearby,
+        # a different but better-covered metric), so it's simplest to just keep it out of the
+        # model. Still served as-is via server.py's EXPORT_SIGNAL_FILES for the 195 pincodes
+        # it's real for — this only removes it from PPI scoring, not from the map.
         ("vehicle_density.csv",  "cars_per_1000"),
         ("nightlights.csv",      "radiance_mean"),
         ("itr_filers.csv",       "filers_per_capita"),
