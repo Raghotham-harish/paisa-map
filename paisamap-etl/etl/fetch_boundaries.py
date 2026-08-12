@@ -151,6 +151,27 @@ def _bbox_diag_km(geom) -> float:
     return _haversine_km(min(lats), min(lngs), max(lats), max(lngs))
 
 
+def _geom_centroid(geom):
+    """Plain average of every vertex in a Polygon/MultiPolygon — (lng, lat). Not
+    area-weighted, but good enough to sanity-check 'is this polygon anywhere near where
+    it's supposed to be', which only needs the right ballpark, not a precise centroid."""
+    def flatten(coords):
+        if isinstance(coords[0], (int, float)):
+            yield coords
+        else:
+            for c in coords:
+                yield from flatten(c)
+    pts = list(flatten(geom["coordinates"]))
+    lngs = [p[0] for p in pts]
+    lats = [p[1] for p in pts]
+    return sum(lngs) / len(lngs), sum(lats) / len(lats)
+
+
+def _valid_latlng_pair(latlng) -> bool:
+    lat, lng = latlng
+    return (lat == lat) and (lng == lng)  # NaN != NaN is the cheap isnan check
+
+
 def nearest_neighbor_km(df) -> "list[float]":
     """For each row, the distance in km to its closest *other* pincode in the dataset —
     used as the local 'how tight should a locality boundary be here' scale, since pincode
@@ -184,6 +205,91 @@ def is_reasonable_size(geom, nn_km: float) -> bool:
       get a sensibly-sized real shape rather than being floored out by the relative term."""
     max_km = min(15.0, max(nn_km * 2, 2.5))
     return _bbox_diag_km(geom) <= max_km
+
+
+def _ring_centroid_and_area(ring):
+    """Planar shoelace centroid + area for a single ring — good enough for relative
+    part-size/distance comparisons at this scale, no geometry library needed."""
+    n = len(ring)
+    if n < 3:
+        xs = [p[0] for p in ring]; ys = [p[1] for p in ring]
+        return (sum(xs) / n, sum(ys) / n), 0.0
+    a = cx = cy = 0.0
+    for i in range(n - 1):
+        x0, y0 = ring[i]; x1, y1 = ring[i + 1]
+        cross = x0 * y1 - x1 * y0
+        a += cross; cx += (x0 + x1) * cross; cy += (y0 + y1) * cross
+    a *= 0.5
+    if abs(a) < 1e-12:
+        xs = [p[0] for p in ring]; ys = [p[1] for p in ring]
+        return (sum(xs) / len(xs), sum(ys) / len(ys)), 0.0
+    return (cx / (6 * a), cy / (6 * a)), abs(a)
+
+
+def drop_disconnected_multipolygon_parts(geom: dict, anchor=None) -> dict:
+    """A single postal pincode's official boundary should be one contiguous shape (or a
+    few genuinely-adjacent parts) — not a part sitting many km away, sometimes in open
+    water. Found live 2026-08-12 (a user spotted choropleth shapes bleeding into the
+    Arabian Sea off Mumbai): 304/342 MultiPolygon features in the national layer have a
+    part whose centroid is >5km from another part's, one case 168km apart. Cuffe Parade
+    (400021) is the concrete example that surfaced this — its third ring sits in the
+    middle of Mumbai Harbour/Thane Creek, nowhere near the peninsula tip its other two
+    parts describe. This is a defect in the source national layer (likely from how the
+    original shapefile's multi-ring features got joined to pincodes), not something the
+    mapshaper simplification step introduced.
+
+    First cut of this picked the largest-by-area part as "the real one" and dropped
+    anything far from it — wrong: Cuffe Parade's stray harbour fragment is a ~13km-wide
+    kite shape, bigger in raw area than its two legitimate tiny peninsula-tip parts
+    combined, so that heuristic kept the bad part and threw away the real locality
+    entirely. Area is not a reliable signal for which part is correct; proximity to a
+    trusted reference point is.
+
+    `anchor` is this pincode's own known (lat, lng) — e.g. wherever it was geocoded/
+    enriched — when available (this app's own ~15,551-pincode dataset has one for every
+    entry). Parts are kept if within the more generous of 8km or 4x the closest part's
+    own bounding diagonal from that anchor. Without a trusted anchor (national-layer-only
+    pincodes outside this app's active dataset), falls back to using the *smallest*
+    part's own centroid as the reference instead of the largest — a legitimate dense
+    locality polygon is reliably tighter than the open-water/long-distance stray
+    fragments actually observed, so the smallest part is the safer bet for "real shape,"
+    even though it's not as reliable as a true anchor."""
+    if geom.get("type") != "MultiPolygon" or len(geom.get("coordinates", [])) < 2:
+        return geom
+    parts = geom["coordinates"]
+    infos = []
+    for poly in parts:
+        centroid, _area = _ring_centroid_and_area(poly[0])
+        diag = _bbox_diag_km({"type": "Polygon", "coordinates": [poly[0]]})
+        infos.append({"centroid": centroid, "diag": diag, "poly": poly})
+
+    # A malformed anchor (NaN lat/lng from a bad source row) must never propagate — it
+    # would poison every distance below (NaN comparisons are always False, so the
+    # keep-filter would silently drop every single part, including the correct one).
+    if anchor is not None and _valid_latlng_pair(anchor):
+        ref_lat, ref_lng = anchor
+    else:
+        smallest = min(infos, key=lambda x: x["diag"])
+        ref_lng, ref_lat = smallest["centroid"]
+
+    dists = sorted(
+        (_haversine_km(ref_lat, ref_lng, info["centroid"][1], info["centroid"][0]), info)
+        for info in infos
+    )
+    closest_diag = dists[0][1]["diag"]
+    max_km = max(8.0, closest_diag * 4)
+    kept = [info["poly"] for d, info in dists if d <= max_km]
+
+    # Belt-and-braces: never return a geometry with zero parts. Should be unreachable
+    # (the closest part is always within max_km of itself), but a bad shape here would
+    # otherwise crash the whole run over a single pincode.
+    if not kept:
+        return geom
+    if len(kept) == len(parts):
+        return geom
+    if len(kept) > 1:
+        return {"type": "MultiPolygon", "coordinates": kept}
+    return {"type": "Polygon", "coordinates": kept[0]}
 
 
 def _circle_coords(lat: float, lng: float, deg: float = 0.012):
@@ -222,6 +328,8 @@ def fetch_all(resume: bool, limit=None, revalidate=False) -> dict:
     total = len(df)
     nn_km = nearest_neighbor_km(df)
     nn_by_pincode = {str(df.iloc[i]["pincode"]): nn_km[i] for i in range(total)}
+    anchor_by_pincode = {str(df.iloc[i]["pincode"]): (float(df.iloc[i]["lat"]), float(df.iloc[i]["lng"]))
+                          for i in range(total)}
     national = load_national_layer()
 
     existing: dict[str, dict] = {}
@@ -337,6 +445,40 @@ def fetch_all(resume: bool, limit=None, revalidate=False) -> dict:
         pc = feat.get("properties", {}).get("pincode", "")
         if pc not in covered:
             all_features.append(feat)
+
+    n_cleaned = 0
+    n_rejected = 0
+    for feat in all_features:
+        geom = feat.get("geometry")
+        if geom is None:
+            continue
+        pc = feat.get("properties", {}).get("pincode", "")
+        anchor = anchor_by_pincode.get(pc)
+        cleaned = drop_disconnected_multipolygon_parts(geom, anchor)
+        if cleaned is not geom:
+            feat["geometry"] = geom = cleaned
+            n_cleaned += 1
+
+        # A rarer, harder-to-fix defect than the disconnected-fragment case above: the
+        # whole polygon (every remaining part) is assigned to the wrong pincode entirely,
+        # not just missing one stray piece. Found live 2026-08-12: 832303 "Ghatsila"
+        # (Jharkhand, anchor 23.51,85.37) resolves to a govt polygon whose *closest* part
+        # is still ~129km away — dropping-the-far-part logic can't help when there's no
+        # part that's actually right. Only checkable where a trusted anchor exists (this
+        # app's own dataset); reject the polygon entirely rather than ship a confidently-
+        # wrong shape — geometry:null here makes the frontend fall through to its existing
+        # circle-fallback/live-lookup path (same as any other boundary miss), same safe
+        # default this codebase already uses for a bad Nominatim match.
+        if anchor is not None and _valid_latlng_pair(anchor):
+            clng, clat = _geom_centroid(geom)
+            if _haversine_km(anchor[0], anchor[1], clat, clng) > 30:
+                feat["geometry"] = None
+                n_rejected += 1
+    if n_cleaned:
+        print(f"Cleaned {n_cleaned} feature(s) with a disconnected outlier MultiPolygon part")
+    if n_rejected:
+        print(f"Rejected {n_rejected} feature(s) entirely mismatched to their pincode (no part near the anchor)")
+
     print(f"Total output: {len(national)} national + {len(all_features) - len(national)} "
           f"dataset-specific fallback = {len(all_features)} features")
     return {"type": "FeatureCollection", "features": all_features}
