@@ -260,6 +260,10 @@
     padding:8px 10px;cursor:pointer;
   }
   .export-btn:hover,.export-btn[aria-expanded="true"]{background:var(--rupee);color:#fff;border-color:var(--rupee)}
+  .dashboard-btn{
+    background:var(--ink);color:#fff;border-color:var(--ink);
+  }
+  .dashboard-btn:hover{background:var(--rupee-deep);border-color:var(--rupee-deep)}
   .export-panel{
     position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:30;
     background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-2);
@@ -311,20 +315,21 @@
   .sig-chip[aria-pressed="true"]{background:var(--rupee);color:#fff;border-color:var(--rupee)}
   .sig-list{
     max-height:190px;overflow-y:auto;border:1px solid var(--hairline);border-radius:var(--radius);
-    background:var(--paper-2);
+    background:var(--paper-2);display:grid;grid-template-columns:1fr 1fr;
   }
   .sig-row{
-    display:flex;align-items:center;justify-content:space-between;gap:8px;
+    display:flex;align-items:center;justify-content:space-between;gap:6px;
     width:100%;text-align:left;background:transparent;border:0;
-    border-bottom:1px solid var(--hairline);padding:7px 10px;cursor:pointer;
+    border-bottom:1px solid var(--hairline);border-right:1px solid var(--hairline);
+    padding:7px 8px;cursor:pointer;
     font-family:var(--sans);font-size:12.5px;color:var(--ink);
   }
-  .sig-row:last-child{border-bottom:0}
+  .sig-row:nth-child(2n){border-right:0}
   .sig-row:hover{background:#fff}
   .sig-row.active{background:var(--rupee);color:#fff}
   .sig-row .sig-row-label{display:flex;align-items:center;gap:6px;min-width:0}
   .sig-row .sig-row-label span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .sig-empty{padding:14px 10px;text-align:center;color:var(--ink-soft);font-size:12px}
+  .sig-empty{grid-column:1/-1;padding:14px 10px;text-align:center;color:var(--ink-soft);font-size:12px}
   .sig-filter-section{border-top:1px solid var(--hairline);padding-top:9px;margin-top:2px}
   .sig-filter-chips{display:flex;flex-wrap:wrap;gap:5px;margin:6px 0}
   .sig-filter-chip{
@@ -625,6 +630,10 @@
   main{flex:1;position:relative}
   #map{position:absolute;inset:0;background:#dfe3da}
   .leaflet-container{font-family:var(--sans)}
+  /* Zoom control now lives bottomright (moved off the old topleft slot to make room for
+     the top-right Signals/radar cluster) — the legend box (.denom, below) already owns
+     that corner's lower area, so lift the zoom control clear of it rather than stacking. */
+  .leaflet-control-zoom{margin:0 14px 112px 0 !important}
 
   /* denomination-strip legend (signature) */
   .denom{
@@ -756,10 +765,25 @@
   .pp .sig-bar-track{height:5px;border-radius:3px;background:var(--paper-2);overflow:hidden}
   .pp .sig-bar-fill{height:100%;background:var(--rupee);border-radius:3px}
 
+  /* Top-right floating cluster (Signals + coverage radar) — sits immediately left of
+     Leaflet's own layers/basemap switcher, which keeps its default topright corner slot. */
+  #mapTopRightControls{
+    position:absolute;top:14px;right:62px;z-index:810;
+    display:flex;align-items:flex-start;gap:8px;
+  }
+  .map-signals-wrap{position:relative}
+  .map-signals-btn{
+    display:flex;align-items:center;gap:6px;height:36px;background:#fff;
+    border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow-1);
+    padding:0 12px;cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--ink);white-space:nowrap;
+    transition:background .15s,color .15s,border-color .15s;
+  }
+  .map-signals-btn:hover,.map-signals-btn[aria-expanded="true"]{background:var(--rupee);color:#fff;border-color:var(--rupee)}
+
   /* Spider / coverage-radar chart */
   #spiderBtn{
-    position:absolute;right:14px;bottom:112px;z-index:810;
-    width:36px;height:36px;background:#fff;border:1px solid var(--border);border-radius:var(--radius);
+    width:36px;height:36px;flex-shrink:0;background:#fff;border:1px solid var(--border);border-radius:var(--radius);
     box-shadow:var(--shadow-1);
     cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;
     transition:background .15s,color .15s,border-color .15s;padding:0;
@@ -774,7 +798,7 @@
   #catalogBtn:hover{background:var(--rupee);color:#fff;border-color:var(--rupee)}
   #spiderBtn.active{background:var(--rupee);color:#fff;border-color:var(--rupee)}
   #spiderPanel{
-    position:absolute;right:14px;bottom:156px;z-index:820;
+    position:absolute;top:56px;right:0;z-index:820;
     background:#fff;border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow-2);
     padding:10px 12px;display:none;width:240px;
   }
@@ -919,42 +943,9 @@
         </div>
       </div>
       <div class="action-row">
-        <button id="dashboardBtn" class="export-btn" type="button">
+        <button id="dashboardBtn" class="export-btn dashboard-btn" type="button">
           <i class="ti ti-layout-dashboard"></i> Dashboard
         </button>
-      </div>
-      <div class="action-row" style="position:relative">
-        <button id="sigExplorerBtn" class="export-btn" type="button" aria-expanded="false" aria-controls="sigExplorerPanel">
-          <i class="ti ti-adjustments"></i> <span id="sigExplorerLabel">Signals</span>
-        </button>
-        <div class="export-panel sig-explorer-panel" id="sigExplorerPanel" hidden>
-          <input type="text" id="sigSearch" class="sig-search" placeholder="Search signals…" aria-label="Search signals">
-          <button type="button" id="sigCatalogLink" class="export-signals-toggle" style="align-self:flex-end;margin:-4px 0 2px">Browse full catalog →</button>
-          <div class="sig-chips" id="sigCategoryChips"></div>
-          <div class="sig-list" id="sigList"></div>
-          <div class="sig-filter-section">
-            <span class="export-panel-label">
-              <span>Advanced filter <span class="pro-badge">PRO</span></span>
-              <button type="button" class="export-signals-toggle" id="sigFilterClearBtn" hidden>Clear</button>
-            </span>
-            <div id="sigFilterChips" class="sig-filter-chips"></div>
-            <div id="sigFilterLocked" class="sig-filter-locked">
-              <i class="ti ti-lock"></i> Composable signal filters (e.g. "PPI &gt; 120 AND SFB branches ≥ 3") are a Pro capability — preview only for now.
-            </div>
-            <div id="sigFilterBuilder" class="sig-filter-builder" hidden>
-              <select id="filterSignalSel" aria-label="Filter signal"></select>
-              <select id="filterOpSel" aria-label="Filter operator">
-                <option value="gte">≥</option>
-                <option value="gt">&gt;</option>
-                <option value="lte">≤</option>
-                <option value="lt">&lt;</option>
-                <option value="eq">=</option>
-              </select>
-              <input type="number" id="filterValInput" placeholder="value" step="any" aria-label="Filter value">
-              <button type="button" id="filterAddBtn" class="export-btn" style="width:auto;padding:6px 10px">+ Add</button>
-            </div>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -1051,17 +1042,55 @@
     </div>
     <div class="ticks" id="denomTicks"><span>50</span><span>70</span><span>85</span><span>100</span><span>120</span><span>145+</span></div>
   </div>
-  <button id="spiderBtn" title="Coverage radar — 8-direction data density from YAH pin" aria-pressed="false">
-    <i class="ti ti-chart-radar"></i>
-  </button>
+  <!-- Top-right floating cluster: Signals + Coverage radar, sitting immediately left of
+       Leaflet's own basemap/layers switcher (also top-right, its default corner position —
+       see L.control.layers below). Order left-to-right matches that adjacency deliberately. -->
+  <div id="mapTopRightControls">
+    <div class="map-signals-wrap">
+      <button id="sigExplorerBtn" class="map-signals-btn" type="button" aria-expanded="false" aria-controls="sigExplorerPanel">
+        <i class="ti ti-adjustments"></i> <span id="sigExplorerLabel">Signals</span>
+      </button>
+      <div class="export-panel sig-explorer-panel" id="sigExplorerPanel" hidden>
+        <input type="text" id="sigSearch" class="sig-search" placeholder="Search signals…" aria-label="Search signals">
+        <button type="button" id="sigCatalogLink" class="export-signals-toggle" style="align-self:flex-end;margin:-4px 0 2px">Browse full catalog →</button>
+        <div class="sig-chips" id="sigCategoryChips"></div>
+        <div class="sig-list" id="sigList"></div>
+        <div class="sig-filter-section">
+          <span class="export-panel-label">
+            <span>Advanced filter <span class="pro-badge">PRO</span></span>
+            <button type="button" class="export-signals-toggle" id="sigFilterClearBtn" hidden>Clear</button>
+          </span>
+          <div id="sigFilterChips" class="sig-filter-chips"></div>
+          <div id="sigFilterLocked" class="sig-filter-locked">
+            <i class="ti ti-lock"></i> Composable signal filters (e.g. "PPI &gt; 120 AND SFB branches ≥ 3") are a Pro capability — preview only for now.
+          </div>
+          <div id="sigFilterBuilder" class="sig-filter-builder" hidden>
+            <select id="filterSignalSel" aria-label="Filter signal"></select>
+            <select id="filterOpSel" aria-label="Filter operator">
+              <option value="gte">≥</option>
+              <option value="gt">&gt;</option>
+              <option value="lte">≤</option>
+              <option value="lt">&lt;</option>
+              <option value="eq">=</option>
+            </select>
+            <input type="number" id="filterValInput" placeholder="value" step="any" aria-label="Filter value">
+            <button type="button" id="filterAddBtn" class="export-btn" style="width:auto;padding:6px 10px">+ Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <button id="spiderBtn" title="Coverage radar — 8-direction data density from YAH pin" aria-pressed="false">
+      <i class="ti ti-chart-radar"></i>
+    </button>
+    <div id="spiderPanel">
+      <div class="field-label"><span>Coverage radar</span><span style="font-size:9px;color:var(--ink-soft)">from YAH pin</span></div>
+      <svg id="spiderSvg" viewBox="0 0 220 220" width="216" height="216" style="display:block;margin:0 auto"></svg>
+      <div id="spiderGapInfo"></div>
+    </div>
+  </div>
   <button id="catalogBtn" title="Browse the full signals catalog">
     <i class="ti ti-layout-grid"></i>
   </button>
-  <div id="spiderPanel">
-    <div class="field-label"><span>Coverage radar</span><span style="font-size:9px;color:var(--ink-soft)">from YAH pin</span></div>
-    <svg id="spiderSvg" viewBox="0 0 220 220" width="216" height="216" style="display:block;margin:0 auto"></svg>
-    <div id="spiderGapInfo"></div>
-  </div>
   <div class="offline-note" id="offlineNote">
     <b>STREET TILES BLOCKED</b><br>
     This preview can't load map imagery, so you're seeing a grid with locality
@@ -1399,7 +1428,7 @@ let activeId = null;
 
 /* ---------- map ---------- */
 const map = L.map("map",{zoomControl:false}).setView(center, 11);
-L.control.zoom({position:"topleft"}).addTo(map);
+L.control.zoom({position:"bottomright"}).addTo(map);
 
 // labels pane: keeps CARTO label tiles above the heat layer when those basemaps are used
 map.createPane("labels");
@@ -3233,6 +3262,9 @@ function selectSignalMetric(sigId, label){
     btn.setAttribute("aria-expanded", String(open));
     if(open){
       renderFilterChips();   // pick up any external reset (e.g. "Reset" button)
+      renderSigList();       // pick up the currently active signal, however it was last set
+                              // (metric toggle, locality click, Catalog) — this popover doesn't
+                              // own `metric`, so its row highlight can go stale between opens.
       // The panel is wider than its narrow sidebar column, which scrolls
       // vertically — position:absolute there would get horizontally clipped.
       // Anchor it to the button's actual screen position instead so it can
