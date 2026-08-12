@@ -304,14 +304,26 @@ def _haversine_km(lat1, lng1, lat2, lng2):
 
 
 def _coerce(v):
-    """CSV values are always strings — turn numeric-looking ones back into numbers for JSON/XLSX."""
+    """CSV values are always strings — turn numeric-looking ones back into numbers for JSON/XLSX.
+
+    NaN/Infinity must become None here, not pass through as a float: a DB float column
+    (e.g. ppi_original, unset for most rows) can come back as an actual NaN rather than
+    None, and Python's json.dumps happily emits that as a bare `NaN` token by default —
+    which isn't valid JSON. Browsers' strict JSON.parse throws on it, which silently
+    killed the *entire* /api/export payload for every caller (confirmed live: every
+    signal outside the "Nationwide coverage" group — bank branches, property rate, ITR
+    filers, MSMEs, factories, NSDP, cropping intensity, night-lights, POI density, every
+    vehicle signal — read 0% coverage on the map despite being fully populated server-side,
+    because loadSignalData()'s res.json() was failing and getting swallowed on every load)."""
     if v is None or v == "":
         return None
     try:
         f = float(v)
-        return int(f) if f.is_integer() else f
     except (TypeError, ValueError):
         return v
+    if math.isnan(f) or math.isinf(f):
+        return None
+    return int(f) if f.is_integer() else f
 
 
 def _load_ppi_signals_rows():
