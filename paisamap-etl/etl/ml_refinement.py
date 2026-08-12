@@ -624,13 +624,27 @@ def estimate_income(z_ensemble: np.ndarray, pincodes: list,
 
     ppi_arr = np.clip(100 + 30 * z_adj, 40, 200).round().astype(int)
 
+    # Income/spend must saturate at the same point PPI does. Without this, a within-group
+    # outlier (a thin HCES group where one premium locality sits among mostly low-baseline
+    # peers) can score a z_adj far past what's needed to hit the PPI display cap of 200 —
+    # the exponential lift below keeps compounding on that uncapped value even though the
+    # PPI shown for it is already pinned at the ceiling. Confirmed live: Bengaluru's
+    # Indiranagar and Noida Sector 18-27 both saturate ppi_ml at 200 but still reported
+    # est_monthly_income_hh of ₹9.9L / ₹15.4L — an order of magnitude above Mumbai's Cuffe
+    # Parade / Malabar Hill (real premium South Mumbai, ppi_ml 134-136, ~₹1.5L/month),
+    # because Mumbai's own group already contains many comparably premium peers, so no
+    # single Mumbai locality's z-score runs away the way an isolated standout in a
+    # thinner group's does. Deriving the lift from the same clipped range PPI uses keeps
+    # the two numbers consistent with each other again.
+    z_income = np.clip(z_adj, -2.0, 100 / 30)
+
     for i, pc in enumerate(pincodes):
         state = _state(pc)
         mpce  = pincode_mpce.get(pc) or HCES_MPCE_CITY.get(state, 7000)
         base_spend = mpce * AVG_HH
-        lift  = math.exp(0.55 * float(z_adj[i]))
+        lift  = math.exp(0.55 * float(z_income[i]))
         spend = base_spend * lift
-        spend_share = max(0.45, min(0.85, 0.82 - 0.10 * float(z_adj[i])))
+        spend_share = max(0.45, min(0.85, 0.82 - 0.10 * float(z_income[i])))
         income = spend / spend_share
         rows.append({
             "pincode":              pc,
