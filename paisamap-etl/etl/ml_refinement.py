@@ -611,6 +611,32 @@ def estimate_income(z_ensemble: np.ndarray, pincodes: list,
     # zero it out (PPI forced to exactly 100), discarding its real
     # signal. Leave those at their already-globally-standardised
     # z_ensemble value instead.
+    #
+    # Pure group-relative standardisation has its own failure mode: HCES
+    # district groups are administrative boundaries, not "comparable peer
+    # sets" — a district can span a dense premium urban core plus a much
+    # larger, far less developed periphery (Bangalore Urban: 102 pincodes
+    # in the core set, median PPI 101, but Indiranagar/Whitefield/MG Road
+    # tower over it). Re-centring purely against that mostly-low-baseline
+    # group inflates the urban standout's z far past what the same
+    # locality would score against a genuinely comparable peer set —
+    # confirmed live: Indiranagar and Noida Sector 18-27 both saturated
+    # the PPI ceiling this way, while Mumbai's premium pincodes didn't,
+    # because "Mumbai Suburban" happens to already be a uniformly urban
+    # district (median PPI 119 across its 23 members) — no single Mumbai
+    # locality stands nearly as far from its own group's average. This
+    # isn't purely a group-*size* problem (Bangalore's group of 102 is
+    # large by count) — it's group *homogeneity*, which raw n doesn't
+    # capture, but shrinking every group toward the global scale by size
+    # still directly bounds how far any single group's mean-shift can
+    # distort an outlier within it, without requiring new data to detect
+    # which specific groups are heterogeneous.
+    #
+    # Blend the group-relative z toward the already-globally-standardised
+    # z_ensemble with credibility weight α = n/(n+K) (standard partial-
+    # pooling / insurance-style credibility theory): small groups lean on
+    # the global scale, large groups keep more of their own local signal.
+    CREDIBILITY_K = 50
     z_adj = z_ensemble.copy()
     for grp, idxs in city_groups.items():
         if len(idxs) < 2:
@@ -619,8 +645,10 @@ def estimate_income(z_ensemble: np.ndarray, pincodes: list,
         # Map group mean z → ln(anchor_spend)
         z_mean = city_z.mean()
         z_std  = city_z.std() or 1.0
+        alpha  = len(idxs) / (len(idxs) + CREDIBILITY_K)
         for i in idxs:
-            z_adj[i] = (z_ensemble[i] - z_mean) / z_std   # re-standardise within group
+            z_group = (z_ensemble[i] - z_mean) / z_std   # re-standardise within group
+            z_adj[i] = alpha * z_group + (1 - alpha) * z_ensemble[i]
 
     ppi_arr = np.clip(100 + 30 * z_adj, 40, 200).round().astype(int)
 

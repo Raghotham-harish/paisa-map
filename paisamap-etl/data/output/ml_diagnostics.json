@@ -93357,16 +93357,16 @@
     }
   },
   "validation_gates": [
-    "PASS  Golf Links > Saket: PPI(110003)=145 vs PPI(110017)=124",
-    "PASS  Saket > Narela: PPI(110017)=124 vs PPI(110040)=121",
-    "PASS  Golf Links > Dwarka: PPI(110003)=145 vs PPI(110075)=105",
-    "PASS  Golf Course Rd > Gurgaon City: PPI(122022)=133 vs PPI(122002)=80",
-    "PASS  Cuffe Parade > Borivali: PPI(400021)=136 vs PPI(400086)=71",
-    "PASS  Malabar Hill > Malad East: PPI(400006)=134 vs PPI(400097)=71",
-    "PASS  Juhu > Vashi: PPI(400060)=123 vs PPI(400614)=40",
-    "PASS  Indiranagar > Electronic City: PPI(560025)=200 vs PPI(560035)=83",
-    "PASS  Indiranagar > Yelahanka: PPI(560025)=200 vs PPI(560064)=64",
-    "PASS  Koramangala > Hebbal: PPI(560027)=136 vs PPI(560047)=126",
+    "PASS  Golf Links > Saket: PPI(110003)=200 vs PPI(110017)=165",
+    "PASS  Saket > Narela: PPI(110017)=165 vs PPI(110040)=117",
+    "PASS  Golf Links > Dwarka: PPI(110003)=200 vs PPI(110075)=115",
+    "PASS  Golf Course Rd > Gurgaon City: PPI(122022)=193 vs PPI(122002)=57",
+    "PASS  Cuffe Parade > Borivali: PPI(400021)=200 vs PPI(400086)=40",
+    "PASS  Malabar Hill > Malad East: PPI(400006)=200 vs PPI(400097)=40",
+    "PASS  Juhu > Vashi: PPI(400060)=178 vs PPI(400614)=40",
+    "PASS  Indiranagar > Electronic City: PPI(560025)=200 vs PPI(560035)=92",
+    "PASS  Indiranagar > Yelahanka: PPI(560025)=200 vs PPI(560064)=70",
+    "PASS  Koramangala > Hebbal: PPI(560027)=153 vs PPI(560047)=142",
     "PASS  PPI stability: max drift 0.0pt (limit 10)"
   ]
 }
