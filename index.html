@@ -510,6 +510,66 @@
     border:1px solid var(--ink);border-radius:var(--radius);color:var(--ink);padding:6px;cursor:pointer;
   }
   .pp-btn:hover{background:var(--rupee);color:#fff;border-color:var(--rupee)}
+  .pp-btn-active{background:var(--amber);border-color:var(--amber);color:var(--ink)}
+  .pp-btn-active:hover{background:var(--amber);border-color:var(--amber);color:var(--ink)}
+
+  /* ── Compare basket bar + modal (Phase 2) ─────────────────────────────────── */
+  #compareBar{
+    position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:810;
+    display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--border);
+    border-radius:999px;box-shadow:var(--shadow-2);padding:8px 10px 8px 16px;max-width:min(90vw,640px);
+  }
+  #compareBar.hidden{display:none}
+  #compareChips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;overflow:hidden}
+  .compare-chip{
+    display:flex;align-items:center;gap:6px;background:var(--paper-2);border:1px solid var(--border);
+    border-radius:999px;padding:3px 4px 3px 10px;font-size:11px;color:var(--ink-soft);white-space:nowrap;
+  }
+  .compare-chip button{
+    border:none;background:transparent;color:var(--ink-soft);cursor:pointer;font-size:13px;
+    line-height:1;padding:2px 6px;border-radius:50%;
+  }
+  .compare-chip button:hover{background:var(--paper-3);color:var(--ink)}
+  #compareBtn{
+    font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+    background:var(--rupee);color:#fff;border:none;border-radius:999px;padding:8px 16px;
+    cursor:pointer;white-space:nowrap;flex-shrink:0;
+  }
+  #compareBtn:disabled{background:var(--paper-3);color:var(--ink-soft);cursor:default}
+  #compareBtn:not(:disabled):hover{background:var(--rupee-deep)}
+
+  #compareModalOverlay{
+    position:fixed;inset:0;background:rgba(20,30,20,.45);z-index:2000;
+    display:flex;align-items:center;justify-content:center;padding:24px;
+  }
+  #compareModalOverlay.hidden{display:none}
+  #compareModal{
+    background:var(--paper);border-radius:var(--radius-lg);box-shadow:var(--shadow-2);
+    max-width:min(96vw,1040px);max-height:88vh;overflow:auto;width:100%;padding:24px 26px;
+  }
+  #compareModal h2{font-size:16px;margin:0 0 4px}
+  #compareModal .modal-sub{font-size:11.5px;color:var(--ink-soft);margin:0 0 16px}
+  #compareModal .close-x{
+    float:right;border:none;background:transparent;font-size:18px;color:var(--ink-soft);
+    cursor:pointer;line-height:1;
+  }
+  .compare-table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .compare-table th,.compare-table td{
+    text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top;
+  }
+  .compare-table th{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--ink-soft);white-space:nowrap;
+  }
+  .compare-rank{
+    display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;
+    border-radius:50%;background:var(--paper-2);font-size:10px;font-weight:700;margin-right:6px;
+  }
+  .compare-rank.r1{background:var(--amber);color:var(--ink)}
+  .compare-score{font-size:20px;font-weight:700}
+  .compare-diff-pos{color:var(--rupee-deep)}
+  .compare-diff-neg{color:var(--flame)}
+  .compare-summary{font-size:11.5px;color:var(--ink-soft);max-width:260px;line-height:1.5}
 
   /* CSS-only classic pin (no image files — survives strict previews).
      Must stay position:absolute — that's what leaflet.css's own
@@ -1103,6 +1163,20 @@
     name labels instead. Download the file and open it in your browser —
     streets, parks and labels will appear there.
   </div>
+  <div id="compareBar" class="hidden">
+    <div id="compareChips"></div>
+    <button id="compareBtn" type="button" disabled>Compare</button>
+  </div>
+
+  <div id="compareModalOverlay" class="hidden" onclick="if(event.target===this) closeCompareModal()">
+    <div id="compareModal" role="dialog" aria-label="Compare locations">
+      <button class="close-x" onclick="closeCompareModal()" aria-label="Close">&times;</button>
+      <h2>Compare locations</h2>
+      <p class="modal-sub">Modelled estimates from PaisaMap's PPI ensemble — not real transaction records.</p>
+      <div id="compareModalBody"></div>
+    </div>
+  </div>
+
   <div class="toast" id="toast" role="status"></div>
 </main>
 
@@ -2759,6 +2833,17 @@ const POPUP_SNAPSHOT_PRIORITY = [
   "cars_per_1000","nsdp_per_capita","upi_txn_value_per_capita","radiance_mean",
 ];
 
+// ── Compare basket — session-local only (not persisted across reloads, same scope
+// call as Phase 1's "no already-saved visual state" for Save). Membership is a plain
+// array, not a DB round-trip, so the popup button toggles synchronously.
+let compareList = [];
+function compareBtnHTML(pincode){
+  if(!pincode) return "";
+  const inList = compareList.includes(pincode);
+  const label = inList ? "Remove from compare" : "Add to compare";
+  return `<button class="pp-btn${inList ? " pp-btn-active" : ""}" onclick="toggleCompare('${pincode}')">${label}</button>`;
+}
+
 function popupHTML(d, rows){
   // Broad-coverage pincodes (real RBI branch/MPCE data, no full PPI/income —
   // see loadBroadCoverage()) get their own simpler popup: no PPI/income/spend
@@ -2782,6 +2867,7 @@ function popupHTML(d, rows){
       </div>
       <button class="pp-btn" onclick="showBoundary(${d.id})">Show area boundary</button>
       ${d.pincode ? `<button class="pp-btn" onclick="saveLocation('${d.pincode}')">Save location</button>` : ""}
+      ${compareBtnHTML(d.pincode)}
     </div>`;
   }
 
@@ -2853,6 +2939,7 @@ function popupHTML(d, rows){
     </div>
     <button class="pp-btn" onclick="showBoundary(${d.id})">Show area boundary</button>
     ${d.pincode ? `<button class="pp-btn" onclick="saveLocation('${d.pincode}')">Save location</button>` : ""}
+    ${compareBtnHTML(d.pincode)}
   </div>`;
 }
 
@@ -3186,6 +3273,104 @@ window.saveLocation = async function(pincode){
     toast("Couldn't save this location — please try again", 2600);
   }
 };
+
+// ── Compare — public, no sign-in required (same trust level as the rest of the map).
+// compareList is declared up near popupHTML/compareBtnHTML, which need it earlier in
+// the file than this section.
+const MAX_COMPARE = 8;
+
+window.toggleCompare = function(pincode){
+  const idx = compareList.indexOf(pincode);
+  if(idx === -1){
+    if(compareList.length >= MAX_COMPARE){
+      toast(`You can compare up to ${MAX_COMPARE} locations at once`, 2600);
+      return;
+    }
+    compareList.push(pincode);
+  } else {
+    compareList.splice(idx, 1);
+  }
+  renderCompareBar();
+  // Reflect the new state in any currently-open popup button for this pincode,
+  // without requiring the user to close and reopen it.
+  document.querySelectorAll(`.leaflet-popup .pp-btn[onclick*="toggleCompare('${pincode}')"]`).forEach(btn=>{
+    const inList = compareList.includes(pincode);
+    btn.textContent = inList ? "Remove from compare" : "Add to compare";
+    btn.classList.toggle("pp-btn-active", inList);
+  });
+};
+
+function renderCompareBar(){
+  const bar = document.getElementById("compareBar");
+  const chips = document.getElementById("compareChips");
+  const btn = document.getElementById("compareBtn");
+  if(compareList.length === 0){
+    bar.classList.add("hidden");
+    return;
+  }
+  bar.classList.remove("hidden");
+  chips.innerHTML = compareList.map(pc=>{
+    const d = pincodeMap[pc];
+    const label = d ? d.name : pc;
+    return `<span class="compare-chip">${label}<button onclick="toggleCompare('${pc}')" aria-label="Remove ${label} from compare">&times;</button></span>`;
+  }).join("");
+  btn.textContent = `Compare (${compareList.length})`;
+  btn.disabled = compareList.length < 2;
+}
+
+function fmtDiffPct(v){
+  if(v === null || v === undefined) return "—";
+  const cls = v >= 0 ? "compare-diff-pos" : "compare-diff-neg";
+  return `<span class="${cls}">${v >= 0 ? "+" : ""}${v}%</span>`;
+}
+function fmtINRShort(v){
+  return v === null || v === undefined ? "—" : "₹" + Math.round(v).toLocaleString("en-IN");
+}
+function rankBadge(r){
+  return `<span class="compare-rank${r === 1 ? " r1" : ""}">${r}</span>`;
+}
+
+function renderCompareTable(locations){
+  const row = (label, renderer) => `<tr><th>${label}</th>${locations.map(renderer).join("")}</tr>`;
+  const cols = locations.map(loc => `<th>${rankBadge(loc.rank)}${loc.name}<br>
+    <span style="font-weight:400;color:var(--ink-soft);text-transform:none;letter-spacing:0">${loc.pincode}</span></th>`).join("");
+  return `<div style="overflow-x:auto"><table class="compare-table">
+    <thead><tr><th></th>${cols}</tr></thead>
+    <tbody>
+      ${row("Economic score", loc => `<td><span class="compare-score">${loc.economic_score ?? "—"}</span><span style="font-size:11px;color:var(--ink-soft)"> /100</span></td>`)}
+      ${row("PPI (ML)", loc => `<td>${loc.ppi_ml ?? "—"}</td>`)}
+      ${row("Est. monthly income", loc => `<td>${fmtINRShort(loc.income)}</td>`)}
+      ${row("Est. monthly spend", loc => `<td>${fmtINRShort(loc.spend)}</td>`)}
+      ${row("vs. state avg", loc => `<td>${fmtDiffPct(loc.benchmark.state && loc.benchmark.state.diff_pct)} <span style="color:var(--ink-soft)">${(loc.benchmark.state && loc.benchmark.state.label) || ""}</span></td>`)}
+      ${row("vs. nearby areas", loc => `<td>${fmtDiffPct(loc.benchmark.neighbours && loc.benchmark.neighbours.diff_pct)}</td>`)}
+      ${row("Top model signals", loc => `<td style="font-size:11px">${(loc.top_signals || []).join(", ") || "—"}</td>`)}
+      ${row("Summary", loc => `<td class="compare-summary">${loc.executive_summary}</td>`)}
+    </tbody>
+  </table></div>`;
+}
+
+async function openCompareModal(){
+  if(compareList.length === 0) return;
+  const overlay = document.getElementById("compareModalOverlay");
+  const body = document.getElementById("compareModalBody");
+  overlay.classList.remove("hidden");
+  body.innerHTML = `<p class="modal-sub">Loading…</p>`;
+  try{
+    const r = await fetch(`/api/intelligence/compare?pincodes=${compareList.join(",")}`, { credentials: "include" });
+    if(!r.ok) throw new Error("compare failed");
+    const data = await r.json();
+    body.innerHTML = renderCompareTable(data.locations);
+  }catch(e){
+    body.innerHTML = `<p class="modal-sub">Couldn't load the comparison — please try again.</p>`;
+  }
+}
+window.closeCompareModal = function(){
+  document.getElementById("compareModalOverlay").classList.add("hidden");
+};
+document.getElementById("compareBtn").addEventListener("click", openCompareModal);
+document.addEventListener("keydown", e=>{
+  if(e.key === "Escape") closeCompareModal();
+});
 
 // ── Signal Explorer — search + category chips + signal picker + advanced filter builder ──
 // Replaces the old bare <select> "more signals" dropdown: same job (sets `metric`), but

@@ -24,14 +24,16 @@ Endpoints:
                               attaches to the auto-created "Saved Locations" project)
   /api/activity               GET — the signed-in user's recent activity feed
   /api/credits                GET — credit balance + ledger
-  /api/reports                GET — reports list (empty until Phase 2 can generate one)
-                              (see blueprints/ — 503 if DATABASE_URL isn't set, no CSV fallback)
+  /api/reports                GET — reports list (empty until report generation ships)
+  /api/intelligence/score      GET ?pincode= — economic score, benchmarks, executive summary
+  /api/intelligence/compare    GET ?pincodes=A,B,C (1-8) — same, ranked, side by side
+                              (see blueprints/ — 503 if DATABASE_URL isn't set, no CSV fallback;
+                              intelligence/* is the exception — no DB required, same as /api/export)
 """
 
 import csv
 import io
 import json
-import math
 import os
 import re
 import secrets
@@ -85,26 +87,13 @@ def _mirror_to_static():
 
 
 # ── Export: PPI/income/spend joined with every pincode-level raw signal ────────
-EXPORT_CORE_FIELDS = ["pincode", "name", "lat", "lng", "ppi_ml", "ppi_original",
-                       "est_monthly_income_hh", "est_monthly_spend_hh"]
-EXPORT_SIGNAL_FILES = [
-    ("property_rates.csv",      ["rate_per_sqft"]),
-    ("bank_deposits.csv",       ["bank_branches_per_lakh", "deposits_per_capita"]),
-    ("financial_inclusion.csv", ["sfb_branches", "coop_branches", "rrb_branches",
-                                  "fin_branches_total", "fin_density_per_km2"]),
-    ("itr_filers.csv",          ["filers_per_capita"]),
-    ("nightlights.csv",         ["radiance_mean"]),
-    ("poi_density.csv",         ["premium_poi_per_km2"]),
-    ("rto_enhanced.csv",        ["lmv_per_1000", "car_2w_ratio", "luxury_share", "ev_share"]),
-    ("vehicle_density.csv",     ["cars_per_1000"]),
-    ("upi_activity.csv",        ["upi_txn_value_per_capita"]),
-    ("education.csv",           ["schools_per_lakh"]),
-    ("commercial.csv",          ["msme_per_lakh"]),
-    ("agriculture.csv",         ["cropping_intensity_pct"]),
-    ("industrial.csv",          ["factories_per_lakh"]),
-    ("economic.csv",            ["nsdp_per_capita"]),
-]
-EXPORT_ALL_COLUMNS = EXPORT_CORE_FIELDS + [c for _, cols in EXPORT_SIGNAL_FILES for c in cols]
+# Moved to paisamap-etl/etl/_signals_data.py (Phase 2) so blueprints/intelligence.py
+# can reuse the exact same join without importing server.py back into a blueprint
+# it registers. Pull the names in locally so every existing reference below
+# (EXPORT_CORE_FIELDS, EXPORT_ALL_COLUMNS, etc.) keeps working unchanged.
+from _signals_data import (EXPORT_CORE_FIELDS, EXPORT_ALL_COLUMNS,
+                            haversine_km as _haversine_km, coerce as _coerce,
+                            load_ppi_signals_rows as _load_ppi_signals_rows)
 
 app = Flask(__name__)
 
@@ -131,12 +120,14 @@ try:
     from blueprints.activity import activity_bp
     from blueprints.credits import credits_bp
     from blueprints.reports import reports_bp
+    from blueprints.intelligence import intelligence_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(projects_bp)
     app.register_blueprint(locations_bp)
     app.register_blueprint(activity_bp)
     app.register_blueprint(credits_bp)
     app.register_blueprint(reports_bp)
+    app.register_blueprint(intelligence_bp)
 except ImportError as e:
     print(f"[server] auth/workspace blueprints unavailable: {e}", flush=True)
 
@@ -347,72 +338,9 @@ def enrich_stats():
 
 
 # ── Export ────────────────────────────────────────────────────────────────────
-def _haversine_km(lat1, lng1, lat2, lng2):
-    r = 6371.0
-    p = math.pi / 180
-    dlat, dlng = (lat2 - lat1) * p, (lng2 - lng1) * p
-    a = (math.sin(dlat / 2) ** 2
-         + math.cos(lat1 * p) * math.cos(lat2 * p) * math.sin(dlng / 2) ** 2)
-    return 2 * r * math.asin(math.sqrt(max(0, a)))
-
-
-def _coerce(v):
-    """CSV values are always strings — turn numeric-looking ones back into numbers for JSON/XLSX.
-
-    NaN/Infinity must become None here, not pass through as a float: a DB float column
-    (e.g. ppi_original, unset for most rows) can come back as an actual NaN rather than
-    None, and Python's json.dumps happily emits that as a bare `NaN` token by default —
-    which isn't valid JSON. Browsers' strict JSON.parse throws on it, which silently
-    killed the *entire* /api/export payload for every caller (confirmed live: every
-    signal outside the "Nationwide coverage" group — bank branches, property rate, ITR
-    filers, MSMEs, factories, NSDP, cropping intensity, night-lights, POI density, every
-    vehicle signal — read 0% coverage on the map despite being fully populated server-side,
-    because loadSignalData()'s res.json() was failing and getting swallowed on every load)."""
-    if v is None or v == "":
-        return None
-    try:
-        f = float(v)
-    except (TypeError, ValueError):
-        return v
-    if math.isnan(f) or math.isinf(f):
-        return None
-    return int(f) if f.is_integer() else f
-
-
-def _load_ppi_signals_rows():
-    """Core PPI/income/spend (DB if configured, else ppi_ml_refined.csv) joined
-    with every pincode-level raw signal file (still CSV-only — out of scope
-    for the DB migration's first pass). Returns (rows_dict, source_label)."""
-    rows = {}
-    source = "csv"
-    db_rows = _db.fetch_pincodes() if _db is not None else None
-    if db_rows is not None:
-        source = "database"
-        for r in db_rows:
-            pc = r.get("pincode")
-            if pc:
-                rows[pc] = {k: r.get(k, "") for k in EXPORT_CORE_FIELDS}
-    else:
-        core_path = ETL_OUT / "ppi_ml_refined.csv"
-        if core_path.exists():
-            with open(core_path, newline="") as f:
-                for r in csv.DictReader(f):
-                    pc = r.get("pincode")
-                    if pc:
-                        rows[pc] = {k: r.get(k, "") for k in EXPORT_CORE_FIELDS}
-
-    for fname, cols in EXPORT_SIGNAL_FILES:
-        fpath = ETL_RAW / fname
-        if not fpath.exists():
-            continue
-        with open(fpath, newline="") as f:
-            for r in csv.DictReader(f):
-                pc = r.get("pincode")
-                if pc not in rows:
-                    continue
-                for c in cols:
-                    rows[pc][c] = r.get(c, "")
-    return rows, source
+# _haversine_km / _coerce / _load_ppi_signals_rows now live in _signals_data.py
+# (imported above) — kept as module-level names here via `as` aliases so every
+# call site below is unchanged.
 
 
 def _load_log_rows():

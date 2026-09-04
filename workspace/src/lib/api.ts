@@ -100,6 +100,33 @@ export interface Report {
   created_at: string;
 }
 
+export interface BenchmarkGroup {
+  label: string;
+  ppi_ml: number | null;
+  income: number | null;
+  spend: number | null;
+  n: number;
+  diff_pct: number | null;
+}
+
+export interface LocationScore {
+  pincode: string;
+  name: string;
+  ppi_ml: number | null;
+  income: number | null;
+  spend: number | null;
+  economic_score: number | null;
+  benchmark: {
+    india: BenchmarkGroup;
+    state?: BenchmarkGroup;
+    district?: BenchmarkGroup;
+    neighbours?: BenchmarkGroup;
+  };
+  top_signals: string[];
+  anomaly_note: string | null;
+  executive_summary: string;
+}
+
 export const api = {
   config: () => request("/api/config"),
   me: () => request("/api/auth/me") as Promise<MeResponse>,
@@ -121,6 +148,9 @@ export const api = {
   deleteLocation: (id: number) => request(`/api/locations/${id}`, { method: "DELETE" }),
 
   listActivity: (limit = 50) => request(`/api/activity?limit=${limit}`) as Promise<{ activity: ActivityEntry[] }>,
+
+  getLocationScore: (pincode: string) =>
+    request(`/api/intelligence/score?pincode=${pincode}`) as Promise<LocationScore>,
 
   getCredits: () => request("/api/credits") as Promise<{ balance: number; ledger: CreditLedgerEntry[] }>,
 

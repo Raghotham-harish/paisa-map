@@ -6,6 +6,7 @@ const STATUS_OPTIONS: LocationStatus[] = ["shortlist", "reviewing", "approved", 
 export default function SavedLocations() {
   const [locations, setLocations] = useState<SavedLocation[] | null>(null);
   const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({});
+  const [scores, setScores] = useState<Record<string, number | null>>({});
 
   const load = () => {
     api.listLocations().then((data) => {
@@ -13,6 +14,14 @@ export default function SavedLocations() {
       const drafts: Record<number, string> = {};
       data.locations.forEach((l) => (drafts[l.id] = l.notes || ""));
       setNoteDrafts(drafts);
+      // One small request per distinct pincode — fine at this list's scale (a
+      // handful of saved locations, not thousands), and reuses the same public
+      // scoring endpoint the map's compare feature calls.
+      data.locations.forEach((l) => {
+        api.getLocationScore(l.pincode)
+          .then((s) => setScores((prev) => ({ ...prev, [l.pincode]: s.economic_score })))
+          .catch(() => setScores((prev) => ({ ...prev, [l.pincode]: null })));
+      });
     });
   };
 
@@ -53,7 +62,14 @@ export default function SavedLocations() {
               <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                 <div>
                   <div className="primary">{loc.name || loc.pincode}</div>
-                  <div className="secondary">{loc.pincode}</div>
+                  <div className="secondary">
+                    {loc.pincode}
+                    {loc.pincode in scores && scores[loc.pincode] !== null && (
+                      <span style={{ marginLeft: 8, fontFamily: "var(--mono)", color: "var(--rupee-deep)" }}>
+                        Economic score {scores[loc.pincode]}/100
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="row-actions">
                   <select value={loc.status} onChange={(e) => onStatusChange(loc.id, e.target.value as LocationStatus)}>
