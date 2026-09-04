@@ -90,13 +90,25 @@ echo "[deploy] write lock released"
 
 # Build the /workspace React+Vite app fresh from the code just pulled above —
 # node_modules/dist are never committed (see .gitignore), so this has to run
-# on every deploy. Requires Node/npm installed on the box; no-op if the
-# workspace/ directory doesn't exist (keeps this script safe against an older
-# checkout).
+# on every deploy. No-op if the workspace/ directory doesn't exist (keeps this
+# script safe against an older checkout).
+#
+# Node/npm not being installed on the box is an environment gap, not a code
+# defect — under `set -e` above, an unqualified `npm ci` here would abort the
+# ENTIRE deploy (including the unrelated PPI-map code/data sync) every single
+# time this runs until someone installs Node. So that specific case is a
+# skip-with-warning, not a hard failure; an actual build error (npm present,
+# but `npm run build` fails) is still a real code problem and IS allowed to
+# fail the deploy — that shouldn't ship silently.
 if [ -d "$REPO/workspace" ]; then
-  echo "[deploy] building workspace app..."
-  ( cd "$REPO/workspace" && npm ci && npm run build )
-  echo "[deploy] workspace app built"
+  if command -v npm >/dev/null 2>&1; then
+    echo "[deploy] building workspace app..."
+    ( cd "$REPO/workspace" && npm ci && npm run build )
+    echo "[deploy] workspace app built"
+  else
+    echo "[deploy] WARN: npm not found on this host — skipping workspace app build."
+    echo "[deploy] WARN: /workspace/ will serve stale or missing content until Node/npm is installed."
+  fi
 fi
 
 # Mirror app files to nginx's static root (serves /data/, frontend assets, and
