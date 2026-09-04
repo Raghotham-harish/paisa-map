@@ -10,6 +10,10 @@ workspace/dist/
 # Local dev sqlite DB for the auth/workspace tables (see _auth_db.py's docstring)
 paisamap_dev.db
 
+# Generated report PDFs (local-dev default location — see blueprints/reports.py's
+# docstring for why prod points REPORTS_DIR outside this tree entirely).
+data/reports/
+
 # Cross-process write lock for enrich_single.py / batch_enrich_hces.py
 # (see paisamap-etl/etl/_filelock.py) — auto-created on demand, empty file.
 paisamap-etl/data/.write.lock

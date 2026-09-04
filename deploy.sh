@@ -147,7 +147,7 @@ fi
 # Install any new Python deps for Flask server
 if [ -f venv-flask/bin/activate ]; then
   source venv-flask/bin/activate
-  pip install -q flask openpyxl sqlalchemy psycopg2-binary google-auth requests
+  pip install -q flask openpyxl sqlalchemy psycopg2-binary google-auth requests reportlab
   deactivate
 fi
 

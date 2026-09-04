@@ -24,11 +24,21 @@ Endpoints:
                               attaches to the auto-created "Saved Locations" project)
   /api/activity               GET — the signed-in user's recent activity feed
   /api/credits                GET — credit balance + ledger
-  /api/reports                GET — reports list (empty until report generation ships)
-  /api/intelligence/score      GET ?pincode= — economic score, benchmarks, executive summary
+  /api/reports                GET — reports list; POST {project_id} — generate a PDF
+                              (economic score/benchmark/opportunity/suitability/risk per
+                              saved location); GET /api/reports/<id>/download — fetch the PDF
+  /api/intelligence/score      GET ?pincode=[&avg_ticket=&target_segment=&business_type=]
+                              economic score, benchmarks, executive summary, risk, and
+                              (if a business profile is given) opportunity/suitability
   /api/intelligence/compare    GET ?pincodes=A,B,C (1-8) — same, ranked, side by side
                               (see blueprints/ — 503 if DATABASE_URL isn't set, no CSV fallback;
                               intelligence/* is the exception — no DB required, same as /api/export)
+
+REPORTS_DIR (env var, optional) — where generated report PDFs are written.
+Defaults to ./data/reports for local dev. Production MUST point this outside
+the git-tracked tree (see blueprints/reports.py's docstring) — deploy.sh
+mirrors a fresh git checkout onto the nginx static root with `rsync --delete`
+and would silently wipe any PDF that only ever existed in that destination copy.
 """
 
 import csv
@@ -184,6 +194,14 @@ def root():
 @app.route("/data/<path:fname>")
 def serve_data(fname):
     return send_from_directory(APP / "data", fname)
+
+@app.route("/assets/<path:fname>")
+def serve_assets(fname):
+    # nginx serves the whole app directory statically in prod, so assets/ (logo,
+    # favicon) resolve there with no extra config — this dev server only had
+    # explicit routes for "/" and "/data/", so the same paths 404'd locally
+    # (found via the workspace app's sidenav logo failing to load in local testing).
+    return send_from_directory(APP / "assets", fname)
 
 
 # ── Nominatim proxies ─────────────────────────────────────────────────────────

@@ -96,8 +96,11 @@ export interface Report {
   project_id: number;
   title: string;
   format: string;
-  status: string;
+  status: "pending" | "processing" | "ready" | "failed";
+  file_path: string | null;
+  params: { locations?: LocationScore[] } | null;
   created_at: string;
+  completed_at: string | null;
 }
 
 export interface BenchmarkGroup {
@@ -107,6 +110,21 @@ export interface BenchmarkGroup {
   spend: number | null;
   n: number;
   diff_pct: number | null;
+}
+
+export interface RiskAssessment {
+  level: "Low" | "Medium" | "High" | "Unknown";
+  anomaly_score: number | null;
+  note: string;
+}
+
+export interface OpportunityAssessment {
+  opportunity_score: number;
+  suitability: "Highly Suitable" | "Suitable" | "Marginal" | "Not Suitable";
+  basis: string;
+  ticket_pct_of_monthly_spend: number | null;
+  business_type: string | null;
+  target_segment: string | null;
 }
 
 export interface LocationScore {
@@ -125,6 +143,9 @@ export interface LocationScore {
   top_signals: string[];
   anomaly_note: string | null;
   executive_summary: string;
+  risk: RiskAssessment;
+  opportunity?: OpportunityAssessment;
+  risk_opportunity: string;
 }
 
 export const api = {
@@ -155,4 +176,10 @@ export const api = {
   getCredits: () => request("/api/credits") as Promise<{ balance: number; ledger: CreditLedgerEntry[] }>,
 
   listReports: () => request("/api/reports") as Promise<{ reports: Report[] }>,
+  generateReport: (projectId: number, title?: string) =>
+    request("/api/reports", {
+      method: "POST",
+      body: JSON.stringify({ project_id: projectId, title }),
+    }) as Promise<{ report: Report }>,
+  reportDownloadUrl: (id: number) => `/api/reports/${id}/download`,
 };

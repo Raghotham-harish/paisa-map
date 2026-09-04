@@ -9,12 +9,12 @@ import Credits from "./pages/Credits";
 import Reports from "./pages/Reports";
 
 const NAV = [
-  { to: "/", label: "Dashboard", end: true },
-  { to: "/projects", label: "Projects" },
-  { to: "/locations", label: "Saved Locations" },
-  { to: "/reports", label: "Reports" },
-  { to: "/activity", label: "Activity" },
-  { to: "/credits", label: "Credits" },
+  { to: "/", label: "Dashboard", end: true, icon: "ti-layout-dashboard" },
+  { to: "/projects", label: "Projects", icon: "ti-briefcase" },
+  { to: "/locations", label: "Saved Locations", icon: "ti-map-pin" },
+  { to: "/reports", label: "Reports", icon: "ti-file-text" },
+  { to: "/activity", label: "Activity", icon: "ti-activity" },
+  { to: "/credits", label: "Credits", icon: "ti-coin" },
 ];
 
 export default function App() {
@@ -23,21 +23,36 @@ export default function App() {
   if (loading) return <div className="loading">Loading…</div>;
   if (!user) return <SignIn />;
 
+  const initial = (user.name || user.email || "?").trim()[0]?.toUpperCase() || "?";
+
   return (
     <div className="shell">
       <aside className="sidenav">
         <a className="brand" href="/">
-          PaisaMap
+          <img src="/assets/logo-horizontal.svg" alt="PaisaMap" height="24" />
         </a>
         <nav>
           {NAV.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => (isActive ? "active" : "")}>
-              {item.label}
+              <i className={`ti ${item.icon}`} aria-hidden="true" />
+              <span>{item.label}</span>
             </NavLink>
           ))}
         </nav>
+
+        <div className="sidenav-user">
+          {user.picture_url ? (
+            <img className="avatar" src={user.picture_url} alt="" />
+          ) : (
+            <div className="avatar avatar-fallback">{initial}</div>
+          )}
+          <div className="user-info">
+            <div className="user-name">{user.name || user.email}</div>
+            <span className={`pill plan-${user.plan}`}>{user.plan}</span>
+          </div>
+        </div>
         <a className="back" href="/">
-          ← Back to map
+          <i className="ti ti-arrow-left" aria-hidden="true" /> Back to map
         </a>
         <a
           className="back"
@@ -47,7 +62,7 @@ export default function App() {
             signOut();
           }}
         >
-          Sign out
+          <i className="ti ti-logout" aria-hidden="true" /> Sign out
         </a>
       </aside>
       <main className="content">

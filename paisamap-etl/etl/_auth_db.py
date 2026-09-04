@@ -547,3 +547,52 @@ def list_reports(user_id):
             .order_by(reports.c.created_at.desc())
         ).mappings().all()
     return [dict(r) for r in rows]
+
+
+def create_report(user_id, project_id, title, format="pdf", status="pending",
+                   file_path=None, params=None):
+    engine = _require_engine()
+    tables = _get_tables()
+    reports = tables["reports"]
+    now = _now()
+    with engine.begin() as conn:
+        result = conn.execute(
+            reports.insert().values(
+                user_id=user_id, project_id=project_id, title=title, format=format,
+                status=status, file_path=file_path, params=params,
+                created_at=now, completed_at=now if status == "ready" else None,
+            )
+        )
+        new_id = result.inserted_primary_key[0]
+    return get_report(new_id, user_id)
+
+
+def get_report(report_id, user_id):
+    """Ownership-scoped, same convention as get_project/get_saved_location."""
+    engine = _require_engine()
+    tables = _get_tables()
+    reports = tables["reports"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(reports).where(reports.c.id == report_id, reports.c.user_id == user_id)
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def update_report(report_id, user_id, **fields):
+    allowed = {k: v for k, v in fields.items() if v is not None}
+    if not allowed:
+        return get_report(report_id, user_id)
+    if allowed.get("status") == "ready" and "completed_at" not in allowed:
+        allowed["completed_at"] = _now()
+    engine = _require_engine()
+    tables = _get_tables()
+    reports = tables["reports"]
+    with engine.begin() as conn:
+        conn.execute(
+            reports.update()
+            .where(reports.c.id == report_id, reports.c.user_id == user_id)
+            .values(**allowed)
+        )
+    return get_report(report_id, user_id)
