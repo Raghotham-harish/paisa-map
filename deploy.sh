@@ -88,7 +88,19 @@ echo "[deploy] acquiring write lock (shared with enrich_single.py/batch_enrich_h
 ) 200>"$LOCKFILE"
 echo "[deploy] write lock released"
 
-# Mirror app files to nginx's static root (serves /data/, frontend assets;
+# Build the /workspace React+Vite app fresh from the code just pulled above —
+# node_modules/dist are never committed (see .gitignore), so this has to run
+# on every deploy. Requires Node/npm installed on the box; no-op if the
+# workspace/ directory doesn't exist (keeps this script safe against an older
+# checkout).
+if [ -d "$REPO/workspace" ]; then
+  echo "[deploy] building workspace app..."
+  ( cd "$REPO/workspace" && npm ci && npm run build )
+  echo "[deploy] workspace app built"
+fi
+
+# Mirror app files to nginx's static root (serves /data/, frontend assets, and
+# workspace/dist/ via the /workspace/ location block configured on the server;
 # /api/ is proxied straight to the Flask service above, not through here).
 sudo rsync -av --delete \
   --exclude='.git' \
@@ -96,6 +108,7 @@ sudo rsync -av --delete \
   --exclude='venv-flask' \
   --exclude='__pycache__' \
   --exclude='*.pyc' \
+  --exclude='workspace/node_modules' \
   "$REPO/" \
   /var/www/paisamap/
 echo "[deploy] synced to /var/www/paisamap"
@@ -122,7 +135,7 @@ fi
 # Install any new Python deps for Flask server
 if [ -f venv-flask/bin/activate ]; then
   source venv-flask/bin/activate
-  pip install -q flask openpyxl sqlalchemy psycopg2-binary
+  pip install -q flask openpyxl sqlalchemy psycopg2-binary google-auth requests
   deactivate
 fi
 

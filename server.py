@@ -16,20 +16,27 @@ Endpoints:
                               PPI+signals or the enrichment audit log as CSV/JSON/XLSX
   /api/db_status             DB dual-write status + row-count parity vs. the CSVs
                               (see paisamap-etl/etl/_db.py — no-op until DATABASE_URL is set)
+  /api/auth/google           POST {credential} — verify Google ID token, create session
+  /api/auth/logout           POST — clear session
+  /api/auth/me               GET current user/plan/credits, 401 if not signed in
+  /api/projects              GET/POST — CRUD for the signed-in user's projects
+                              (see blueprints/ — 503 if DATABASE_URL isn't set, no CSV fallback)
 """
 
 import csv
 import io
 import json
 import math
+import os
 import re
+import secrets
 import shutil
 import sys
 import threading
 import subprocess
 import urllib.request
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from flask import Flask, request, jsonify, send_file, send_from_directory
 
@@ -95,6 +102,30 @@ EXPORT_SIGNAL_FILES = [
 EXPORT_ALL_COLUMNS = EXPORT_CORE_FIELDS + [c for _, cols in EXPORT_SIGNAL_FILES for c in cols]
 
 app = Flask(__name__)
+
+# Session config for the auth blueprints below. SECRET_KEY should be set in
+# production (injected via /etc/paisamap/db.env, same EnvironmentFile= pattern
+# as DATABASE_URL) — an ephemeral random key is fine for local dev but means
+# every restart invalidates existing sessions, so it's not acceptable in prod.
+app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+_db_is_postgres = os.environ.get("DATABASE_URL", "").startswith("postgresql")
+app.config.update(
+    SESSION_COOKIE_NAME="pm_session",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=_db_is_postgres,  # reuses the sqlite(dev)/postgresql(prod)
+                                             # convention _db.py already established,
+                                             # instead of a new env var
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+)
+
+try:
+    from blueprints.auth import auth_bp
+    from blueprints.projects import projects_bp
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(projects_bp)
+except ImportError as e:
+    print(f"[server] auth/projects blueprints unavailable: {e}", flush=True)
 
 # Job registry: pincode → {status, ppi, log, error, source}
 _jobs: dict = {}
@@ -230,6 +261,15 @@ def api_status(pincode):
 @app.route("/api/health")
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/config")
+def api_config():
+    """Public, non-secret runtime config for frontends — Google OAuth client IDs
+    are meant to be visible client-side (unlike SECRET_KEY/DATABASE_URL). Lets
+    the /workspace React app pick up the same client ID that index.html gets via
+    deploy.sh's sed injection, without a second injection mechanism."""
+    return jsonify({"google_client_id": os.environ.get("GOOGLE_CLIENT_ID", "")})
 
 
 @app.route("/api/db_status")

@@ -2,6 +2,14 @@ venv/
 __pycache__/
 *.pyc
 
+# workspace/ (React+Vite app) — built fresh by deploy.sh on every deploy,
+# never committed.
+workspace/node_modules/
+workspace/dist/
+
+# Local dev sqlite DB for the auth/workspace tables (see _auth_db.py's docstring)
+paisamap_dev.db
+
 # Cross-process write lock for enrich_single.py / batch_enrich_hces.py
 # (see paisamap-etl/etl/_filelock.py) — auto-created on demand, empty file.
 paisamap-etl/data/.write.lock

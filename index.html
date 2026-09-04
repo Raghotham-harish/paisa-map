@@ -3008,18 +3008,22 @@ document.querySelectorAll("#metricSeg button").forEach(b=>{
   });
 });
 
-// ── Entitlements — a REAL gate now, not just cosmetic PRO badge/lock styling. Every
-// Pro-only surface below (signal rows, catalog cards, the advanced filter builder) actually
-// checks isProPlan(). Defaulted to "pro" for every visitor until real billing/auth ships
-// (next session) — flip this default, or better, compute it from the signed-in account's
-// actual subscription, to start restricting free users for real.
-let userPlan = "pro"; // "free" | "pro"
-function isProPlan(){ return userPlan === "pro"; }
+// ── Entitlements — a REAL gate, computed from the signed-in account's actual plan (fetched
+// from /api/auth/me), not a hardcoded default. Every Pro-only surface below (signal rows,
+// catalog cards, the advanced filter builder) checks isProPlan(). Unauthenticated visitors
+// and free-plan accounts both see "free" — this is a live behavior change from the prior
+// hardcoded userPlan="pro": previously-unlocked Pro rows are now genuinely locked.
+let userPlan = "free"; // "free" | "pro" | "team"
+function isProPlan(){ return userPlan === "pro" || userPlan === "team"; }
+function renderPlanPill(){
+  const pill = document.getElementById("planPill");
+  if(pill) pill.textContent = isProPlan() ? userPlan.toUpperCase() : "FREE";
+}
+renderPlanPill();
 
 // ── Header: notifications / account menu / sign-in (Google Identity Services) ──────────
-// No auth backend yet (next session). The Google ID token is decoded client-side purely for
-// display (name/email/avatar) — that's a UI convenience, not a security boundary; verifying
-// it server-side and issuing a real session is part of the deferred backend work.
+// The Google ID token is verified server-side at POST /api/auth/google (see blueprints/auth.py)
+// — the client-side decode below is used only to pre-fill the UI before that response lands.
 const GOOGLE_CLIENT_ID = ""; // populated at deploy time — same blank-in-git pattern as ARCGIS_API_KEY, see deploy.sh
 
 function wireDropdown(btnId, panelId){
@@ -3045,14 +3049,10 @@ document.addEventListener("keydown", e=>{
   if(e.key === "Escape") document.querySelectorAll(".dropdown-panel").forEach(p=>p.hidden = true);
 });
 
-function decodeJwt(token){
-  try{
-    const b64 = token.split(".")[1].replace(/-/g,"+").replace(/_/g,"/");
-    const json = decodeURIComponent(atob(b64).split("").map(c=>"%"+("00"+c.charCodeAt(0).toString(16)).slice(-2)).join(""));
-    return JSON.parse(json);
-  }catch(e){ return null; }
-}
-
+// currentUser/userPlan are session-backed (cookie set by /api/auth/google), not just a
+// localStorage convenience. localStorage still caches the last-known user so the header
+// can paint before the /api/auth/me round-trip resolves on page load — the fetch response
+// is always the source of truth and overwrites it.
 let currentUser = null;
 function renderAuthUI(){
   const authBtn = document.getElementById("authBtn"), userBtn = document.getElementById("userMenuBtn");
@@ -3068,6 +3068,7 @@ function renderAuthUI(){
     authBtn.hidden = false;
     userBtn.hidden = true;
   }
+  renderPlanPill();
 }
 function persistUser(u){
   currentUser = u;
@@ -3077,18 +3078,43 @@ function persistUser(u){
 (function(){
   try{ const raw = localStorage.getItem("pm_user"); if(raw) currentUser = JSON.parse(raw); }catch(e){}
   renderAuthUI();
+  // Reconcile against the real session — a stale/cleared cookie (or a plan change made
+  // elsewhere) must win over whatever localStorage cached last.
+  fetch("/api/auth/me", { credentials: "include" })
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if(data && data.user){
+        userPlan = data.plan || "free";
+        persistUser({ name: data.user.name, email: data.user.email, picture: data.user.picture_url });
+      } else {
+        userPlan = "free";
+        persistUser(null);
+      }
+    })
+    .catch(()=>{ /* offline/local dev without a DB — keep whatever localStorage had */ });
 })();
 
 function handleGoogleCredential(response){
-  const payload = decodeJwt(response.credential);
-  if(!payload) return;
-  persistUser({ name: payload.name, email: payload.email, picture: payload.picture });
-  document.getElementById("authPanel").hidden = true;
-  document.getElementById("authBtn").setAttribute("aria-expanded","false");
-  toast(`Signed in as ${(payload.name||payload.email).split(" ")[0]}`, 2500);
+  fetch("/api/auth/google", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ credential: response.credential }),
+  })
+    .then(r => { if(!r.ok) throw new Error("auth failed"); return r.json(); })
+    .then(data => {
+      userPlan = data.plan || "free";
+      persistUser({ name: data.user.name, email: data.user.email, picture: data.user.picture_url });
+      document.getElementById("authPanel").hidden = true;
+      document.getElementById("authBtn").setAttribute("aria-expanded","false");
+      toast(`Signed in as ${(data.user.name || data.user.email).split(" ")[0]}`, 2500);
+    })
+    .catch(()=>{ toast("Sign-in failed — please try again", 2500); });
 }
 
 document.getElementById("signOutBtn").addEventListener("click", ()=>{
+  fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(()=>{});
+  userPlan = "free";
   persistUser(null);
   if(window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
   document.getElementById("userMenuPanel").hidden = true;
@@ -3109,9 +3135,10 @@ if(GOOGLE_CLIENT_ID){
   document.getElementById("authNote").hidden = false;
 }
 
-// Dashboard — placeholder entry point; scope/content to be defined in a future session.
+// Dashboard — opens the workspace app (separate React+Vite app, same-origin so the
+// session cookie carries over with no extra sign-in).
 document.getElementById("dashboardBtn").addEventListener("click", ()=>{
-  toast("Dashboard — coming soon", 2200);
+  window.location.href = "/workspace/";
 });
 
 // ── Signal Explorer — search + category chips + signal picker + advanced filter builder ──
