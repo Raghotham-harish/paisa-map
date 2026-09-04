@@ -44,8 +44,60 @@ export interface Project {
   id: number;
   name: string;
   description: string | null;
+  business_type: string | null;
+  target_segment: string | null;
+  avg_ticket: number | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectFields {
+  name?: string;
+  description?: string;
+  business_type?: string;
+  target_segment?: string;
+  avg_ticket?: string | number;
+}
+
+export type LocationStatus = "shortlist" | "reviewing" | "approved" | "rejected";
+
+export interface SavedLocation {
+  id: number;
+  project_id: number;
+  pincode: string;
+  name: string | null;
+  lat: number | null;
+  lng: number | null;
+  status: LocationStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ActivityEntry {
+  id: number;
+  action: string;
+  target_type: string | null;
+  target_id: number | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface CreditLedgerEntry {
+  id: number;
+  delta: number;
+  reason: string;
+  balance_after: number;
+  created_at: string;
+}
+
+export interface Report {
+  id: number;
+  project_id: number;
+  title: string;
+  format: string;
+  status: string;
+  created_at: string;
 }
 
 export const api = {
@@ -54,8 +106,23 @@ export const api = {
   signInWithGoogle: (credential: string) =>
     request("/api/auth/google", { method: "POST", body: JSON.stringify({ credential }) }) as Promise<MeResponse>,
   signOut: () => request("/api/auth/logout", { method: "POST" }),
+
   listProjects: () => request("/api/projects") as Promise<{ projects: Project[] }>,
-  createProject: (name: string, description?: string) =>
-    request("/api/projects", { method: "POST", body: JSON.stringify({ name, description }) }) as Promise<{ project: Project }>,
+  createProject: (fields: ProjectFields) =>
+    request("/api/projects", { method: "POST", body: JSON.stringify(fields) }) as Promise<{ project: Project }>,
+  updateProject: (id: number, fields: ProjectFields) =>
+    request(`/api/projects/${id}`, { method: "PUT", body: JSON.stringify(fields) }) as Promise<{ project: Project }>,
   deleteProject: (id: number) => request(`/api/projects/${id}`, { method: "DELETE" }),
+
+  listLocations: (projectId?: number) =>
+    request(`/api/locations${projectId ? `?project_id=${projectId}` : ""}`) as Promise<{ locations: SavedLocation[] }>,
+  updateLocation: (id: number, fields: { status?: LocationStatus; notes?: string }) =>
+    request(`/api/locations/${id}`, { method: "PUT", body: JSON.stringify(fields) }) as Promise<{ location: SavedLocation }>,
+  deleteLocation: (id: number) => request(`/api/locations/${id}`, { method: "DELETE" }),
+
+  listActivity: (limit = 50) => request(`/api/activity?limit=${limit}`) as Promise<{ activity: ActivityEntry[] }>,
+
+  getCredits: () => request("/api/credits") as Promise<{ balance: number; ledger: CreditLedgerEntry[] }>,
+
+  listReports: () => request("/api/reports") as Promise<{ reports: Report[] }>,
 };

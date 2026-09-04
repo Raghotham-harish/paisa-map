@@ -20,6 +20,11 @@ Endpoints:
   /api/auth/logout           POST — clear session
   /api/auth/me               GET current user/plan/credits, 401 if not signed in
   /api/projects              GET/POST — CRUD for the signed-in user's projects
+  /api/locations             GET/POST — saved locations (POST with no project_id
+                              attaches to the auto-created "Saved Locations" project)
+  /api/activity               GET — the signed-in user's recent activity feed
+  /api/credits                GET — credit balance + ledger
+  /api/reports                GET — reports list (empty until Phase 2 can generate one)
                               (see blueprints/ — 503 if DATABASE_URL isn't set, no CSV fallback)
 """
 
@@ -122,10 +127,18 @@ app.config.update(
 try:
     from blueprints.auth import auth_bp
     from blueprints.projects import projects_bp
+    from blueprints.locations import locations_bp
+    from blueprints.activity import activity_bp
+    from blueprints.credits import credits_bp
+    from blueprints.reports import reports_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(projects_bp)
+    app.register_blueprint(locations_bp)
+    app.register_blueprint(activity_bp)
+    app.register_blueprint(credits_bp)
+    app.register_blueprint(reports_bp)
 except ImportError as e:
-    print(f"[server] auth/projects blueprints unavailable: {e}", flush=True)
+    print(f"[server] auth/workspace blueprints unavailable: {e}", flush=True)
 
 # Job registry: pincode → {status, ppi, log, error, source}
 _jobs: dict = {}

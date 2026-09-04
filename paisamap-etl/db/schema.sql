@@ -84,13 +84,16 @@ CREATE TABLE IF NOT EXISTS org_members (
 );
 
 CREATE TABLE IF NOT EXISTS projects (
-    id           SERIAL PRIMARY KEY,
-    user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    org_id       INTEGER REFERENCES organizations(id),  -- NULL = personal project (Phase 0 default)
-    name         TEXT NOT NULL,
-    description  TEXT,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    id              SERIAL PRIMARY KEY,
+    user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    org_id          INTEGER REFERENCES organizations(id),  -- NULL = personal project (Phase 0 default)
+    name            TEXT NOT NULL,
+    description     TEXT,
+    business_type   TEXT,      -- added Phase 1 (business-profile fields)
+    target_segment  TEXT,      -- added Phase 1
+    avg_ticket      DOUBLE PRECISION,  -- added Phase 1
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS ix_projects_user_id ON projects (user_id);

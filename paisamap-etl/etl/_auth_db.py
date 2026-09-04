@@ -102,6 +102,9 @@ def _get_tables():
         Column("org_id", Integer, ForeignKey("organizations.id")),
         Column("name", Text, nullable=False),
         Column("description", Text),
+        Column("business_type", Text),
+        Column("target_segment", Text),
+        Column("avg_ticket", Float),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("updated_at", DateTime(timezone=True), nullable=False),
     )
@@ -186,6 +189,35 @@ def init_schema():
         tables["projects"], tables["saved_locations"], tables["reports"],
         tables["credits_ledger"], tables["activity_log"],
     ])
+
+
+# Additive column changes to tables that may already exist in production —
+# create_all() above only creates missing TABLES, it never alters an existing
+# one, so a new column needs its own idempotent step. No formal migration
+# framework in this codebase (matches its existing "small, documented,
+# idempotent script" style elsewhere, e.g. merge_enrichment_file.py) — new
+# additive changes should add another (table, column, sql_type) entry here.
+_MIGRATIONS = [
+    ("projects", "business_type", "TEXT"),
+    ("projects", "target_segment", "TEXT"),
+    ("projects", "avg_ticket", "FLOAT"),
+]
+
+
+def migrate_schema():
+    """Add any missing columns from _MIGRATIONS — safe to call every time,
+    including against a fresh DB where create_all() already added them.
+    SQLite's ALTER TABLE has no ADD COLUMN IF NOT EXISTS (unlike Postgres
+    9.6+), so existence is checked per-dialect instead of relied on syntax."""
+    engine = _require_engine()
+    from sqlalchemy import text, inspect
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table, column, sql_type in _MIGRATIONS:
+            existing_cols = {c["name"] for c in inspector.get_columns(table)}
+            if column in existing_cols:
+                continue
+            conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {sql_type}"))
 
 
 def _now():
@@ -292,8 +324,12 @@ def log_activity(user_id, action, target_type=None, target_id=None, metadata=Non
         c.execute(log.insert().values(**values))
 
 
+PROJECT_EDITABLE_FIELDS = ("name", "description", "business_type", "target_segment", "avg_ticket")
+
+
 # ── Projects ─────────────────────────────────────────────────────────────────
-def create_project(user_id, name, description=None):
+def create_project(user_id, name, description=None, business_type=None,
+                    target_segment=None, avg_ticket=None):
     engine = _require_engine()
     tables = _get_tables()
     projects = tables["projects"]
@@ -302,12 +338,33 @@ def create_project(user_id, name, description=None):
         result = conn.execute(
             projects.insert().values(
                 user_id=user_id, name=name, description=description,
-                created_at=now, updated_at=now,
+                business_type=business_type, target_segment=target_segment,
+                avg_ticket=avg_ticket, created_at=now, updated_at=now,
             )
         )
         new_id = result.inserted_primary_key[0]
         log_activity(user_id, "project_create", target_type="project", target_id=new_id, conn=conn)
     return get_project(new_id, user_id)
+
+
+def get_or_create_default_project(user_id):
+    """Finds-or-creates the user's "Saved Locations" project — the implicit
+    home for anything saved from the public map without a project picker.
+    Matched by exact name, not a schema flag, so this needs no new column."""
+    engine = _require_engine()
+    tables = _get_tables()
+    projects = tables["projects"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(projects.c.id).where(
+                projects.c.user_id == user_id, projects.c.name == "Saved Locations"
+            )
+        ).first()
+    if row:
+        return row.id
+    return create_project(user_id, "Saved Locations",
+                           description="Locations you've saved from the map.")["id"]
 
 
 def list_projects(user_id):
@@ -339,7 +396,7 @@ def get_project(project_id, user_id):
 
 
 def update_project(project_id, user_id, **fields):
-    allowed = {k: v for k, v in fields.items() if k in ("name", "description") and v is not None}
+    allowed = {k: v for k, v in fields.items() if k in PROJECT_EDITABLE_FIELDS and v is not None}
     if not allowed:
         return get_project(project_id, user_id)
     engine = _require_engine()
@@ -364,3 +421,129 @@ def delete_project(project_id, user_id):
             projects.delete().where(projects.c.id == project_id, projects.c.user_id == user_id)
         )
     return result.rowcount > 0
+
+
+# ── Saved locations ──────────────────────────────────────────────────────────
+def create_saved_location(user_id, project_id, pincode, name=None, lat=None, lng=None):
+    """Upsert-like: a repeat save of the same (project_id, pincode) — the
+    existing unique constraint — returns the existing row unchanged instead of
+    raising, so re-clicking Save on the map is idempotent rather than an error."""
+    engine = _require_engine()
+    tables = _get_tables()
+    locs = tables["saved_locations"]
+    from sqlalchemy import select
+    with engine.begin() as conn:
+        existing = conn.execute(
+            select(locs.c.id).where(locs.c.project_id == project_id, locs.c.pincode == pincode)
+        ).first()
+        if existing:
+            return get_saved_location(existing.id, user_id), False
+        now = _now()
+        result = conn.execute(
+            locs.insert().values(
+                project_id=project_id, user_id=user_id, pincode=pincode, name=name,
+                lat=lat, lng=lng, status="shortlist", created_at=now, updated_at=now,
+            )
+        )
+        new_id = result.inserted_primary_key[0]
+        log_activity(user_id, "location_save", target_type="saved_location", target_id=new_id,
+                     metadata={"pincode": pincode}, conn=conn)
+    return get_saved_location(new_id, user_id), True
+
+
+def list_saved_locations(user_id, project_id=None):
+    engine = _require_engine()
+    tables = _get_tables()
+    locs = tables["saved_locations"]
+    from sqlalchemy import select
+    conds = [locs.c.user_id == user_id]
+    if project_id is not None:
+        conds.append(locs.c.project_id == project_id)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(locs).where(*conds).order_by(locs.c.updated_at.desc())
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def get_saved_location(location_id, user_id):
+    engine = _require_engine()
+    tables = _get_tables()
+    locs = tables["saved_locations"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(locs).where(locs.c.id == location_id, locs.c.user_id == user_id)
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+LOCATION_EDITABLE_FIELDS = ("status", "tags", "notes")
+
+
+def update_saved_location(location_id, user_id, **fields):
+    allowed = {k: v for k, v in fields.items() if k in LOCATION_EDITABLE_FIELDS and v is not None}
+    if not allowed:
+        return get_saved_location(location_id, user_id)
+    engine = _require_engine()
+    tables = _get_tables()
+    locs = tables["saved_locations"]
+    allowed["updated_at"] = _now()
+    with engine.begin() as conn:
+        conn.execute(
+            locs.update()
+            .where(locs.c.id == location_id, locs.c.user_id == user_id)
+            .values(**allowed)
+        )
+    return get_saved_location(location_id, user_id)
+
+
+def delete_saved_location(location_id, user_id):
+    engine = _require_engine()
+    tables = _get_tables()
+    locs = tables["saved_locations"]
+    with engine.begin() as conn:
+        result = conn.execute(
+            locs.delete().where(locs.c.id == location_id, locs.c.user_id == user_id)
+        )
+    return result.rowcount > 0
+
+
+# ── Activity / credits / reports (read paths) ───────────────────────────────
+def list_activity(user_id, limit=50):
+    engine = _require_engine()
+    tables = _get_tables()
+    log = tables["activity_log"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(log).where(log.c.user_id == user_id)
+            .order_by(log.c.id.desc()).limit(limit)
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def list_credit_ledger(user_id, limit=50):
+    engine = _require_engine()
+    tables = _get_tables()
+    ledger = tables["credits_ledger"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(ledger).where(ledger.c.user_id == user_id)
+            .order_by(ledger.c.id.desc()).limit(limit)
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def list_reports(user_id):
+    engine = _require_engine()
+    tables = _get_tables()
+    reports = tables["reports"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(reports).where(reports.c.user_id == user_id)
+            .order_by(reports.c.created_at.desc())
+        ).mappings().all()
+    return [dict(r) for r in rows]

@@ -26,6 +26,8 @@ def main():
 
     print("Creating auth/workspace schema (if not already present)…")
     _auth_db.init_schema()
+    print("Applying additive schema migrations (if not already applied)…")
+    _auth_db.migrate_schema()
     print("Done. Tables: organizations, users, org_members, projects, "
           "saved_locations, reports, credits_ledger, activity_log")
 

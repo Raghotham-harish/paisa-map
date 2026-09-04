@@ -2781,6 +2781,7 @@ function popupHTML(d, rows){
         <div class="snapshot-label">Not yet deep-enriched — PPI/income unavailable for this pincode</div>
       </div>
       <button class="pp-btn" onclick="showBoundary(${d.id})">Show area boundary</button>
+      ${d.pincode ? `<button class="pp-btn" onclick="saveLocation('${d.pincode}')">Save location</button>` : ""}
     </div>`;
   }
 
@@ -2851,6 +2852,7 @@ function popupHTML(d, rows){
         </div>`).join("")}
     </div>
     <button class="pp-btn" onclick="showBoundary(${d.id})">Show area boundary</button>
+    ${d.pincode ? `<button class="pp-btn" onclick="saveLocation('${d.pincode}')">Save location</button>` : ""}
   </div>`;
 }
 
@@ -3140,6 +3142,50 @@ if(GOOGLE_CLIENT_ID){
 document.getElementById("dashboardBtn").addEventListener("click", ()=>{
   window.location.href = "/workspace/";
 });
+
+// ── Save location — the signup wall's actual trigger. Not a wall on page load: a
+// visitor can explore freely, and only hits a prompt to sign in at the moment they
+// try to do something that requires an account ("you've found something useful").
+function openAuthPanel(){
+  // Deferred to the next tick: this can be called from a click deep inside a Leaflet
+  // popup (e.g. the Save button below), whose click event is still bubbling up to
+  // `document` in the same tick — and there's a document-level click listener (above)
+  // that closes every .dropdown-panel on any outside click. Opening synchronously means
+  // that same listener stomps it shut microseconds later, in the same event; running
+  // this after the current event finishes avoids the race.
+  setTimeout(()=>{
+    document.querySelectorAll(".dropdown-panel").forEach(p=>p.hidden = true);
+    document.querySelectorAll(".dd-wrap [aria-expanded]").forEach(b=>b.setAttribute("aria-expanded","false"));
+    const panel = document.getElementById("authPanel"), btn = document.getElementById("authBtn");
+    panel.hidden = false;
+    btn.setAttribute("aria-expanded","true");
+  }, 0);
+}
+
+window.saveLocation = async function(pincode){
+  const d = pincodeMap[pincode];
+  if(!currentUser){
+    openAuthPanel();
+    toast("Sign in to save locations", 2600);
+    return;
+  }
+  try{
+    const r = await fetch("/api/locations", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      credentials: "include",
+      body: JSON.stringify({
+        pincode, name: d ? d.name : pincode,
+        lat: d ? d.lat : null, lng: d ? d.lng : null,
+      }),
+    });
+    if(!r.ok) throw new Error("save failed");
+    const data = await r.json();
+    toast(data.created ? "Saved to your locations" : "Already in your saved locations", 2400);
+  }catch(e){
+    toast("Couldn't save this location — please try again", 2600);
+  }
+};
 
 // ── Signal Explorer — search + category chips + signal picker + advanced filter builder ──
 // Replaces the old bare <select> "more signals" dropdown: same job (sets `metric`), but
