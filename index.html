@@ -1532,42 +1532,46 @@ map.getPane("heatPoly").style.zIndex = 405;
 map.getPane("heatPoly").style.pointerEvents = "none";
 
 const ATTR_OSM   = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
-const ATTR_CARTO = ATTR_OSM + ' &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
 // Classic OpenStreetMap — the colourful leafletjs.com look
 const osmClassic   = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
   {maxZoom:19, attribution:ATTR_OSM});
-// CARTO alternate (OSM-based) — NOTE: CARTO has sunset the free anonymous
-// basemaps.cartocdn.com raster endpoint; every tile from this URL now comes back as a
-// watermarked "API KEY REQUIRED" placeholder (confirmed via direct tile fetch AND a
-// real browser render — not a curl/referrer artifact). Left in the switcher as-is
-// since fixing it wasn't in scope of the basemap-default work below, but it is
-// currently broken for anyone who manually selects it.
-const cartoStreets = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png",
-  {maxZoom:19, subdomains:"abcd", attribution:ATTR_CARTO});
-const cartoLabels  = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png",
-  {maxZoom:19, subdomains:"abcd", pane:"labels"});
 
-// Light (Esri) — the app's default basemap: a clean, low-chroma ground that keeps the
-// PPI choropleth/pins as the visual focus instead of competing with a busy street map.
-// Was CARTO's "light_nolabels" — replaced after discovering CARTO's free tier is dead
-// (see note above); Esri's classic World_Light_Gray_Base/Reference REST tile services
-// are still genuinely key-free (distinct from Esri's newer Vector Basemap Styles API,
-// which does need ARCGIS_API_KEY — these are the older, still-open ArcGIS Online tiles).
-// maxNativeZoom:16 — this service has no real tiles past z16 (confirmed: z17-19
-// all return an identical "Map data not yet available" placeholder graphic, not
-// actual imagery). maxZoom:19 keeps parity with the other basemaps' deep-zoom range;
-// Leaflet upscales the z16 tile for 17-19 instead of requesting the placeholder.
-const ATTR_ESRI_GRAY = "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ";
+// Both of these used to be CARTO's basemaps.cartocdn.com raster tiles. CARTO has
+// sunset that free anonymous endpoint entirely — every tile from it now comes back
+// as a watermarked "API KEY REQUIRED" placeholder (confirmed via direct tile fetch
+// AND a real browser render, so not a curl/referrer artifact). Replaced both with
+// Esri's classic REST tile services (server.arcgisonline.com), which are still
+// genuinely key-free — distinct from Esri's newer Vector Basemap Styles API, which
+// does need ARCGIS_API_KEY. maxNativeZoom:16 on both: neither service has real
+// tiles past z16 for most of the world (z17-19 return an identical "Map data not
+// yet available" placeholder, confirmed by byte-identical responses) — maxZoom:19
+// keeps parity with OSM's range, with Leaflet upscaling past z16 instead of
+// requesting the placeholder.
+const ATTR_ESRI = "Tiles &copy; Esri &mdash; Esri, DeLorme, NAVTEQ";
+
+// Streets (Esri) — was "Streets (CARTO·OSM)". World_Street_Map already bakes in
+// labels (unlike the Light Gray pair below), so no separate labels layer needed.
+const streetsEsri = L.tileLayer(
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+  {maxZoom:19, maxNativeZoom:16, attribution:ATTR_ESRI});
+
+// Light (Esri) — the app's default basemap: a clean, low-chroma ground that keeps
+// the PPI choropleth/pins as the visual focus instead of competing with a busy
+// street map. Base/Reference are separate layers here (unlike World_Street_Map).
 const lightGray = L.tileLayer(
   "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
-  {maxZoom:19, maxNativeZoom:16, attribution:ATTR_ESRI_GRAY});
+  {maxZoom:19, maxNativeZoom:16, attribution:ATTR_ESRI});
 const lightGrayLabels = L.tileLayer(
   "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}",
   {maxZoom:19, maxNativeZoom:16, pane:"labels"});
 
-lightGray.addTo(map);
-lightGrayLabels.addTo(map);
+// Default basemap: OpenStreetMap classic. Esri's Light/Streets tiles are real
+// options in the switcher (both fixed after CARTO's free tier died, see notes
+// above) but user's call to keep OSM as default — Esri's REST tile services here
+// only have real detail to z16 (maxNativeZoom, upscaled beyond that), visibly less
+// crisp at deep zoom than OSM's native z19.
+osmClassic.addTo(map);
 
 // ArcGIS vector basemaps — extra choices alongside the free OSM/CARTO defaults above, never
 // replacing them. Only constructed if a key is configured (see ARCGIS_API_KEY); otherwise this
@@ -1582,29 +1586,27 @@ if(ARCGIS_API_KEY && window.L && L.esri && L.esri.Vector){
 }
 
 L.control.layers(
-  {"Light (Esri)":lightGray, "OpenStreetMap classic":osmClassic, "Streets (CARTO·OSM)":cartoStreets, ...arcgisBaseLayers},
+  {"Light (Esri)":lightGray, "OpenStreetMap classic":osmClassic, "Streets (Esri)":streetsEsri, ...arcgisBaseLayers},
   {},
   {position:"topright", collapsed:true}
 ).addTo(map);
 
-// auto-attach the matching labels overlay for whichever no-label basemap is active —
-// not for OSM (labels baked in) or ArcGIS vector styles (also self-labelled; stacking
-// a second label layer on top would look mismatched).
+// auto-attach the Light Gray labels overlay only when that base layer is active —
+// not for OSM/Streets (Esri) (both bake in their own labels) or ArcGIS vector
+// styles (also self-labelled; stacking a second label layer on top would look
+// mismatched).
 map.on("baselayerchange", e=>{
-  map.removeLayer(cartoLabels);
   map.removeLayer(lightGrayLabels);
-  if(e.layer === cartoStreets) cartoLabels.addTo(map);
-  else if(e.layer === lightGray) lightGrayLabels.addTo(map);
+  if(e.layer === lightGray) lightGrayLabels.addTo(map);
 });
 
-// If OSM tiles fail to load (some networks block them), fall back to CARTO
+// If OSM tiles fail to load (some networks block them), fall back to Streets (Esri)
 let tileFails = 0;
 osmClassic.on("tileerror", ()=>{
   if(++tileFails === 6 && map.hasLayer(osmClassic)){
     map.removeLayer(osmClassic);
-    cartoStreets.addTo(map);
-    cartoLabels.addTo(map);
-    toast("OSM tiles blocked on this network — switched to CARTO basemap.");
+    streetsEsri.addTo(map);
+    toast("OSM tiles blocked on this network — switched to Streets (Esri) basemap.");
   }
 });
 
@@ -1809,7 +1811,7 @@ function tierPinIcon(color, iconGlyph){
 /* ---------- offline mode: tiles unreachable → grid + name labels ---------- */
 let OFFLINE = false;
 let tilesLoaded = 0;
-[osmClassic,cartoStreets,lightGray,lightGrayLabels,cartoLabels].forEach(l=>l.on("tileload",()=>{ tilesLoaded++; }));
+[osmClassic,streetsEsri,lightGray,lightGrayLabels].forEach(l=>l.on("tileload",()=>{ tilesLoaded++; }));
 setTimeout(()=>{
   if(tilesLoaded === 0){
     OFFLINE = true;
