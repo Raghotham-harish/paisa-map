@@ -140,6 +140,8 @@ def build_project_report_pdf(project, locations, out_path):
         meta_bits.append(biz)
     if project.get("avg_ticket"):
         meta_bits.append(f"avg ticket {_fmt_money(project['avg_ticket'])}")
+    if project.get("website_url"):
+        meta_bits.append(project["website_url"].replace("https://", "").replace("http://", ""))
     meta_bits.append(datetime.now(timezone.utc).strftime("Generated %d %b %Y"))
     story.append(Paragraph(" &nbsp;·&nbsp; ".join(meta_bits), styles["Meta"]))
     story.append(HRFlowable(width="100%", thickness=1, color=BORDER, spaceAfter=10))

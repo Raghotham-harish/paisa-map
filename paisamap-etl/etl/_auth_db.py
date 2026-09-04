@@ -105,6 +105,7 @@ def _get_tables():
         Column("business_type", Text),
         Column("target_segment", Text),
         Column("avg_ticket", Float),
+        Column("website_url", Text),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("updated_at", DateTime(timezone=True), nullable=False),
     )
@@ -201,6 +202,7 @@ _MIGRATIONS = [
     ("projects", "business_type", "TEXT"),
     ("projects", "target_segment", "TEXT"),
     ("projects", "avg_ticket", "FLOAT"),
+    ("projects", "website_url", "TEXT"),
 ]
 
 
@@ -324,12 +326,13 @@ def log_activity(user_id, action, target_type=None, target_id=None, metadata=Non
         c.execute(log.insert().values(**values))
 
 
-PROJECT_EDITABLE_FIELDS = ("name", "description", "business_type", "target_segment", "avg_ticket")
+PROJECT_EDITABLE_FIELDS = ("name", "description", "business_type", "target_segment",
+                           "avg_ticket", "website_url")
 
 
 # ── Projects ─────────────────────────────────────────────────────────────────
 def create_project(user_id, name, description=None, business_type=None,
-                    target_segment=None, avg_ticket=None):
+                    target_segment=None, avg_ticket=None, website_url=None):
     engine = _require_engine()
     tables = _get_tables()
     projects = tables["projects"]
@@ -339,7 +342,8 @@ def create_project(user_id, name, description=None, business_type=None,
             projects.insert().values(
                 user_id=user_id, name=name, description=description,
                 business_type=business_type, target_segment=target_segment,
-                avg_ticket=avg_ticket, created_at=now, updated_at=now,
+                avg_ticket=avg_ticket, website_url=website_url,
+                created_at=now, updated_at=now,
             )
         )
         new_id = result.inserted_primary_key[0]

@@ -47,6 +47,7 @@ export interface Project {
   business_type: string | null;
   target_segment: string | null;
   avg_ticket: number | null;
+  website_url: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -57,6 +58,7 @@ export interface ProjectFields {
   business_type?: string;
   target_segment?: string;
   avg_ticket?: string | number;
+  website_url?: string;
 }
 
 export type LocationStatus = "shortlist" | "reviewing" | "approved" | "rejected";

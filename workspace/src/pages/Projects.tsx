@@ -4,7 +4,7 @@ import { EmptyState } from "../components/EmptyState";
 import { SearchInput } from "../components/SearchInput";
 
 const EMPTY_FIELDS: ProjectFields = {
-  name: "", description: "", business_type: "", target_segment: "", avg_ticket: "",
+  name: "", description: "", business_type: "", target_segment: "", avg_ticket: "", website_url: "",
 };
 
 function BusinessFields({
@@ -41,6 +41,15 @@ function BusinessFields({
           placeholder="e.g. 500"
           value={fields.avg_ticket ?? ""}
           onChange={(e) => onChange({ ...fields, avg_ticket: e.target.value })}
+        />
+      </label>
+      <label>
+        Website
+        <input
+          type="text"
+          placeholder="e.g. yourbusiness.com"
+          value={fields.website_url || ""}
+          onChange={(e) => onChange({ ...fields, website_url: e.target.value })}
         />
       </label>
     </div>
@@ -89,7 +98,7 @@ export default function Projects() {
     setEditFields({
       name: p.name, description: p.description || "",
       business_type: p.business_type || "", target_segment: p.target_segment || "",
-      avg_ticket: p.avg_ticket ?? "",
+      avg_ticket: p.avg_ticket ?? "", website_url: p.website_url || "",
     });
   };
 
@@ -153,11 +162,21 @@ export default function Projects() {
                 <div>
                   <div className="name">{p.name}</div>
                   {p.description && <div className="desc">{p.description}</div>}
-                  {(p.business_type || p.target_segment || p.avg_ticket) && (
+                  {(p.business_type || p.target_segment || p.avg_ticket || p.website_url) && (
                     <div className="biz-meta">
                       {p.business_type && <span><b>{p.business_type}</b></span>}
                       {p.target_segment && <span>{p.target_segment}</span>}
                       {p.avg_ticket != null && <span>avg ticket ₹{p.avg_ticket}</span>}
+                      {p.website_url && (
+                        <a
+                          href={p.website_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {p.website_url.replace(/^https?:\/\//, "")}
+                        </a>
+                      )}
                     </div>
                   )}
                 </div>
