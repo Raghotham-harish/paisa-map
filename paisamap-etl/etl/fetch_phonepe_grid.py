@@ -55,7 +55,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RAW  = ROOT / "data" / "raw"
 APP_BOUNDARIES = ROOT.parent / "data" / "boundaries.geojson"
 
-HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PaisaMap-ETL/1.0; +https://paisamap.cooterlabs.com)"}
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; PaisaMap-ETL/1.0; +https://paisamaps.com)"}
 EARTH_R_KM = 6371.0
 
 

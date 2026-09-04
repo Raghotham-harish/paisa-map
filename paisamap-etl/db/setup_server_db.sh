@@ -72,4 +72,4 @@ sudo systemctl restart paisamap
 
 echo ""
 echo "Done. Verify with:"
-echo "  curl -s https://paisamap.cooterlabs.com/api/db_status | python3 -m json.tool"
+echo "  curl -s https://paisamaps.com/api/db_status | python3 -m json.tool"

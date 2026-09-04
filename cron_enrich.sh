@@ -156,7 +156,7 @@ else
         REFIT_SUFFIX=" + weekly full refit"
     fi
     git commit -m "cron: daily enrich ${DATE} — ${TOTAL} pincodes total${REFIT_SUFFIX} [skip ci]" \
-        --author "PaisaMap Cron <noreply@cooterlabs.com>" --quiet
+        --author "PaisaMap Cron <noreply@paisamaps.com>" --quiet
     echo "  Committed. Total pincodes: $TOTAL"
 
     # ── Push — rebase onto origin first since the 6h GitHub Actions sync

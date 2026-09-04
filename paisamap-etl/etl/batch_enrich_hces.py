@@ -47,7 +47,7 @@ BATCH_LOG_FIELDS = ["timestamp", "district", "state", "pincode", "lat", "lng",
                     "ppi", "mpce_combined", "mpce_adj_factor", "status", "note"]
 
 NOMINATIM = "https://nominatim.openstreetmap.org/search"
-UA = "PaisaMap-BatchEnrich/1.0 (paisamap.cooterlabs.com)"
+UA = "PaisaMap-BatchEnrich/1.0 (paisamaps.com)"
 
 # Min seconds between Nominatim requests (rate limit = 1/s)
 NOMINATIM_DELAY = 1.1
