@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { api, ActivityEntry, SavedLocation } from "../lib/api";
+import { EmptyState } from "../components/EmptyState";
 
 const ACTION_LABELS: Record<string, string> = {
   login: "Signed in",
@@ -53,9 +54,14 @@ export default function Dashboard() {
         {activity === null ? (
           <p style={{ margin: 0, color: "var(--ink-soft)", fontSize: 13.5 }}>Loading…</p>
         ) : activity.length === 0 ? (
-          <p style={{ margin: 0, color: "var(--ink-soft)", fontSize: 13.5 }}>
-            Nothing yet — save a location on the map or create a project to get started.
-          </p>
+          <EmptyState
+            bare
+            icon="🚀"
+            title="Let's get you started"
+            description="Save a location from the map or create a project — either one puts you on the board here."
+            primaryAction={{ label: "Open the map", href: "/" }}
+            secondaryAction={{ label: "Create a project", to: "/projects" }}
+          />
         ) : (
           <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
             {activity.map((entry) => (

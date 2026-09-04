@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, CreditLedgerEntry } from "../lib/api";
+import { EmptyState } from "../components/EmptyState";
 
 const REASON_LABELS: Record<string, string> = {
   signup_bonus: "Signup bonus",
@@ -31,7 +32,11 @@ export default function Credits() {
       {ledger === null ? (
         <div className="loading">Loading…</div>
       ) : ledger.length === 0 ? (
-        <div className="empty-state">No credit activity yet.</div>
+        <EmptyState
+          icon="💳"
+          title="No credit activity yet"
+          description="Credit awards and spend will show up here as you use paid features."
+        />
       ) : (
         <ul className="list">
           {ledger.map((entry) => (

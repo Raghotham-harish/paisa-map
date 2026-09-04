@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, ActivityEntry } from "../lib/api";
+import { EmptyState } from "../components/EmptyState";
 
 const ACTION_LABELS: Record<string, string> = {
   login: "Signed in",
@@ -28,7 +29,13 @@ export default function Activity() {
       {activity === null ? (
         <div className="loading">Loading…</div>
       ) : activity.length === 0 ? (
-        <div className="empty-state">No activity yet.</div>
+        <EmptyState
+          icon="🕘"
+          title="Nothing's happened yet"
+          description="Activity like saving locations, creating projects, and generating reports will show up here."
+          primaryAction={{ label: "Open the map", href: "/" }}
+          secondaryAction={{ label: "Create a project", to: "/projects" }}
+        />
       ) : (
         <ul className="list">
           {activity.map((entry) => (

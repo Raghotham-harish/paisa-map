@@ -119,7 +119,23 @@ input[type="text"]:focus, textarea:focus, select:focus{ outline:2px solid var(--
   border-top:1px solid var(--border); padding-top:10px; display:flex; flex-direction:column; gap:8px;
 }
 
-.empty-state{ color:var(--ink-soft); font-size:13.5px; padding:24px 0; text-align:center; }
+.empty-state{
+  display:flex; flex-direction:column; align-items:center; text-align:center;
+  gap:10px; padding:48px 24px; color:var(--ink-soft); font-size:13.5px;
+  background:#fff; border:1px solid var(--border); border-radius:var(--radius-lg);
+}
+.empty-state.bare{ background:none; border:none; padding:28px 0; }
+.empty-state .icon{ font-size:30px; line-height:1; }
+.empty-state .illustration{ width:132px; height:132px; margin-bottom:2px; }
+.empty-state .title{ font-size:15px; font-weight:600; color:var(--ink); }
+.empty-state .desc{ margin:0; max-width:42ch; }
+.empty-state .dependency{
+  background:var(--paper-2); border:1px solid var(--border); border-radius:var(--radius);
+  padding:8px 12px; font-size:12.5px; color:var(--ink-soft); max-width:46ch;
+}
+.empty-state .actions{ display:flex; gap:10px; margin-top:4px; flex-wrap:wrap; justify-content:center; }
+
+.search-input{ max-width:320px; margin-bottom:14px; }
 
 .list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
 .list li{

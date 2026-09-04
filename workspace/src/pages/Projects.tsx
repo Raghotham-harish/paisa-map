@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, Project, ProjectFields } from "../lib/api";
+import { EmptyState } from "../components/EmptyState";
+import { SearchInput } from "../components/SearchInput";
 
 const EMPTY_FIELDS: ProjectFields = {
   name: "", description: "", business_type: "", target_segment: "", avg_ticket: "",
@@ -52,6 +54,8 @@ export default function Projects() {
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editFields, setEditFields] = useState<ProjectFields>(EMPTY_FIELDS);
+  const [query, setQuery] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   const load = () => {
     api.listProjects().then((data) => setProjects(data.projects));
@@ -102,6 +106,7 @@ export default function Projects() {
 
       <form className="new-project-form" onSubmit={onCreate}>
         <input
+          ref={nameInputRef}
           type="text"
           placeholder="Project name — e.g. Bangalore Retail Expansion"
           value={newFields.name}
@@ -123,10 +128,26 @@ export default function Projects() {
       {projects === null ? (
         <div className="loading">Loading projects…</div>
       ) : projects.length === 0 ? (
-        <div className="empty-state">No projects yet — create your first one above.</div>
+        <EmptyState
+          icon="🗂️"
+          title="Create your first project"
+          description="A project groups saved locations, comparisons, and reports for one expansion effort — e.g. one city or one business line."
+          primaryAction={{ label: "Get started", onClick: () => nameInputRef.current?.focus() }}
+        />
       ) : (
+        <>
+        <SearchInput value={query} onChange={setQuery} placeholder="Search projects…" />
+        {(() => {
+          const q = query.trim().toLowerCase();
+          const filtered = projects.filter(
+            (p) => !q || p.name.toLowerCase().includes(q) || (p.business_type || "").toLowerCase().includes(q)
+          );
+          if (filtered.length === 0) {
+            return <EmptyState icon="🔍" title="No matches" description={`Nothing matches "${query}".`} />;
+          }
+          return (
         <ul className="project-list">
-          {projects.map((p) => (
+          {filtered.map((p) => (
             <li key={p.id}>
               <div className="row-top" onClick={() => (editingId === p.id ? setEditingId(null) : startEdit(p))}>
                 <div>
@@ -168,6 +189,9 @@ export default function Projects() {
             </li>
           ))}
         </ul>
+          );
+        })()}
+        </>
       )}
     </>
   );
