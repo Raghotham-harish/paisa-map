@@ -25,6 +25,16 @@ async function request(path: string, opts: RequestInit = {}) {
   return body;
 }
 
+// No Content-Type header here — the browser sets the multipart boundary
+// itself for a FormData body; setting "application/json" (request()'s
+// default) would break the upload.
+async function requestForm(path: string, formData: FormData) {
+  const res = await fetch(path, { method: "POST", credentials: "include", body: formData });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(res.status, body);
+  return body;
+}
+
 export interface User {
   id: number;
   email: string;
@@ -151,6 +161,54 @@ export interface LocationScore {
   risk_opportunity: string;
 }
 
+export type CanonicalField = "store_name" | "address" | "pincode" | "revenue" | "rent" | "capex";
+
+export interface QualityReport {
+  total_rows: number;
+  missing_location: number;
+  duplicate_count: number;
+  numeric_parse_failures: Record<string, number>;
+}
+
+export interface CustomerUpload {
+  id: number;
+  project_id: number;
+  filename: string;
+  format: "csv" | "xlsx";
+  status: "pending_mapping" | "geocoding" | "ready" | "failed";
+  headers: string[] | null;
+  sample_rows: Record<string, string>[];
+  row_count: number;
+  mapping: Partial<Record<CanonicalField, string>> | null;
+  quality_report: QualityReport | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomerLocation {
+  id: number;
+  project_id: number;
+  upload_id: number;
+  store_name: string | null;
+  raw_address: string | null;
+  pincode: string | null;
+  lat: number | null;
+  lng: number | null;
+  geocode_status: "direct" | "pending" | "geocoded" | "failed" | "unresolvable";
+  revenue: number | null;
+  rent: number | null;
+  capex: number | null;
+  intelligence: {
+    economic_score: number | null;
+    risk: RiskAssessment;
+    opportunity?: OpportunityAssessment;
+    benchmark_india: BenchmarkGroup;
+  } | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export const api = {
   config: () => request("/api/config"),
   me: () => request("/api/auth/me") as Promise<MeResponse>,
@@ -190,4 +248,31 @@ export const api = {
   unshareReport: (id: number) =>
     request(`/api/reports/${id}/share`, { method: "DELETE" }) as Promise<{ report: Report }>,
   sharedReportUrl: (token: string) => `${window.location.origin}/api/reports/shared/${token}`,
+
+  uploadCustomerData: (projectId: number, file: File) => {
+    const form = new FormData();
+    form.append("project_id", String(projectId));
+    form.append("file", file);
+    return requestForm("/api/customer-data/uploads", form) as Promise<{ upload: CustomerUpload }>;
+  },
+  getCustomerUpload: (id: number) =>
+    request(`/api/customer-data/uploads/${id}`) as Promise<{ upload: CustomerUpload }>,
+  listCustomerUploads: (projectId?: number) =>
+    request(`/api/customer-data/uploads${projectId ? `?project_id=${projectId}` : ""}`) as Promise<{
+      uploads: CustomerUpload[];
+    }>,
+  commitCustomerUpload: (id: number, mapping: Partial<Record<CanonicalField, string>>) =>
+    request(`/api/customer-data/uploads/${id}/commit`, {
+      method: "POST",
+      body: JSON.stringify({ mapping }),
+    }) as Promise<{ upload: CustomerUpload }>,
+  retryCustomerUpload: (id: number) =>
+    request(`/api/customer-data/uploads/${id}/retry`, { method: "POST" }),
+  deleteCustomerUpload: (id: number) => request(`/api/customer-data/uploads/${id}`, { method: "DELETE" }),
+  listCustomerLocations: (projectId?: number) =>
+    request(`/api/customer-data/locations${projectId ? `?project_id=${projectId}` : ""}`) as Promise<{
+      locations: CustomerLocation[];
+    }>,
+  deleteCustomerLocation: (id: number) =>
+    request(`/api/customer-data/locations/${id}`, { method: "DELETE" }),
 };

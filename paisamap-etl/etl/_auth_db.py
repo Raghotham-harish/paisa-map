@@ -170,10 +170,55 @@ def _get_tables():
         Column("created_at", DateTime(timezone=True), nullable=False),
     )
 
+    customer_uploads = Table(
+        "customer_uploads", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        Column("project_id", Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        Column("filename", Text, nullable=False),
+        Column("format", Text, nullable=False),
+        Column("status", Text, nullable=False, server_default="pending_mapping"),
+        Column("headers", JSONType),
+        Column("raw_rows", JSONType),
+        Column("mapping", JSONType),
+        Column("quality_report", JSONType),
+        Column("error", Text),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+        CheckConstraint("format IN ('csv','xlsx')", name="ck_customer_uploads_format"),
+        CheckConstraint("status IN ('pending_mapping','geocoding','ready','failed')",
+                         name="ck_customer_uploads_status"),
+    )
+
+    customer_locations = Table(
+        "customer_locations", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        Column("project_id", Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        Column("upload_id", Integer, ForeignKey("customer_uploads.id", ondelete="CASCADE"), nullable=False),
+        Column("store_name", Text),
+        Column("raw_address", Text),
+        Column("pincode", Text),  # no FK — same convention as saved_locations.pincode
+        Column("lat", Float),
+        Column("lng", Float),
+        Column("geocode_status", Text, nullable=False, server_default="pending"),
+        Column("revenue", Float),
+        Column("rent", Float),
+        Column("capex", Float),
+        Column("extra_fields", JSONType),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+        CheckConstraint(
+            "geocode_status IN ('direct','pending','geocoded','failed','unresolvable')",
+            name="ck_customer_locations_geocode_status",
+        ),
+    )
+
     _tables = {
         "organizations": organizations, "users": users, "org_members": org_members,
         "projects": projects, "saved_locations": saved_locations, "reports": reports,
         "credits_ledger": credits_ledger, "activity_log": activity_log,
+        "customer_uploads": customer_uploads, "customer_locations": customer_locations,
     }
     return _tables
 
@@ -190,6 +235,7 @@ def init_schema():
         tables["organizations"], tables["users"], tables["org_members"],
         tables["projects"], tables["saved_locations"], tables["reports"],
         tables["credits_ledger"], tables["activity_log"],
+        tables["customer_uploads"], tables["customer_locations"],
     ])
 
 
@@ -633,3 +679,165 @@ def get_report_by_share_token(token):
             select(reports).where(reports.c.share_token == token)
         ).mappings().first()
     return dict(row) if row else None
+
+
+# ── Customer data upload (Phase 05) ─────────────────────────────────────────
+def create_customer_upload(user_id, project_id, filename, format, headers, raw_rows):
+    engine = _require_engine()
+    tables = _get_tables()
+    uploads = tables["customer_uploads"]
+    now = _now()
+    with engine.begin() as conn:
+        result = conn.execute(
+            uploads.insert().values(
+                user_id=user_id, project_id=project_id, filename=filename, format=format,
+                status="pending_mapping", headers=headers, raw_rows=raw_rows,
+                created_at=now, updated_at=now,
+            )
+        )
+        new_id = result.inserted_primary_key[0]
+    return get_customer_upload(new_id, user_id)
+
+
+def get_customer_upload(upload_id, user_id):
+    engine = _require_engine()
+    tables = _get_tables()
+    uploads = tables["customer_uploads"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(uploads).where(uploads.c.id == upload_id, uploads.c.user_id == user_id)
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def list_customer_uploads(user_id, project_id=None):
+    engine = _require_engine()
+    tables = _get_tables()
+    uploads = tables["customer_uploads"]
+    from sqlalchemy import select
+    clauses = [uploads.c.user_id == user_id]
+    if project_id is not None:
+        clauses.append(uploads.c.project_id == project_id)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(uploads).where(*clauses).order_by(uploads.c.created_at.desc())
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def update_customer_upload(upload_id, user_id, **fields):
+    """Same "drop None values" convention as update_report/update_project —
+    fine here since every field this is called with (status/mapping/
+    quality_report/error) is always set to a real value, never explicitly
+    cleared back to NULL."""
+    allowed = {k: v for k, v in fields.items() if v is not None}
+    if not allowed:
+        return get_customer_upload(upload_id, user_id)
+    allowed["updated_at"] = _now()
+    engine = _require_engine()
+    tables = _get_tables()
+    uploads = tables["customer_uploads"]
+    with engine.begin() as conn:
+        conn.execute(
+            uploads.update()
+            .where(uploads.c.id == upload_id, uploads.c.user_id == user_id)
+            .values(**allowed)
+        )
+    return get_customer_upload(upload_id, user_id)
+
+
+def delete_customer_upload(upload_id, user_id):
+    """Cascades to customer_locations via the FK's ondelete=CASCADE."""
+    engine = _require_engine()
+    tables = _get_tables()
+    uploads = tables["customer_uploads"]
+    with engine.begin() as conn:
+        result = conn.execute(
+            uploads.delete().where(uploads.c.id == upload_id, uploads.c.user_id == user_id)
+        )
+    return result.rowcount > 0
+
+
+def create_customer_locations_bulk(user_id, project_id, upload_id, rows):
+    """rows: list of dicts with keys store_name/raw_address/pincode/lat/lng/
+    geocode_status/revenue/rent/capex/extra_fields (all optional except
+    geocode_status). Returns the count inserted."""
+    if not rows:
+        return 0
+    engine = _require_engine()
+    tables = _get_tables()
+    locs = tables["customer_locations"]
+    now = _now()
+    values = [
+        dict(
+            user_id=user_id, project_id=project_id, upload_id=upload_id,
+            store_name=r.get("store_name"), raw_address=r.get("raw_address"),
+            pincode=r.get("pincode"), lat=r.get("lat"), lng=r.get("lng"),
+            geocode_status=r.get("geocode_status", "pending"),
+            revenue=r.get("revenue"), rent=r.get("rent"), capex=r.get("capex"),
+            extra_fields=r.get("extra_fields"),
+            created_at=now, updated_at=now,
+        )
+        for r in rows
+    ]
+    with engine.begin() as conn:
+        conn.execute(locs.insert(), values)
+    return len(values)
+
+
+def list_customer_locations(user_id, project_id=None):
+    engine = _require_engine()
+    tables = _get_tables()
+    locs = tables["customer_locations"]
+    from sqlalchemy import select
+    clauses = [locs.c.user_id == user_id]
+    if project_id is not None:
+        clauses.append(locs.c.project_id == project_id)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(locs).where(*clauses).order_by(locs.c.created_at.desc())
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def list_pending_geocode_locations(upload_id, user_id):
+    engine = _require_engine()
+    tables = _get_tables()
+    locs = tables["customer_locations"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(locs).where(
+                locs.c.upload_id == upload_id, locs.c.user_id == user_id,
+                locs.c.geocode_status == "pending",
+            )
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def update_customer_location(location_id, user_id, **fields):
+    allowed = {k: v for k, v in fields.items() if v is not None}
+    if not allowed:
+        return None
+    allowed["updated_at"] = _now()
+    engine = _require_engine()
+    tables = _get_tables()
+    locs = tables["customer_locations"]
+    with engine.begin() as conn:
+        conn.execute(
+            locs.update()
+            .where(locs.c.id == location_id, locs.c.user_id == user_id)
+            .values(**allowed)
+        )
+
+
+def delete_customer_location(location_id, user_id):
+    engine = _require_engine()
+    tables = _get_tables()
+    locs = tables["customer_locations"]
+    with engine.begin() as conn:
+        result = conn.execute(
+            locs.delete().where(locs.c.id == location_id, locs.c.user_id == user_id)
+        )
+    return result.rowcount > 0

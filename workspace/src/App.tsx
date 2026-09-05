@@ -7,11 +7,13 @@ import SavedLocations from "./pages/SavedLocations";
 import Activity from "./pages/Activity";
 import Credits from "./pages/Credits";
 import Reports from "./pages/Reports";
+import CustomerData from "./pages/CustomerData";
 
 const NAV = [
   { to: "/", label: "Dashboard", end: true, icon: "ti-layout-dashboard" },
   { to: "/projects", label: "Projects", icon: "ti-briefcase" },
   { to: "/locations", label: "Saved Locations", icon: "ti-map-pin" },
+  { to: "/customer-data", label: "Store Data", icon: "ti-upload" },
   { to: "/reports", label: "Reports", icon: "ti-file-text" },
   { to: "/activity", label: "Activity", icon: "ti-activity" },
   { to: "/credits", label: "Credits", icon: "ti-coin" },
@@ -70,6 +72,7 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/projects" element={<Projects />} />
           <Route path="/locations" element={<SavedLocations />} />
+          <Route path="/customer-data" element={<CustomerData />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/activity" element={<Activity />} />
           <Route path="/credits" element={<Credits />} />

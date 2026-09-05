@@ -131,6 +131,7 @@ try:
     from blueprints.credits import credits_bp
     from blueprints.reports import reports_bp
     from blueprints.intelligence import intelligence_bp
+    from blueprints.customer_data import customer_data_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(projects_bp)
     app.register_blueprint(locations_bp)
@@ -138,6 +139,7 @@ try:
     app.register_blueprint(credits_bp)
     app.register_blueprint(reports_bp)
     app.register_blueprint(intelligence_bp)
+    app.register_blueprint(customer_data_bp)
 except ImportError as e:
     print(f"[server] auth/workspace blueprints unavailable: {e}", flush=True)
 
