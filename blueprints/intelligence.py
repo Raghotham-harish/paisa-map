@@ -151,7 +151,7 @@ AFFORDABILITY_FLOOR_PCT = 2.0   # ticket ≤ this % of monthly household spend �
 AFFORDABILITY_CEIL_PCT = 20.0   # ticket ≥ this % of monthly household spend → affordability_fit floors at 0
 
 
-def _risk_assessment(pincode, diagnostics):
+def risk_assessment(pincode, diagnostics):
     anomaly = (diagnostics.get("anomalies") or {}).get(pincode) if diagnostics else None
     anomaly_score = anomaly.get("anomaly_score") if anomaly else None
     if anomaly_score is None:
@@ -172,7 +172,7 @@ def _risk_assessment(pincode, diagnostics):
     }
 
 
-def _opportunity_assessment(payload, business):
+def opportunity_assessment(payload, business):
     economic_score = payload.get("economic_score") or 0
     avg_ticket = business.get("avg_ticket")
     spend = payload.get("spend")
@@ -302,10 +302,10 @@ def _score_payload(pincode, rows_by_pincode, sorted_ppis, geography, diagnostics
         "executive_summary": summary,
     }
 
-    payload["risk"] = _risk_assessment(pincode, diagnostics)
+    payload["risk"] = risk_assessment(pincode, diagnostics)
     quadrant_score = economic_score
     if business:
-        payload["opportunity"] = _opportunity_assessment(payload, business)
+        payload["opportunity"] = opportunity_assessment(payload, business)
         quadrant_score = payload["opportunity"]["opportunity_score"]
     payload["risk_opportunity"] = _risk_opportunity_quadrant(quadrant_score, payload["risk"]["level"])
 

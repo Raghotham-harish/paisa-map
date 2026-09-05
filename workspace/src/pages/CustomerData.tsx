@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  ApiError, api, CanonicalField, CustomerLocation, CustomerUpload, Project,
+  ApiError, api, CanonicalField, CustomerLocation, CustomerUpload,
+  DriverAnalysis, ExpansionRecommendation, Project,
 } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
+
+const DRIVER_MIN_SAMPLES = 5;
 
 const RISK_CLASS: Record<string, string> = {
   Low: "delta-pos",
@@ -38,6 +41,11 @@ export default function CustomerData() {
   const [uploading, setUploading] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [drivers, setDrivers] = useState<DriverAnalysis | null>(null);
+  const [budget, setBudget] = useState("");
+  const [recommendation, setRecommendation] = useState<ExpansionRecommendation | null>(null);
+  const [recommending, setRecommending] = useState(false);
+  const [recommendError, setRecommendError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<number | null>(null);
 
@@ -51,10 +59,15 @@ export default function CustomerData() {
   const loadForProject = (pid: number) => {
     api.listCustomerLocations(pid).then((data) => setLocations(data.locations));
     api.listCustomerUploads(pid).then((data) => setPastUploads(data.uploads));
+    api.getDriverAnalysis(pid).then(setDrivers);
   };
 
   useEffect(() => {
-    if (projectId != null) loadForProject(projectId);
+    if (projectId != null) {
+      loadForProject(projectId);
+      setRecommendation(null);
+      setBudget("");
+    }
   }, [projectId]);
 
   useEffect(() => {
@@ -126,6 +139,23 @@ export default function CustomerData() {
   const onDeleteLocation = async (id: number) => {
     await api.deleteCustomerLocation(id);
     setLocations((prev) => prev && prev.filter((l) => l.id !== id));
+  };
+
+  const onRecommend = async () => {
+    const budgetNum = Number(budget);
+    if (projectId == null || !budgetNum || budgetNum <= 0) return;
+    setRecommending(true);
+    setRecommendError(null);
+    try {
+      const result = await api.getExpansionRecommendation(projectId, budgetNum);
+      setRecommendation(result);
+    } catch (e) {
+      setRecommendError(
+        e instanceof ApiError && e.body?.detail ? String(e.body.detail) : "Couldn't build a recommendation."
+      );
+    } finally {
+      setRecommending(false);
+    }
   };
 
   const canCommit = Boolean(mapping.address || mapping.pincode);
@@ -287,6 +317,98 @@ export default function CustomerData() {
                 </li>
               ))}
             </ul>
+          )}
+
+          {locations !== null && locations.length > 0 && (
+            <div className="card" style={{ marginTop: 24 }}>
+              <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--mono)", letterSpacing: ".06em", textTransform: "uppercase" }}>
+                What drives your stores?
+              </p>
+              {drivers === null ? (
+                <div className="loading">Loading…</div>
+              ) : !drivers.sufficient_data ? (
+                <EmptyState
+                  icon="📈"
+                  title="Not enough data yet"
+                  description={`Driver analysis needs at least ${DRIVER_MIN_SAMPLES} stores with both a resolved location and revenue — you have ${drivers.sample_size} so far.`}
+                  bare
+                />
+              ) : (
+                <>
+                  <ul className="list">
+                    {drivers.drivers.map((d) => (
+                      <li key={d.signal}>
+                        <div>
+                          <div className="primary">{d.label}</div>
+                          <div className="secondary">based on {d.sample_size} of your stores</div>
+                        </div>
+                        <span className={`pill ${d.direction === "positive" ? "delta-pos" : "delta-neg"}`}>
+                          {d.direction === "positive" ? "+" : "−"}{Math.abs(d.correlation).toFixed(2)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {drivers.note && <p style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 10 }}>{drivers.note}</p>}
+                </>
+              )}
+            </div>
+          )}
+
+          {locations !== null && locations.length > 0 && (
+            <div className="card" style={{ marginTop: 24 }}>
+              <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--mono)", letterSpacing: ".06em", textTransform: "uppercase" }}>
+                Plan your next stores
+              </p>
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+                <label style={{ flex: "0 0 220px" }}>
+                  Budget (₹)
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder="e.g. 2000000"
+                    value={budget}
+                    onChange={(e) => setBudget(e.target.value)}
+                  />
+                </label>
+                <button className="btn" disabled={!budget || recommending} onClick={onRecommend}>
+                  {recommending ? "Building…" : "Recommend"}
+                </button>
+              </div>
+              {recommendError && <p style={{ color: "var(--flame)", fontSize: 13, marginTop: 10 }}>{recommendError}</p>}
+
+              {recommendation && (
+                <div style={{ marginTop: 18 }}>
+                  {recommendation.capex_estimation === "unavailable" && recommendation.detail && (
+                    <p style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 12 }}>{recommendation.detail}</p>
+                  )}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                    <span className="pill shortlist">{recommendation.portfolio.length} sites recommended</span>
+                    {recommendation.total_estimated_capex != null && (
+                      <span className="pill delta-pos">{money(recommendation.total_estimated_capex)} of {money(recommendation.budget)}</span>
+                    )}
+                    {recommendation.driver_weighted && <span className="pill reviewing">weighted by your own drivers</span>}
+                  </div>
+                  {recommendation.portfolio.length === 0 ? (
+                    <EmptyState icon="🔍" title="No sites fit" description="Nothing met the quality bar within this budget — try a larger budget." bare />
+                  ) : (
+                    <ul className="list">
+                      {recommendation.portfolio.map((c) => (
+                        <li key={c.pincode}>
+                          <div>
+                            <div className="primary">{c.name} · {c.pincode}</div>
+                            <div className="secondary">
+                              opportunity {c.opportunity_score ?? "—"}/100
+                              {c.estimated_capex != null && ` · est. CapEx ${money(c.estimated_capex)}`}
+                            </div>
+                          </div>
+                          <span className={`pill ${RISK_CLASS[c.risk.level]}`}>{c.risk.level} risk</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {pastUploads.length > 0 && (

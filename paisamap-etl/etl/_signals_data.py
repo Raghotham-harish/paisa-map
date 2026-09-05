@@ -57,6 +57,38 @@ EXPORT_SIGNAL_FILES = [
 ]
 EXPORT_ALL_COLUMNS = EXPORT_CORE_FIELDS + [c for _, cols in EXPORT_SIGNAL_FILES for c in cols]
 
+# Human-readable labels — copied verbatim from index.html's signal switcher (the
+# map's own JS, not reachable from Python or from the separate workspace/ React
+# app) so anything the backend surfaces about a signal uses the same wording a
+# user already sees on the map, rather than a second, drifting set of names.
+SIGNAL_LABELS = {
+    "ppi_ml": "Purchasing Power Index (PPI)",
+    "est_monthly_income_hh": "Avg income",
+    "est_monthly_spend_hh": "Avg spend",
+    "rate_per_sqft": "Property rate /sqft",
+    "bank_branches_per_lakh": "Bank branches /lakh",
+    "deposits_per_capita": "Deposits per capita",
+    "sfb_branches": "SFB branches",
+    "coop_branches": "Co-op branches",
+    "rrb_branches": "RRB branches",
+    "fin_branches_total": "Total fin. branches",
+    "fin_density_per_km2": "Fin. density /km²",
+    "upi_txn_value_per_capita": "UPI txn value /capita",
+    "filers_per_capita": "ITR filers /capita",
+    "msme_per_lakh": "MSMEs /lakh",
+    "factories_per_lakh": "Factories /lakh",
+    "nsdp_per_capita": "NSDP per capita",
+    "cropping_intensity_pct": "Cropping intensity",
+    "radiance_mean": "Night-lights radiance",
+    "premium_poi_per_km2": "Premium POI density",
+    "schools_per_lakh": "Schools /lakh",
+    "cars_per_1000": "Cars /1000",
+    "lmv_per_1000": "LMVs /1000",
+    "car_2w_ratio": "Car:2W ratio",
+    "luxury_share": "Luxury vehicle share",
+    "ev_share": "EV share",
+}
+
 
 def haversine_km(lat1, lng1, lat2, lng2):
     r = 6371.0

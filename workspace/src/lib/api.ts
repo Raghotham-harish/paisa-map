@@ -209,6 +209,45 @@ export interface CustomerLocation {
   updated_at: string;
 }
 
+export interface DriverSignal {
+  signal: string;
+  label: string;
+  correlation: number;
+  direction: "positive" | "negative";
+  sample_size: number;
+}
+
+export interface DriverAnalysis {
+  sufficient_data: boolean;
+  sample_size: number;
+  min_samples_required: number;
+  drivers: DriverSignal[];
+  note?: string;
+}
+
+export interface ExpansionCandidate {
+  pincode: string;
+  name: string;
+  economic_score: number | null;
+  opportunity_score: number | null;
+  driver_fit_score: number | null;
+  combined_score: number | null;
+  estimated_capex: number | null;
+  risk: RiskAssessment;
+}
+
+export interface ExpansionRecommendation {
+  budget: number;
+  capex_estimation: "available" | "unavailable";
+  assumed_store_sqft: number | null;
+  driver_weighted: boolean;
+  quality_gate: string;
+  portfolio: ExpansionCandidate[];
+  total_estimated_capex: number | null;
+  candidates_considered: number;
+  detail: string | null;
+}
+
 export const api = {
   config: () => request("/api/config"),
   me: () => request("/api/auth/me") as Promise<MeResponse>,
@@ -275,4 +314,9 @@ export const api = {
     }>,
   deleteCustomerLocation: (id: number) =>
     request(`/api/customer-data/locations/${id}`, { method: "DELETE" }),
+
+  getDriverAnalysis: (projectId: number) =>
+    request(`/api/expansion/drivers?project_id=${projectId}`) as Promise<DriverAnalysis>,
+  getExpansionRecommendation: (projectId: number, budget: number) =>
+    request(`/api/expansion/recommend?project_id=${projectId}&budget=${budget}`) as Promise<ExpansionRecommendation>,
 };
