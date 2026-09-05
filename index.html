@@ -124,6 +124,8 @@
   .gsi-btn-wrap{display:flex;justify-content:center;min-height:40px}
   .auth-note{font-size:10.5px;color:var(--ink-soft);text-align:center}
   .auth-note[hidden]{display:none}
+  .auth-note a{color:var(--ink-soft);text-decoration:underline}
+  .auth-note a:hover{color:var(--ink)}
 
   .controls{
     padding:10px 14px;border-bottom:1px solid var(--hairline);
@@ -932,6 +934,7 @@
             <div class="dropdown-title">Sign in to PaisaMap</div>
             <div class="gsi-btn-wrap" id="gsiButtonContainer"></div>
             <div class="auth-note" id="authNote" hidden>Google sign-in isn't configured on this deployment yet.</div>
+            <div class="auth-note">By continuing, you agree to our <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</div>
           </div>
         </div>
       </div>

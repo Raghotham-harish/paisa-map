@@ -200,6 +200,9 @@ input[type="text"]:focus, textarea:focus, select:focus{ outline:2px solid var(--
 }
 .signin-screen h1{ font-size:24px; margin:0; }
 .signin-screen p{ color:var(--ink-soft); max-width:38ch; margin:0; font-size:13.5px; }
+.signin-screen p.signin-legal{ font-size:11.5px; }
+.signin-screen p.signin-legal a{ color:var(--ink-soft); text-decoration:underline; }
+.signin-screen p.signin-legal a:hover{ color:var(--ink); }
 
 .loading{ padding:40px; text-align:center; color:var(--ink-soft); font-size:13.5px; }
 

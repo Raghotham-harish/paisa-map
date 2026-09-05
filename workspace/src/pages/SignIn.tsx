@@ -18,6 +18,10 @@ export default function SignIn() {
       <h1>PaisaMap Workspace</h1>
       <p>Sign in to save locations, build projects, and generate reports.</p>
       <div id="gsi-button" />
+      <p className="signin-legal">
+        By continuing, you agree to our <a href="/terms">Terms</a> and{" "}
+        <a href="/privacy">Privacy Policy</a>.
+      </p>
     </div>
   );
 }

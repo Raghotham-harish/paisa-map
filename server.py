@@ -193,6 +193,14 @@ def _parse_enrich_output(stdout):
 def root():
     return send_file(APP / "index.html")
 
+@app.route("/privacy")
+def privacy_policy():
+    return send_file(APP / "privacy.html")
+
+@app.route("/terms")
+def terms_of_service():
+    return send_file(APP / "terms.html")
+
 @app.route("/data/<path:fname>")
 def serve_data(fname):
     return send_from_directory(APP / "data", fname)

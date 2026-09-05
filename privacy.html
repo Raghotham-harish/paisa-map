@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Privacy Policy — PaisaMap</title>
+<meta name="robots" content="index, follow" />
+<link rel="canonical" href="https://paisamaps.com/privacy" />
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png" />
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Anybody:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F9FAF5; --paper-2:#F3F4EF; --paper-3:#EDEEE9;
+    --ink:#1A1C1A; --ink-soft:#41493B;
+    --rupee:#216A0B; --rupee-deep:#115000;
+    --amber:#DFAE3A; --flame:#BA1A1A;
+    --border:#C7CCC2; --radius:0.5rem; --radius-lg:1rem;
+    --mono:'Anybody',ui-monospace,monospace;
+    --sans:'Hanken Grotesk',system-ui,sans-serif;
+  }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:15.5px; line-height:1.65; }
+  .top{ border-bottom:1px solid var(--border); padding:18px 24px; }
+  .top-inner{ max-width:760px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; }
+  .top-inner a.brand img{ display:block; }
+  .top-inner a.back{ font-family:var(--mono); font-size:12px; letter-spacing:.04em; color:var(--ink-soft); text-decoration:none; }
+  .top-inner a.back:hover{ color:var(--ink); }
+  .wrap{ max-width:760px; margin:0 auto; padding:44px 24px 90px; }
+  .eyebrow{ font-family:var(--mono); font-size:11.5px; font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:var(--rupee-deep); margin:0 0 10px; }
+  h1{ font-size:clamp(26px,4vw,32px); font-weight:700; margin:0 0 8px; letter-spacing:-.01em; }
+  .updated{ color:var(--ink-soft); font-size:13px; margin:0 0 34px; }
+  h2{ font-size:17px; font-weight:700; margin:36px 0 12px; letter-spacing:-.005em; }
+  h2:first-of-type{ margin-top:0; }
+  p{ margin:0 0 12px; }
+  ul{ margin:0 0 12px; padding-left:22px; }
+  li{ margin-bottom:6px; }
+  a{ color:var(--rupee-deep); }
+  table{ width:100%; border-collapse:collapse; font-size:14px; margin:14px 0; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden; }
+  th,td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--border); vertical-align:top; }
+  th{ font-family:var(--mono); font-size:11px; letter-spacing:.04em; text-transform:uppercase; color:var(--ink-soft); background:var(--paper-2); font-weight:600; }
+  tr:last-child td{ border-bottom:none; }
+  .contact-box{ background:var(--paper-2); border:1px solid var(--border); border-radius:var(--radius-lg); padding:18px 20px; margin-top:8px; }
+  footer{ border-top:1px solid var(--border); margin-top:44px; padding-top:18px; font-size:12.5px; color:var(--ink-soft); display:flex; gap:16px; flex-wrap:wrap; }
+  footer a{ color:var(--ink-soft); }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="top-inner">
+      <a class="brand" href="/"><img src="assets/logo-horizontal.svg" alt="PaisaMap" height="28"></a>
+      <a class="back" href="/">← Back to the map</a>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <p class="eyebrow">Legal</p>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Last updated: 5 September 2026</p>
+
+    <p>
+      This policy explains what Cooter Labs ("<b>we</b>", "<b>us</b>", "<b>Cooter Labs</b>")
+      collects through PaisaMap (paisamaps.com and its Workspace app), why, and what
+      choices you have. It's written to describe what the product actually does today —
+      we'll revise it whenever we add a feature that changes what we collect.
+    </p>
+
+    <h2>What you can use without an account</h2>
+    <p>
+      The public map at paisamaps.com works without signing in. Browsing it and
+      searching for a place doesn't create an account or a profile of you. Two things
+      happen server-side while you use it:
+    </p>
+    <ul>
+      <li>Location scores, benchmarks, and signals shown on the map are pincode-level
+        aggregate data — government and public datasets plus our own modeled
+        estimates. None of it identifies you or any other individual.</li>
+      <li>When you search for a place, or when we resolve an address you've typed to
+        a location, the search text is sent to <a href="https://operations.osmfoundation.org/policies/nominatim/" target="_blank" rel="noopener noreferrer">OpenStreetMap's Nominatim service</a>
+        to look it up. We don't keep a log of what you searched for beyond what's
+        needed to show you the result.</li>
+    </ul>
+
+    <h2>What we collect if you sign in</h2>
+    <p>
+      Signing in uses Google Sign-In. We never see or store your Google password —
+      Google authenticates you and hands us a token confirming who you are. From that
+      token we store:
+    </p>
+    <ul>
+      <li>Your name, email address, and profile picture URL, as provided by Google.</li>
+      <li>A Google account identifier, used only to recognize you on your next visit.</li>
+    </ul>
+    <p>
+      We set one functional session cookie (signed, and marked so it's only sent over
+      HTTPS and never readable by page scripts) to keep you signed in. It's not used
+      for advertising or cross-site tracking, and we don't use any advertising or
+      tracking cookies anywhere on the site.
+    </p>
+
+    <h2>What Workspace features store</h2>
+    <table>
+      <thead><tr><th>Feature</th><th>What's stored</th></tr></thead>
+      <tbody>
+        <tr><td>Projects</td><td>Project name, description, and the business profile fields you enter (business type, target customer segment, average transaction size, website).</td></tr>
+        <tr><td>Saved Locations</td><td>Pincodes you've bookmarked, an optional label, status, and notes you write.</td></tr>
+        <tr><td>Reports</td><td>The PDF reports you generate, and the scores/benchmarks used to build them.</td></tr>
+        <tr><td>Store Data upload</td><td>Whatever store-level data you upload — see below.</td></tr>
+        <tr><td>Activity &amp; credits</td><td>A log of actions you've taken in Workspace, and your credit balance, so you can see your own usage history.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>If you upload your own store data</h2>
+    <p>
+      The Store Data feature lets you upload a CSV or Excel file of your own store
+      locations (address, revenue, rent, CapEx) so we can join it against PaisaMap's
+      signals. We use this data for exactly that — building the report you asked
+      for — and nothing else:
+    </p>
+    <ul>
+      <li>We never blend your uploaded data into PaisaMap's shared, cross-customer
+        location-intelligence model. It stays scoped to your own account and reports.</li>
+      <li>If a row's address isn't already a pincode, we send that address text to
+        OpenStreetMap's Nominatim (the same service the map search uses) to resolve
+        it to a location.</li>
+      <li>You're responsible for having the right to share whatever you upload.
+        Please don't upload personal data about identifiable individuals (e.g. your
+        own customers' names or contact details) unless you have a lawful basis to
+        do so — this feature is meant for store-level business data, not customer
+        records.</li>
+    </ul>
+
+    <h2>Who else sees data, and why</h2>
+    <table>
+      <thead><tr><th>Who</th><th>What they see</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Google</td><td>Nothing beyond what Google Sign-In already knows about you.</td><td>Authenticating you.</td></tr>
+        <tr><td>OpenStreetMap / Nominatim</td><td>Search text and addresses you (or your uploaded file) ask us to resolve.</td><td>Turning a place name or address into coordinates.</td></tr>
+        <tr><td>Amazon Web Services</td><td>Everything stored in our database and application servers.</td><td>Our hosting provider — they don't access your data except to keep the infrastructure running.</td></tr>
+      </tbody>
+    </table>
+    <p>
+      We do not sell your data, and we do not share it with advertisers or data
+      brokers. If we ever add a feature that connects your own Google Analytics or
+      Search Console account (planned, not yet built), that data will be covered by
+      an update to this policy before it ships — including which Google API scopes
+      we request and why.
+    </p>
+
+    <h2>How long we keep it</h2>
+    <p>
+      We keep your account and Workspace data for as long as your account is active.
+      If you ask us to delete your account, we'll delete your account data — not just
+      revoke access to it — within 30 days, except where we're required to keep
+      something for legal or security reasons.
+    </p>
+
+    <h2>Your rights</h2>
+    <p>
+      You can ask us to access, correct, export, or delete the personal data we hold
+      about you, or withdraw consent where we rely on it, at any time — see Contact
+      below. If the Digital Personal Data Protection Act, 2023 applies to you, Cooter
+      Labs acts as the <b>Data Fiduciary</b> for the account data we collect directly
+      (your name, email, and Workspace activity), and as a <b>Data Processor</b> for
+      any business data you upload about your own operations, acting only on your
+      instructions.
+    </p>
+
+    <h2>Security</h2>
+    <p>
+      All traffic to PaisaMap is encrypted (HTTPS). We use access controls to limit
+      who can reach production data. No system is ever completely secure, and we
+      can't guarantee absolute security — but if we become aware of a breach
+      affecting your data, we'll notify you.
+    </p>
+
+    <h2>Who this is for</h2>
+    <p>
+      PaisaMap is built for business and professional use — market research and
+      site selection. It isn't directed at children, and we don't knowingly collect
+      data from anyone under 18.
+    </p>
+
+    <h2>Changes to this policy</h2>
+    <p>
+      We'll update the date at the top of this page whenever this policy changes.
+      For a change that materially affects how we use your data, we'll also email
+      you or show an in-app notice before it takes effect.
+    </p>
+
+    <h2>Contact</h2>
+    <div class="contact-box">
+      <p style="margin:0">
+        For privacy questions, data access, or deletion requests, email
+        <a href="mailto:privacy@paisamaps.com">privacy@paisamaps.com</a>.
+      </p>
+    </div>
+
+    <footer>
+      <a href="/">Map</a>
+      <a href="/terms">Terms of Service</a>
+      <a href="mailto:privacy@paisamaps.com">privacy@paisamaps.com</a>
+    </footer>
+  </div>
+</body>
+</html>
