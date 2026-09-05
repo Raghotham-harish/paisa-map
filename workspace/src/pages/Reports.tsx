@@ -32,6 +32,8 @@ export default function Reports() {
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [generating, setGenerating] = useState<number | null>(null);
   const [errors, setErrors] = useState<Record<number, string>>({});
+  const [sharing, setSharing] = useState<number | null>(null);
+  const [copied, setCopied] = useState<number | null>(null);
 
   const loadReports = () => api.listReports().then((data) => setReports(data.reports));
 
@@ -54,6 +56,37 @@ export default function Reports() {
       setErrors((prev) => ({ ...prev, [project.id]: detail }));
     } finally {
       setGenerating(null);
+    }
+  };
+
+  const onShare = async (report: Report) => {
+    setSharing(report.id);
+    try {
+      const { report: updated } = await api.shareReport(report.id);
+      setReports((prev) => prev && prev.map((r) => (r.id === updated.id ? updated : r)));
+    } finally {
+      setSharing(null);
+    }
+  };
+
+  const onUnshare = async (report: Report) => {
+    setSharing(report.id);
+    try {
+      const { report: updated } = await api.unshareReport(report.id);
+      setReports((prev) => prev && prev.map((r) => (r.id === updated.id ? updated : r)));
+    } finally {
+      setSharing(null);
+    }
+  };
+
+  const onCopyLink = async (report: Report) => {
+    if (!report.share_token) return;
+    try {
+      await navigator.clipboard.writeText(api.sharedReportUrl(report.share_token));
+      setCopied(report.id);
+      setTimeout(() => setCopied((prev) => (prev === report.id ? null : prev)), 2000);
+    } catch {
+      // Clipboard permission denied — the link is still visible below to copy by hand.
     }
   };
 
@@ -127,12 +160,34 @@ export default function Reports() {
                         <span className={`pill ${STATUS_CLASS[r.status]}`}>{r.status}</span>
                         <span className="meta">{new Date(r.created_at).toLocaleDateString()}</span>
                         {r.status === "ready" && (
-                          <a className="btn secondary" href={api.reportDownloadUrl(r.id)}>
-                            Download PDF
-                          </a>
+                          <>
+                            <a className="btn secondary" href={api.reportDownloadUrl(r.id)}>
+                              Download PDF
+                            </a>
+                            {r.share_token ? (
+                              <button className="btn secondary" disabled={sharing === r.id} onClick={() => onUnshare(r)}>
+                                Stop sharing
+                              </button>
+                            ) : (
+                              <button className="btn secondary" disabled={sharing === r.id} onClick={() => onShare(r)}>
+                                {sharing === r.id ? "Sharing…" : "Share"}
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
+                    {r.share_token && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+                        <span style={{ color: "var(--ink-soft)" }}>No account needed to view:</span>
+                        <code style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>
+                          {api.sharedReportUrl(r.share_token)}
+                        </code>
+                        <button className="btn secondary" style={{ padding: "2px 8px" }} onClick={() => onCopyLink(r)}>
+                          {copied === r.id ? "Copied!" : "Copy link"}
+                        </button>
+                      </div>
+                    )}
                     {r.params?.locations && r.params.locations.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                         {r.params.locations.map((loc) => (

@@ -101,6 +101,7 @@ export interface Report {
   status: "pending" | "processing" | "ready" | "failed";
   file_path: string | null;
   params: { locations?: LocationScore[] } | null;
+  share_token: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -184,4 +185,9 @@ export const api = {
       body: JSON.stringify({ project_id: projectId, title }),
     }) as Promise<{ report: Report }>,
   reportDownloadUrl: (id: number) => `/api/reports/${id}/download`,
+  shareReport: (id: number) =>
+    request(`/api/reports/${id}/share`, { method: "POST" }) as Promise<{ report: Report }>,
+  unshareReport: (id: number) =>
+    request(`/api/reports/${id}/share`, { method: "DELETE" }) as Promise<{ report: Report }>,
+  sharedReportUrl: (token: string) => `${window.location.origin}/api/reports/shared/${token}`,
 };

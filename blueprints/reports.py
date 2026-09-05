@@ -16,6 +16,7 @@ DATABASE_URL/SECRET_KEY in /etc/paisamap/db.env).
 """
 
 import os
+import secrets
 import sys
 from pathlib import Path
 
@@ -24,7 +25,7 @@ from flask import Blueprint, request, jsonify, send_file
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" / "etl"))
 import _report_pdf  # noqa: E402
 
-from ._session import require_login, _auth_db
+from ._session import require_login, require_db, _auth_db
 from .intelligence import compute_location_intelligence_batch  # noqa: E402
 
 reports_bp = Blueprint("reports", __name__, url_prefix="/api/reports")
@@ -106,4 +107,44 @@ def download_report(user_id, report_id):
         return jsonify({"error": "file_missing",
                          "detail": "The report record exists but its file is gone — try regenerating."}), 404
     return send_file(str(path), mimetype="application/pdf", as_attachment=True,
+                      download_name=f"{report['title']}.pdf")
+
+
+@reports_bp.route("/<int:report_id>/share", methods=["POST"])
+@require_login
+def share_report(user_id, report_id):
+    report = _auth_db.get_report(report_id, user_id)
+    if report is None:
+        return jsonify({"error": "not_found"}), 404
+    if report["status"] != "ready":
+        return jsonify({"error": "not_ready",
+                         "detail": "Only a ready report can be shared."}), 400
+    token = report.get("share_token") or secrets.token_urlsafe(24)
+    report = _auth_db.set_report_share_token(report_id, user_id, token)
+    return jsonify({"report": report})
+
+
+@reports_bp.route("/<int:report_id>/share", methods=["DELETE"])
+@require_login
+def unshare_report(user_id, report_id):
+    report = _auth_db.get_report(report_id, user_id)
+    if report is None:
+        return jsonify({"error": "not_found"}), 404
+    report = _auth_db.set_report_share_token(report_id, user_id, None)
+    return jsonify({"report": report})
+
+
+@reports_bp.route("/shared/<token>", methods=["GET"])
+@require_db
+def view_shared_report(token):
+    """Public, unauthenticated — no @require_login. The token itself, not a
+    session, is the credential; anyone holding the link can view (not
+    download-force) the PDF inline in the browser."""
+    report = _auth_db.get_report_by_share_token(token)
+    if report is None or not report.get("file_path"):
+        return jsonify({"error": "not_found"}), 404
+    path = Path(report["file_path"])
+    if not path.exists():
+        return jsonify({"error": "file_missing"}), 404
+    return send_file(str(path), mimetype="application/pdf", as_attachment=False,
                       download_name=f"{report['title']}.pdf")

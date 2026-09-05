@@ -140,6 +140,7 @@ def _get_tables():
         Column("status", Text, nullable=False, server_default="pending"),
         Column("file_path", Text),
         Column("params", JSONType),
+        Column("share_token", Text, unique=True),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("completed_at", DateTime(timezone=True)),
         CheckConstraint("format IN ('pdf','csv','xlsx')", name="ck_reports_format"),
@@ -203,6 +204,7 @@ _MIGRATIONS = [
     ("projects", "target_segment", "TEXT"),
     ("projects", "avg_ticket", "FLOAT"),
     ("projects", "website_url", "TEXT"),
+    ("reports", "share_token", "TEXT"),
 ]
 
 
@@ -600,3 +602,34 @@ def update_report(report_id, user_id, **fields):
             .values(**allowed)
         )
     return get_report(report_id, user_id)
+
+
+def set_report_share_token(report_id, user_id, token):
+    """Ownership-scoped, like update_report — but unlike it, explicitly writes
+    NULL when token=None (revoking a share), which update_report's "drop None
+    values" filter can't express."""
+    engine = _require_engine()
+    tables = _get_tables()
+    reports = tables["reports"]
+    with engine.begin() as conn:
+        conn.execute(
+            reports.update()
+            .where(reports.c.id == report_id, reports.c.user_id == user_id)
+            .values(share_token=token)
+        )
+    return get_report(report_id, user_id)
+
+
+def get_report_by_share_token(token):
+    """Public, unauthenticated lookup for the shareable read-only link — no
+    user_id scoping, deliberately: possession of the unguessable token is the
+    only credential a viewer has or needs."""
+    engine = _require_engine()
+    tables = _get_tables()
+    reports = tables["reports"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(reports).where(reports.c.share_token == token)
+        ).mappings().first()
+    return dict(row) if row else None
