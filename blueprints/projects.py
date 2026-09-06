@@ -2,6 +2,7 @@
 projects.py — /api/projects CRUD, ownership-scoped by session user_id.
 """
 
+import json
 from urllib.parse import urlsplit
 
 from flask import Blueprint, request, jsonify
@@ -9,6 +10,12 @@ from flask import Blueprint, request, jsonify
 from ._session import require_login, _auth_db
 
 projects_bp = Blueprint("projects", __name__, url_prefix="/api/projects")
+
+# JSON-array columns on the projects row — stored as text (see _auth_db's
+# "no JSON column type, for SQLite portability" convention), decoded back to
+# real arrays in every API response by _shape() below.
+_ARRAY_FIELDS = ("signals", "target_pincodes")
+_OUTCOME_GOALS = ("revenue_reach", "store_count", "balanced")
 
 
 def _parse_avg_ticket(body):
@@ -21,6 +28,62 @@ def _parse_avg_ticket(body):
         return float(raw)
     except (TypeError, ValueError):
         return None
+
+
+def _num_or_none(raw):
+    if raw in (None, ""):
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _int_or_none(raw):
+    n = _num_or_none(raw)
+    return int(n) if n is not None else None
+
+
+def _str_or_none(raw):
+    return (raw or "").strip() or None if isinstance(raw, str) else None
+
+
+def _json_array(raw):
+    """Accepts a list (from JSON body) of scalars; returns a JSON string of
+    trimmed, de-duplicated, non-empty strings, or None when empty. A stray
+    non-list is treated as "not provided" rather than an error."""
+    if not isinstance(raw, list):
+        return None
+    seen, out = set(), []
+    for item in raw:
+        s = str(item).strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return json.dumps(out) if out else None
+
+
+def _wizard_fields(body):
+    """Shared shaping for the project-setup wizard fields, used by both create
+    and update. Only keys actually present in `body` are returned, so a partial
+    PUT doesn't wipe fields the caller didn't send."""
+    out = {}
+    if "industry" in body:
+        out["industry"] = _str_or_none(body.get("industry"))
+    if "signals" in body:
+        out["signals"] = _json_array(body.get("signals"))
+    if "target_pincodes" in body:
+        out["target_pincodes"] = _json_array(body.get("target_pincodes"))
+    if "catchment_km" in body:
+        out["catchment_km"] = _num_or_none(body.get("catchment_km"))
+    if "total_investment" in body:
+        out["total_investment"] = _num_or_none(body.get("total_investment"))
+    if "outcome_goal" in body:
+        goal = _str_or_none(body.get("outcome_goal"))
+        out["outcome_goal"] = goal if goal in _OUTCOME_GOALS else None
+    if "time_horizon_months" in body:
+        out["time_horizon_months"] = _int_or_none(body.get("time_horizon_months"))
+    return out
 
 
 def _parse_website_url(body):
@@ -47,10 +110,27 @@ def _parse_website_url(body):
     return parsed.geturl()
 
 
+def _shape(project):
+    """Decode the JSON-array columns back to real arrays for the API response."""
+    if project is None:
+        return None
+    out = dict(project)
+    for field in _ARRAY_FIELDS:
+        raw = out.get(field)
+        if isinstance(raw, str):
+            try:
+                out[field] = json.loads(raw)
+            except (ValueError, TypeError):
+                out[field] = []
+        elif raw is None:
+            out[field] = []
+    return out
+
+
 @projects_bp.route("", methods=["GET"])
 @require_login
 def list_projects(user_id):
-    return jsonify({"projects": _auth_db.list_projects(user_id)})
+    return jsonify({"projects": [_shape(p) for p in _auth_db.list_projects(user_id)]})
 
 
 @projects_bp.route("", methods=["POST"])
@@ -67,8 +147,9 @@ def create_project(user_id):
         target_segment=(body.get("target_segment") or "").strip() or None,
         avg_ticket=_parse_avg_ticket(body),
         website_url=_parse_website_url(body),
+        **_wizard_fields(body),
     )
-    return jsonify({"project": project}), 201
+    return jsonify({"project": _shape(project)}), 201
 
 
 @projects_bp.route("/<int:project_id>", methods=["GET"])
@@ -77,7 +158,7 @@ def get_project(user_id, project_id):
     project = _auth_db.get_project(project_id, user_id)
     if project is None:
         return jsonify({"error": "not_found"}), 404
-    return jsonify({"project": project})
+    return jsonify({"project": _shape(project)})
 
 
 @projects_bp.route("/<int:project_id>", methods=["PUT"])
@@ -92,8 +173,9 @@ def update_project(user_id, project_id):
         business_type=body.get("business_type"), target_segment=body.get("target_segment"),
         avg_ticket=_parse_avg_ticket(body),
         website_url=_parse_website_url(body) if "website_url" in body else None,
+        **_wizard_fields(body),
     )
-    return jsonify({"project": project})
+    return jsonify({"project": _shape(project)})
 
 
 @projects_bp.route("/<int:project_id>", methods=["DELETE"])

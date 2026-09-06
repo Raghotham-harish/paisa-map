@@ -1,8 +1,10 @@
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./lib/auth";
 import SignIn from "./pages/SignIn";
 import Dashboard from "./pages/Dashboard";
+import MapWorkspace from "./pages/MapWorkspace";
 import Projects from "./pages/Projects";
+import ProjectWizard from "./pages/ProjectWizard";
 import SavedLocations from "./pages/SavedLocations";
 import Activity from "./pages/Activity";
 import Credits from "./pages/Credits";
@@ -13,6 +15,7 @@ import Connections from "./pages/Connections";
 
 const NAV = [
   { to: "/", label: "Dashboard", end: true, icon: "ti-layout-dashboard" },
+  { to: "/map", label: "Map workspace", icon: "ti-map-2" },
   { to: "/projects", label: "Projects", icon: "ti-briefcase" },
   { to: "/locations", label: "Saved Locations", icon: "ti-map-pin" },
   { to: "/customer-data", label: "Store Data", icon: "ti-upload" },
@@ -25,6 +28,8 @@ const NAV = [
 
 export default function App() {
   const { user, loading, signOut } = useAuth();
+  const location = useLocation();
+  const bleed = location.pathname === "/map";
 
   if (loading) return <div className="loading">Loading…</div>;
   if (!user) return <SignIn />;
@@ -71,10 +76,12 @@ export default function App() {
           <i className="ti ti-logout" aria-hidden="true" /> Sign out
         </a>
       </aside>
-      <main className="content">
+      <main className={bleed ? "content content-bleed" : "content"}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/map" element={<MapWorkspace />} />
           <Route path="/projects" element={<Projects />} />
+          <Route path="/projects/new" element={<ProjectWizard />} />
           <Route path="/locations" element={<SavedLocations />} />
           <Route path="/customer-data" element={<CustomerData />} />
           <Route path="/connections" element={<Connections />} />

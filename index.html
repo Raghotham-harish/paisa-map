@@ -698,6 +698,18 @@
   /* ---------- Map ---------- */
   main{flex:1;position:relative}
   #map{position:absolute;inset:0;background:#dfe3da}
+
+  /* ---------- Embed mode (/?embed=1) ----------
+     The /workspace/map React shell frames this page and docks its own filter
+     bar / controls / intelligence panel / KPI strip around it, so hide this
+     page's own chrome and leave just the map + zoom control. #map is already
+     position:absolute;inset:0 so it fills the frame once <aside> is gone. */
+  html.pm-embed aside,
+  html.pm-embed #compareBar,
+  html.pm-embed #mapTopRightControls,
+  html.pm-embed .denom,
+  html.pm-embed .leaflet-control-layers{ display:none !important; }
+  html.pm-embed .leaflet-control-zoom{ margin:0 14px 96px 0 !important; }
   .leaflet-container{font-family:var(--sans)}
   /* Zoom control now lives bottomright (moved off the old topleft slot to make room for
      the top-right Signals/radar cluster) — the legend box (.denom, below) already owns
@@ -893,6 +905,15 @@
 </style>
 </head>
 <body>
+<script>
+  // Embed mode — set before first paint so the sidebar never flashes. The
+  // matching bridge (postMessage to/from the /workspace/map shell) is at the
+  // end of the main script block below, where it can close over `map`, `render`,
+  // `metric`, etc.
+  if (new URLSearchParams(location.search).has("embed")) {
+    document.documentElement.classList.add("pm-embed");
+  }
+</script>
 
 <aside>
   <div class="brand">
@@ -2844,6 +2865,10 @@ function render(){
 
 function setActive(id, fromList){
   activeId = id;
+  if(window.__pmEmbed){
+    const sel = dataset.find(x=>x.id===id);
+    if(sel) window.__pmEmbed.emitSelect(sel);
+  }
   document.querySelectorAll(".loc-row").forEach(el=>el.classList.remove("active"));
   if(!fromList){
     // re-render list highlight cheaply
@@ -3197,6 +3222,7 @@ function persistUser(u){
   currentUser = u;
   try{ if(u) localStorage.setItem("pm_user", JSON.stringify(u)); else localStorage.removeItem("pm_user"); }catch(e){}
   renderAuthUI();
+  if(window.__pmEmbed) window.__pmEmbed.emitAuth(u || null);
 }
 (function(){
   try{ const raw = localStorage.getItem("pm_user"); if(raw) currentUser = JSON.parse(raw); }catch(e){}
@@ -3286,7 +3312,13 @@ function openAuthPanel(){
 window.saveLocation = async function(pincode){
   const d = pincodeMap[pincode];
   if(!currentUser){
-    openAuthPanel();
+    if(window.__pmEmbed){
+      // The sign-in panel lives in the hidden <aside> under embed mode — hand
+      // off to the shell, which renders its own sign-in.
+      window.__pmEmbed.emitNeedAuth();
+    } else {
+      openAuthPanel();
+    }
     toast("Sign in to save locations", 2600);
     return;
   }
@@ -3303,6 +3335,7 @@ window.saveLocation = async function(pincode){
     if(!r.ok) throw new Error("save failed");
     const data = await r.json();
     toast(data.created ? "Saved to your locations" : "Already in your saved locations", 2400);
+    if(window.__pmEmbed) window.__pmEmbed.emitSaved(pincode);
   }catch(e){
     toast("Couldn't save this location — please try again", 2600);
   }
@@ -3335,6 +3368,7 @@ window.toggleCompare = function(pincode){
 };
 
 function renderCompareBar(){
+  if(window.__pmEmbed) window.__pmEmbed.emitCompare(compareList.slice());
   const bar = document.getElementById("compareBar");
   const chips = document.getElementById("compareChips");
   const btn = document.getElementById("compareBtn");
@@ -4127,6 +4161,113 @@ loadSignalData().then(loadBroadCoverage);   // broad coverage merges into signal
     }
   }catch(e){}
   locateUser(true);
+})();
+
+/* ---------- Embed bridge — postMessage to/from the /workspace/map React shell ----------
+   Only active under /?embed=1. Emitters are called from setActive / renderCompareBar /
+   saveLocation / persistUser above (all guarded by `window.__pmEmbed`); inbound
+   messages drive the map's own metric / fly-to / compare / save. The parent origin is
+   the referrer when we trust it, else our own origin (prod: same-origin). */
+if (document.documentElement.classList.contains("pm-embed")) (function(){
+  var LOCALHOST = /^https?:\/\/localhost(:\d+)?$/;
+  var parentOrigin = location.origin;
+  try {
+    if (document.referrer) {
+      var refOrigin = new URL(document.referrer).origin;
+      if (refOrigin === location.origin || LOCALHOST.test(refOrigin)) parentOrigin = refOrigin;
+    }
+  } catch (e) {}
+  function originOk(o){
+    return o === location.origin || o === parentOrigin
+        || (location.hostname === "localhost" && LOCALHOST.test(o));
+  }
+
+  function post(msg){
+    try { parent.postMessage(Object.assign({ source: "paisamap-map" }, msg), parentOrigin); }
+    catch (e) {}
+  }
+
+  // Catalog key -> the map's own metric id (core metrics use short ids).
+  var METRIC_ALIAS = { ppi_ml: "ppi", est_monthly_income_hh: "income", est_monthly_spend_hh: "spend" };
+  function metricLabel(){
+    if (metric === "ppi")    return "Avg PPI";
+    if (metric === "income") return "Median income";
+    if (metric === "spend")  return "Median spend";
+    var s = SIGNAL_DEFS[metric];
+    return s ? "Avg " + s.label : "Avg PPI";
+  }
+  function median(xs){
+    if (!xs.length) return null;
+    var a = xs.slice().sort(function(p,q){ return p - q; });
+    var m = Math.floor(a.length / 2);
+    return a.length % 2 ? a[m] : (a[m-1] + a[m]) / 2;
+  }
+
+  function emitViewport(){
+    var b;
+    try { b = map.getBounds(); } catch (e) { return; }
+    var inView = dataset.filter(function(d){
+      return d && isFinite(d.lat) && isFinite(d.lng) && b.contains([d.lat, d.lng]);
+    });
+    var vals    = inView.map(metricValue).filter(function(v){ return isFinite(v); });
+    var incomes = inView.map(function(d){ return d.income; }).filter(function(v){ return isFinite(v); });
+    var avg = vals.length ? vals.reduce(function(s,x){ return s + x; }, 0) / vals.length : null;
+    var lo  = vals.length ? Math.min.apply(null, vals) : 0;
+    var hi  = vals.length ? Math.max.apply(null, vals) : 1;
+    var topTier = hi > lo ? vals.filter(function(v){ return (v - lo) / (hi - lo) >= 0.8; }).length : 0;
+    post({ type: "viewport", kpis: {
+      pincodesInView: inView.length,
+      metricLabel: metricLabel(),
+      metricAvg: avg,
+      medianIncome: median(incomes),
+      topTierZones: topTier,
+    } });
+  }
+
+  var vpTimer = null;
+  map.on("moveend zoomend", function(){ clearTimeout(vpTimer); vpTimer = setTimeout(emitViewport, 250); });
+
+  window.__pmEmbed = {
+    post: post,
+    emitSelect:   function(d){ post({ type: "select", pincode: d.pincode || null, name: d.name || null, lat: d.lat, lng: d.lng }); },
+    emitCompare:  function(list){ post({ type: "compare", pincodes: list }); },
+    emitSaved:    function(pc){ post({ type: "saved", pincode: pc }); },
+    emitAuth:     function(u){ post({ type: "auth", user: u }); },
+    emitNeedAuth: function(){ post({ type: "needAuth" }); },
+  };
+
+  window.addEventListener("message", function(ev){
+    if (!originOk(ev.origin)) return;
+    var d = ev.data;
+    if (!d || d.source !== "paisamap-shell") return;
+    try {
+      switch (d.type) {
+        case "setSignal": {
+          var col = METRIC_ALIAS[d.col] || d.col;
+          var def = SIGNAL_DEFS[col];
+          selectSignalMetric(col, def ? def.label : col);
+          break;
+        }
+        case "flyTo": {
+          var rec = d.pincode && pincodeMap[d.pincode];
+          if (rec) map.flyTo([rec.lat, rec.lng], Math.max(map.getZoom(), 13), { duration: .6 });
+          break;
+        }
+        case "toggleCompare": if (d.pincode) window.toggleCompare(d.pincode); break;
+        case "save":          if (d.pincode) window.saveLocation(d.pincode); break;
+        case "refreshAuth":
+          fetch("/api/auth/me", { credentials: "include" })
+            .then(function(r){ return r.ok ? r.json() : null; })
+            .then(function(j){ persistUser(j && j.user ? j.user : null); })
+            .catch(function(){});
+          break;
+        case "requestViewport": emitViewport(); break;
+      }
+    } catch (e) {}
+  });
+
+  post({ type: "ready" });
+  if (dataPromise && dataPromise.then) dataPromise.then(emitViewport).catch(function(){});
 })();
 </script>
 </body>

@@ -158,6 +158,7 @@ try:
     from blueprints.credits import credits_bp
     from blueprints.reports import reports_bp
     from blueprints.intelligence import intelligence_bp
+    from blueprints.signals import signals_bp
     from blueprints.customer_data import customer_data_bp
     from blueprints.expansion import expansion_bp
     from blueprints.analytics_connections import analytics_bp, oauth_callback_bp
@@ -169,6 +170,7 @@ try:
     app.register_blueprint(credits_bp)
     app.register_blueprint(reports_bp)
     app.register_blueprint(intelligence_bp)
+    app.register_blueprint(signals_bp)
     app.register_blueprint(customer_data_bp)
     app.register_blueprint(expansion_bp)
     app.register_blueprint(analytics_bp)

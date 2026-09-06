@@ -50,6 +50,8 @@ export interface MeResponse {
   credits: number;
 }
 
+export type OutcomeGoal = "revenue_reach" | "store_count" | "balanced";
+
 export interface Project {
   id: number;
   name: string;
@@ -58,6 +60,13 @@ export interface Project {
   target_segment: string | null;
   avg_ticket: number | null;
   website_url: string | null;
+  industry: string | null;
+  signals: string[];
+  target_pincodes: string[];
+  catchment_km: number | null;
+  total_investment: number | null;
+  outcome_goal: OutcomeGoal | null;
+  time_horizon_months: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -69,6 +78,20 @@ export interface ProjectFields {
   target_segment?: string;
   avg_ticket?: string | number;
   website_url?: string;
+  industry?: string;
+  signals?: string[];
+  target_pincodes?: string[];
+  catchment_km?: string | number;
+  total_investment?: string | number;
+  outcome_goal?: OutcomeGoal;
+  time_horizon_months?: string | number;
+}
+
+export interface SignalCatalogItem {
+  key: string;
+  label: string;
+  pro: boolean;
+  group: string;
 }
 
 export type LocationStatus = "shortlist" | "reviewing" | "approved" | "rejected";
@@ -392,14 +415,30 @@ export const api = {
 
   listLocations: (projectId?: number) =>
     request(`/api/locations${projectId ? `?project_id=${projectId}` : ""}`) as Promise<{ locations: SavedLocation[] }>,
+  createLocation: (fields: { pincode: string; name?: string | null; lat?: number | null; lng?: number | null; project_id?: number }) =>
+    request("/api/locations", { method: "POST", body: JSON.stringify(fields) }) as Promise<{ location: SavedLocation; created: boolean }>,
   updateLocation: (id: number, fields: { status?: LocationStatus; notes?: string }) =>
     request(`/api/locations/${id}`, { method: "PUT", body: JSON.stringify(fields) }) as Promise<{ location: SavedLocation }>,
   deleteLocation: (id: number) => request(`/api/locations/${id}`, { method: "DELETE" }),
 
   listActivity: (limit = 50) => request(`/api/activity?limit=${limit}`) as Promise<{ activity: ActivityEntry[] }>,
 
-  getLocationScore: (pincode: string) =>
-    request(`/api/intelligence/score?pincode=${pincode}`) as Promise<LocationScore>,
+  signalCatalog: () => request("/api/signals/catalog") as Promise<{ signals: SignalCatalogItem[] }>,
+
+  getLocationScore: (pincode: string, business?: { avg_ticket?: number | null; target_segment?: string | null; business_type?: string | null }) => {
+    const q = new URLSearchParams({ pincode });
+    if (business?.avg_ticket != null) q.set("avg_ticket", String(business.avg_ticket));
+    if (business?.target_segment) q.set("target_segment", business.target_segment);
+    if (business?.business_type) q.set("business_type", business.business_type);
+    return request(`/api/intelligence/score?${q.toString()}`) as Promise<LocationScore>;
+  },
+  compareLocations: (pincodes: string[], business?: { avg_ticket?: number | null; target_segment?: string | null; business_type?: string | null }) => {
+    const q = new URLSearchParams({ pincodes: pincodes.join(",") });
+    if (business?.avg_ticket != null) q.set("avg_ticket", String(business.avg_ticket));
+    if (business?.target_segment) q.set("target_segment", business.target_segment);
+    if (business?.business_type) q.set("business_type", business.business_type);
+    return request(`/api/intelligence/compare?${q.toString()}`) as Promise<{ locations: (LocationScore & { rank: number })[] }>;
+  },
 
   getCredits: () => request("/api/credits") as Promise<{ balance: number; ledger: CreditLedgerEntry[] }>,
 
