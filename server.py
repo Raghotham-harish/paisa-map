@@ -107,6 +107,22 @@ from _signals_data import (EXPORT_CORE_FIELDS, EXPORT_ALL_COLUMNS,
 
 app = Flask(__name__)
 
+# nginx proxies to this app over plain HTTP on localhost (proxy_pass
+# http://127.0.0.1:8080) even though the browser's connection is HTTPS —
+# without this, request.host_url/request.url/request.is_secure all report
+# "http" regardless of what the visitor actually used. Real bug hit in
+# production 2026-09-06: blueprints/analytics_connections.py builds the OAuth
+# redirect_uri from request.host_url, so it was sending Google
+# "http://paisamaps.com/..." — never matching the "https://" URI registered
+# in the GCP console, a 400 redirect_uri_mismatch on every attempt. Requires
+# nginx to actually send X-Forwarded-Proto (added to the /api/ location block
+# alongside this fix, not tracked in this repo — see reference_paisamap_deploy
+# in memory for why nginx config lives only on the server). x_for=1 matches
+# the X-Forwarded-For nginx already sends; trusting exactly one proxy hop is
+# correct for this deployment (browser -> nginx -> this app, no CDN in front).
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
 # Session config for the auth blueprints below. SECRET_KEY should be set in
 # production (injected via /etc/paisamap/db.env, same EnvironmentFile= pattern
 # as DATABASE_URL) — an ephemeral random key is fine for local dev but means
