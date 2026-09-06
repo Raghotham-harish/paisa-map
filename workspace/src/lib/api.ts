@@ -248,6 +248,50 @@ export interface ExpansionRecommendation {
   detail: string | null;
 }
 
+export type ConnectionProvider = "google_analytics" | "search_console";
+
+export interface OAuthConnection {
+  id: number;
+  project_id: number;
+  provider: ConnectionProvider;
+  status: "connected" | "error";
+  external_account_email: string | null;
+  scopes: string | null;
+  external_ref: string | null;
+  last_error: string | null;
+  connected_at: string;
+  updated_at: string;
+}
+
+export interface ConnectionsResponse {
+  analytics_consent_at: string | null;
+  connections: OAuthConnection[];
+}
+
+export interface ConnectionProperty {
+  property_id?: string;
+  display_name?: string;
+  account_name?: string;
+  site_url?: string;
+  permission_level?: string;
+}
+
+export interface GA4ReportRow {
+  city: string;
+  sessions: number;
+  users: number;
+  conversions: number;
+  pageviews: number;
+}
+
+export interface GSCReportRow {
+  query: string;
+  clicks: number | null;
+  impressions: number | null;
+  ctr: number | null;
+  position: number | null;
+}
+
 export const api = {
   config: () => request("/api/config"),
   me: () => request("/api/auth/me") as Promise<MeResponse>,
@@ -319,4 +363,29 @@ export const api = {
     request(`/api/expansion/drivers?project_id=${projectId}`) as Promise<DriverAnalysis>,
   getExpansionRecommendation: (projectId: number, budget: number) =>
     request(`/api/expansion/recommend?project_id=${projectId}&budget=${budget}`) as Promise<ExpansionRecommendation>,
+
+  getConnections: (projectId: number) =>
+    request(`/api/projects/${projectId}/connections`) as Promise<ConnectionsResponse>,
+  acceptConnectionsConsent: (projectId: number) =>
+    request(`/api/projects/${projectId}/connections/consent`, {
+      method: "POST", body: JSON.stringify({ accept: true }),
+    }) as Promise<{ analytics_consent_at: string }>,
+  getConnectionAuthorizeUrl: (projectId: number, provider: ConnectionProvider) =>
+    request(`/api/projects/${projectId}/connections/${provider}/authorize`) as Promise<{ authorize_url: string }>,
+  listConnectionProperties: (projectId: number, provider: ConnectionProvider) =>
+    request(`/api/projects/${projectId}/connections/${provider}/properties`) as Promise<{
+      properties: ConnectionProperty[];
+    }>,
+  selectConnectionProperty: (projectId: number, provider: ConnectionProvider, externalRef: string) =>
+    request(`/api/projects/${projectId}/connections/${provider}/select`, {
+      method: "POST", body: JSON.stringify({ external_ref: externalRef }),
+    }) as Promise<{ connection: OAuthConnection }>,
+  getConnectionReport: (projectId: number, provider: ConnectionProvider) =>
+    request(`/api/projects/${projectId}/connections/${provider}/report`) as Promise<{
+      provider: ConnectionProvider;
+      external_ref: string;
+      rows: (GA4ReportRow | GSCReportRow)[];
+    }>,
+  disconnectConnection: (projectId: number, provider: ConnectionProvider) =>
+    request(`/api/projects/${projectId}/connections/${provider}`, { method: "DELETE" }),
 };

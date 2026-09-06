@@ -106,6 +106,7 @@ def _get_tables():
         Column("target_segment", Text),
         Column("avg_ticket", Float),
         Column("website_url", Text),
+        Column("analytics_consent_at", DateTime(timezone=True)),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("updated_at", DateTime(timezone=True), nullable=False),
     )
@@ -214,11 +215,34 @@ def _get_tables():
         ),
     )
 
+    oauth_connections = Table(
+        "oauth_connections", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("project_id", Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        Column("provider", Text, nullable=False),
+        Column("status", Text, nullable=False, server_default="connected"),
+        Column("external_account_email", Text),
+        Column("scopes", Text),
+        Column("access_token_encrypted", Text, nullable=False),
+        Column("refresh_token_encrypted", Text),
+        Column("token_expiry", DateTime(timezone=True)),
+        Column("external_ref", Text),  # GA4 property id or GSC site URL, chosen after connecting
+        Column("last_error", Text),
+        Column("connected_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+        UniqueConstraint("project_id", "provider", name="uq_oauth_connections_project_provider"),
+        CheckConstraint("provider IN ('google_analytics','search_console')",
+                         name="ck_oauth_connections_provider"),
+        CheckConstraint("status IN ('connected','error')", name="ck_oauth_connections_status"),
+    )
+
     _tables = {
         "organizations": organizations, "users": users, "org_members": org_members,
         "projects": projects, "saved_locations": saved_locations, "reports": reports,
         "credits_ledger": credits_ledger, "activity_log": activity_log,
         "customer_uploads": customer_uploads, "customer_locations": customer_locations,
+        "oauth_connections": oauth_connections,
     }
     return _tables
 
@@ -236,6 +260,7 @@ def init_schema():
         tables["projects"], tables["saved_locations"], tables["reports"],
         tables["credits_ledger"], tables["activity_log"],
         tables["customer_uploads"], tables["customer_locations"],
+        tables["oauth_connections"],
     ])
 
 
@@ -251,6 +276,7 @@ _MIGRATIONS = [
     ("projects", "avg_ticket", "FLOAT"),
     ("projects", "website_url", "TEXT"),
     ("reports", "share_token", "TEXT"),
+    ("projects", "analytics_consent_at", "TIMESTAMP"),
 ]
 
 
@@ -841,3 +867,160 @@ def delete_customer_location(location_id, user_id):
             locs.delete().where(locs.c.id == location_id, locs.c.user_id == user_id)
         )
     return result.rowcount > 0
+
+
+# ── OAuth connections (Phase 05B) ────────────────────────────────────────────
+def set_analytics_consent(project_id, user_id):
+    """Records the DPA/consent acceptance timestamp on the project itself —
+    one click covers whichever providers get connected under it, since it's a
+    single business relationship, not a per-provider agreement. Returns the
+    timestamp so the connect flow can gate on "was this set" without a second
+    query racing the write."""
+    engine = _require_engine()
+    tables = _get_tables()
+    projects = tables["projects"]
+    now = _now()
+    with engine.begin() as conn:
+        result = conn.execute(
+            projects.update()
+            .where(projects.c.id == project_id, projects.c.user_id == user_id)
+            .values(analytics_consent_at=now, updated_at=now)
+        )
+    return now if result.rowcount > 0 else None
+
+
+def has_analytics_consent(project_id, user_id):
+    project = get_project(project_id, user_id)
+    return bool(project and project.get("analytics_consent_at"))
+
+
+def list_oauth_connections(project_id, user_id):
+    """Ownership-scoped via a join against projects rather than trusting a
+    bare project_id — same reasoning as every other project-scoped list here."""
+    if get_project(project_id, user_id) is None:
+        return []
+    engine = _require_engine()
+    tables = _get_tables()
+    conns = tables["oauth_connections"]
+    from sqlalchemy import select
+    cols = [c for c in conns.c if c.name not in ("access_token_encrypted", "refresh_token_encrypted")]
+    with engine.connect() as conn:
+        rows = conn.execute(select(*cols).where(conns.c.project_id == project_id)).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def get_oauth_connection(project_id, provider, user_id, include_tokens=False):
+    if get_project(project_id, user_id) is None:
+        return None
+    engine = _require_engine()
+    tables = _get_tables()
+    conns = tables["oauth_connections"]
+    from sqlalchemy import select
+    cols = list(conns.c) if include_tokens else [
+        c for c in conns.c if c.name not in ("access_token_encrypted", "refresh_token_encrypted")
+    ]
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(*cols).where(conns.c.project_id == project_id, conns.c.provider == provider)
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def upsert_oauth_connection(project_id, user_id, provider, external_account_email, scopes,
+                             access_token_encrypted, refresh_token_encrypted, token_expiry):
+    """Insert-or-replace on (project_id, provider) — reconnecting (e.g. after a
+    revoked refresh token) should overwrite the old row, not accumulate a second
+    one, hence the unique constraint + explicit update-if-exists here rather than
+    a DB-level ON CONFLICT (kept portable across the Postgres/SQLite dialects
+    this module already supports, same as grant_credits' plain select-then-write)."""
+    engine = _require_engine()
+    tables = _get_tables()
+    conns = tables["oauth_connections"]
+    from sqlalchemy import select
+    now = _now()
+    with engine.begin() as conn:
+        existing = conn.execute(
+            select(conns.c.id).where(conns.c.project_id == project_id, conns.c.provider == provider)
+        ).first()
+        values = dict(
+            user_id=user_id, status="connected", external_account_email=external_account_email,
+            scopes=scopes, access_token_encrypted=access_token_encrypted,
+            last_error=None, updated_at=now,
+        )
+        # A re-auth may come back without a refresh_token (Google only issues one
+        # on first consent unless prompt=consent forces a fresh one, which the
+        # authorize URL always sets — but don't clobber a good token with None
+        # if that ever changes).
+        if refresh_token_encrypted is not None:
+            values["refresh_token_encrypted"] = refresh_token_encrypted
+        if token_expiry is not None:
+            values["token_expiry"] = token_expiry
+        if existing:
+            conn.execute(conns.update().where(conns.c.id == existing.id).values(**values))
+        else:
+            values.update(project_id=project_id, provider=provider, connected_at=now)
+            conn.execute(conns.insert().values(**values))
+    return get_oauth_connection(project_id, provider, user_id)
+
+
+def update_oauth_connection_ref(project_id, provider, user_id, external_ref):
+    """Stores the chosen GA4 property id / GSC site URL after the user picks one
+    from the list fetched with the connection's access token."""
+    engine = _require_engine()
+    tables = _get_tables()
+    conns = tables["oauth_connections"]
+    with engine.begin() as conn:
+        conn.execute(
+            conns.update()
+            .where(conns.c.project_id == project_id, conns.c.provider == provider)
+            .values(external_ref=external_ref, updated_at=_now())
+        )
+    return get_oauth_connection(project_id, provider, user_id)
+
+
+def mark_oauth_connection_tokens(project_id, provider, access_token_encrypted, token_expiry):
+    """Refresh-only update — leaves refresh_token/external_ref/status untouched."""
+    engine = _require_engine()
+    tables = _get_tables()
+    conns = tables["oauth_connections"]
+    with engine.begin() as conn:
+        conn.execute(
+            conns.update()
+            .where(conns.c.project_id == project_id, conns.c.provider == provider)
+            .values(access_token_encrypted=access_token_encrypted, token_expiry=token_expiry,
+                    status="connected", last_error=None, updated_at=_now())
+        )
+
+
+def mark_oauth_connection_error(project_id, provider, error_message):
+    engine = _require_engine()
+    tables = _get_tables()
+    conns = tables["oauth_connections"]
+    with engine.begin() as conn:
+        conn.execute(
+            conns.update()
+            .where(conns.c.project_id == project_id, conns.c.provider == provider)
+            .values(status="error", last_error=error_message[:500], updated_at=_now())
+        )
+
+
+def delete_oauth_connection(project_id, provider, user_id):
+    """A real DELETE, not a status flip — the DPDP framing this phase was built
+    under (see the Phase 05B review) commits to an actual delete on disconnect,
+    not just token revocation, since a lingering encrypted-token row is still
+    personal/business data at rest even if it can no longer be used."""
+    if get_project(project_id, user_id) is None:
+        return None
+    engine = _require_engine()
+    tables = _get_tables()
+    conns = tables["oauth_connections"]
+    from sqlalchemy import select
+    with engine.begin() as conn:
+        row = conn.execute(
+            select(conns.c.access_token_encrypted, conns.c.refresh_token_encrypted)
+            .where(conns.c.project_id == project_id, conns.c.provider == provider)
+        ).first()
+        conn.execute(
+            conns.delete().where(conns.c.project_id == project_id, conns.c.provider == provider)
+        )
+    return dict(row._mapping) if row else None
