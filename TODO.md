@@ -1,25 +1,31 @@
 # TODO
 
-## Phase 05B — GA4 / Search Console OAuth: GCP console setup (blocks real connections)
+## Phase 05B — GA4 / Search Console OAuth
 
-The OAuth authorization-code flow (`blueprints/analytics_connections.py`, commit
-`2ffbdf1`) is live in production but inert until these are done in the GCP console —
-none of this is code, all of it needs your Google account access:
+**Fully working end-to-end in production as of 2026-09-06**, verified with a real
+Google account — both connections show real data (Search Console pulled actual
+search queries for manekhadya.com; GA4 connected and reports "no data" honestly,
+since that property has no ecommerce tracking configured, not a bug). All setup
+items closed:
 
-- [x] Add a `GOOGLE_CLIENT_SECRET` for the existing OAuth client (or create a new
-      one), then add it to `/etc/paisamap/db.env` on the server. (Done 2026-09-06 —
-      added to db.env, service restarted.)
-- [x] Register `https://paisamaps.com/api/analytics/oauth/callback` as an exact
-      "Authorized redirect URI" on that OAuth client. (Done 2026-09-06.)
-- [x] Add `analytics.readonly` + `webmasters.readonly` scopes to the OAuth consent
-      screen, and add your Google account as a test user (GCP "Testing" publish
-      status allows this immediately — no verification wait needed to test).
-      (Done 2026-09-06.)
-- [ ] All 3 GCP setup items above are done — next: a real end-to-end test.
-      Sign in to `/workspace/`, open **Connections**, accept consent, click
-      **Connect** on Google Analytics, complete the real Google consent screen,
-      and confirm the property picker / report / ecommerce summary / location
-      tags all populate with real data.
+- [x] `GOOGLE_CLIENT_SECRET` added to `/etc/paisamap/db.env`.
+- [x] Redirect URI `https://paisamaps.com/api/analytics/oauth/callback` registered.
+- [x] Consent-screen scopes + test user configured.
+- [x] Real end-to-end test — both providers connected, property/site picked,
+      report/ecommerce/location-tags all pulling real data.
+- [x] Fixed two real production bugs surfaced only by this real-account test
+      (neither existed in the mocked test suite, since both are proxy/DNS-layer
+      issues, not app logic): (1) nginx never forwarded `X-Forwarded-Proto`, so
+      Flask always built the OAuth redirect_uri as `http://` — fixed via
+      `ProxyFix` in `server.py` (commit `aff9a0b`) + `proxy_set_header
+      X-Forwarded-Proto $scheme;` added to nginx (server-side, not tracked in
+      this repo). (2) `www.paisamaps.com` was served directly instead of
+      redirecting to the apex, so a request landing on `www` built a redirect_uri
+      Google didn't recognize — fixed with a dedicated 443 redirect block on the
+      server. (3) Also enable a third GCP API if not done — **Google Analytics
+      Admin API** (`analyticsadmin.googleapis.com`) — needed for the property
+      picker, separate from the Data API.
+
 - [ ] (Later, not a blocker) Verify `paisamaps.com` in Search Console under this
       GCP project — needed only when submitting for Google's standard
       sensitive-scope verification.
