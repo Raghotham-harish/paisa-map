@@ -311,6 +311,30 @@ export interface EcommerceSummary {
   top_items: EcommerceTopItem[];
 }
 
+export interface DigitalSignal {
+  sessions: number;
+  users: number;
+  conversions: number;
+  pageviews: number;
+}
+
+export interface LocationTag {
+  id: number;
+  store_name: string | null;
+  pincode: string;
+  resolved_city: string | null;
+  matched: boolean;
+  digital_signal: DigitalSignal | null;
+}
+
+export interface LocationTagsResponse {
+  external_ref: string;
+  window_days: number;
+  matched_count: number;
+  total_count: number;
+  locations: LocationTag[];
+}
+
 export const api = {
   config: () => request("/api/config"),
   me: () => request("/api/auth/me") as Promise<MeResponse>,
@@ -409,4 +433,6 @@ export const api = {
     request(`/api/projects/${projectId}/connections/${provider}`, { method: "DELETE" }),
   getEcommerceSummary: (projectId: number) =>
     request(`/api/projects/${projectId}/connections/google_analytics/ecommerce`) as Promise<EcommerceSummary>,
+  getLocationTags: (projectId: number) =>
+    request(`/api/projects/${projectId}/connections/google_analytics/location-tags`) as Promise<LocationTagsResponse>,
 };

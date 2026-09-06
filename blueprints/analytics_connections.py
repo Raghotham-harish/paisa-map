@@ -29,6 +29,7 @@ and a real delete-on-disconnect (not just token revocation) is part of that
 review's own recommendation — see delete_oauth_connection's docstring.
 """
 
+import re
 import secrets
 import sys
 from datetime import datetime, timedelta, timezone
@@ -38,6 +39,7 @@ from flask import Blueprint, jsonify, redirect, request, session
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" / "etl"))
 import _google_oauth  # noqa: E402
+import _signals_data  # noqa: E402
 import _token_crypto  # noqa: E402
 from _google_oauth import GoogleOAuthError  # noqa: E402
 
@@ -47,6 +49,36 @@ analytics_bp = Blueprint("analytics_connections", __name__, url_prefix="/api/pro
 oauth_callback_bp = Blueprint("analytics_oauth_callback", __name__, url_prefix="/api/analytics")
 
 PROVIDERS = ("google_analytics", "search_console")
+
+# Best-effort city-name normalization for joining a store's Census "district"
+# (from _signals_data.load_geography(), the source ml_refinement.py itself
+# uses) against GA4's IP-geolocated "city" dimension — the two vocabularies
+# genuinely differ (district subdivisions like "East Delhi", historical/local
+# names like "Bangalore" vs GA4's "Bengaluru"), so this is approximate by
+# nature, not a guaranteed match. Applied to both sides so e.g. district
+# "Central Delhi" and GA4's "New Delhi" both normalize to "delhi".
+_STRIP_WORDS_RE = re.compile(r"\b(district|urban|rural|city)\b")
+_CITY_ALIASES = {
+    "bangalore": "bengaluru",
+    "bombay": "mumbai",
+    "calcutta": "kolkata",
+    "madras": "chennai",
+    "poona": "pune",
+    "gurgaon": "gurugram",
+    "new delhi": "delhi",
+    "central delhi": "delhi", "east delhi": "delhi", "north delhi": "delhi",
+    "north west delhi": "delhi", "north east delhi": "delhi",
+    "south delhi": "delhi", "south west delhi": "delhi", "south east delhi": "delhi",
+    "west delhi": "delhi", "shahdara": "delhi",
+}
+
+
+def _normalize_city(name):
+    if not name:
+        return None
+    n = _STRIP_WORDS_RE.sub("", name.strip().lower())
+    n = re.sub(r"\s+", " ", n).strip()
+    return _CITY_ALIASES.get(n, n) or None
 
 
 def _redirect_uri():
@@ -321,6 +353,74 @@ def get_ecommerce_summary(user_id, project_id):
     return jsonify({
         "provider": "google_analytics", "external_ref": conn["external_ref"],
         "totals": totals, "top_items": top_items,
+    })
+
+
+# ── Location-tagging pipeline ────────────────────────────────────────────────
+@analytics_bp.route("/google_analytics/location-tags", methods=["GET"])
+@require_login
+def get_location_tags(user_id, project_id):
+    """Joins a project's own uploaded stores (Phase 05's customer_locations,
+    already resolved to a pincode) against the connected GA4 property's
+    city-level traffic — "their store address list × GA4's location
+    dimension," per the roadmap. GA4 has no pincode dimension, so the join key
+    is a best-effort normalized city name (see _normalize_city) — this is
+    explicitly approximate, not a guaranteed match, and every result says so
+    per-store rather than silently treating a miss as zero traffic."""
+    access_token, conn = _get_valid_access_token(project_id, "google_analytics", user_id)
+    if conn is None:
+        return jsonify({"error": "not_connected"}), 404
+    if not conn.get("external_ref"):
+        return jsonify({"error": "property_not_selected"}), 400
+    if access_token is None:
+        return jsonify({"error": "reconnect_required", "detail": conn.get("last_error")}), 409
+
+    locations = [
+        loc for loc in _auth_db.list_customer_locations(user_id, project_id) if loc.get("pincode")
+    ]
+    if not locations:
+        return jsonify({
+            "error": "no_customer_locations",
+            "detail": "Upload store data with resolved pincodes first, on the Store Data page.",
+        }), 400
+
+    try:
+        raw = _google_oauth.run_ga4_report(access_token, conn["external_ref"], limit=50)
+    except GoogleOAuthError as e:
+        return jsonify({"error": "google_api_error", "detail": str(e)}), 502
+
+    ga4_by_city = {}
+    for r in raw.get("rows", []):
+        city_name = r["dimensionValues"][0]["value"]
+        key = _normalize_city(city_name)
+        if key is None:
+            continue
+        mv = r["metricValues"]
+        ga4_by_city[key] = {
+            "city": city_name, "sessions": int(mv[0]["value"]), "users": int(mv[1]["value"]),
+            "conversions": float(mv[2]["value"]), "pageviews": int(mv[3]["value"]),
+        }
+
+    geography = _signals_data.load_geography()
+    tagged = []
+    for loc in locations:
+        district = (geography.get(loc["pincode"]) or {}).get("district")
+        key = _normalize_city(district)
+        match = ga4_by_city.get(key) if key else None
+        tagged.append({
+            "id": loc["id"], "store_name": loc.get("store_name"), "pincode": loc["pincode"],
+            "resolved_city": district, "matched": match is not None,
+            "digital_signal": {
+                "sessions": match["sessions"], "users": match["users"],
+                "conversions": match["conversions"], "pageviews": match["pageviews"],
+            } if match else None,
+        })
+
+    return jsonify({
+        "external_ref": conn["external_ref"], "window_days": 28,
+        "matched_count": sum(1 for t in tagged if t["matched"]),
+        "total_count": len(tagged),
+        "locations": tagged,
     })
 
 

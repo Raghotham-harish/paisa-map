@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ApiError, api, CanonicalField, CustomerLocation, CustomerUpload,
-  DriverAnalysis, ExpansionRecommendation, Project,
+  DriverAnalysis, ExpansionRecommendation, LocationTagsResponse, Project,
 } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 
@@ -46,6 +46,9 @@ export default function CustomerData() {
   const [recommendation, setRecommendation] = useState<ExpansionRecommendation | null>(null);
   const [recommending, setRecommending] = useState(false);
   const [recommendError, setRecommendError] = useState<string | null>(null);
+  const [locationTags, setLocationTags] = useState<LocationTagsResponse | null>(null);
+  const [locationTagsLoading, setLocationTagsLoading] = useState(false);
+  const [locationTagsMessage, setLocationTagsMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<number | null>(null);
 
@@ -67,8 +70,33 @@ export default function CustomerData() {
       loadForProject(projectId);
       setRecommendation(null);
       setBudget("");
+      setLocationTags(null);
+      setLocationTagsMessage(null);
     }
   }, [projectId]);
+
+  const onLoadLocationTags = async () => {
+    if (projectId == null) return;
+    setLocationTagsLoading(true);
+    setLocationTagsMessage(null);
+    try {
+      const result = await api.getLocationTags(projectId);
+      setLocationTags(result);
+    } catch (e) {
+      setLocationTags(null);
+      if (e instanceof ApiError && e.body?.error === "not_connected") {
+        setLocationTagsMessage("Connect Google Analytics for this project first, on the Connections page.");
+      } else if (e instanceof ApiError && e.body?.error === "property_not_selected") {
+        setLocationTagsMessage("Pick a GA4 property for this connection first, on the Connections page.");
+      } else if (e instanceof ApiError && e.body?.detail) {
+        setLocationTagsMessage(String(e.body.detail));
+      } else {
+        setLocationTagsMessage("Couldn't load digital-signal tags.");
+      }
+    } finally {
+      setLocationTagsLoading(false);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -406,6 +434,49 @@ export default function CustomerData() {
                       ))}
                     </ul>
                   )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {locations !== null && locations.length > 0 && (
+            <div className="card" style={{ marginTop: 24 }}>
+              <p style={{ margin: "0 0 4px", fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--mono)", letterSpacing: ".06em", textTransform: "uppercase" }}>
+                Digital signal by store
+              </p>
+              <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-soft)" }}>
+                Best-effort match of each store's city against your connected Google Analytics traffic — approximate,
+                not a guaranteed match (GA4 has no pincode data).
+              </p>
+              <button className="btn secondary" disabled={locationTagsLoading} onClick={onLoadLocationTags}>
+                {locationTagsLoading ? "Loading…" : "Load digital-signal tags"}
+              </button>
+              {locationTagsMessage && (
+                <p style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 10 }}>{locationTagsMessage}</p>
+              )}
+              {locationTags && (
+                <div style={{ marginTop: 14 }}>
+                  <p style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 10 }}>
+                    Matched {locationTags.matched_count} of {locationTags.total_count} stores, last {locationTags.window_days} days.
+                  </p>
+                  <ul className="list">
+                    {locationTags.locations.map((t) => (
+                      <li key={t.id}>
+                        <div>
+                          <div className="primary">{t.store_name || t.pincode}</div>
+                          <div className="secondary">
+                            {t.resolved_city || "city unknown"}
+                            {t.matched && t.digital_signal && (
+                              ` · ${t.digital_signal.sessions} sessions · ${t.digital_signal.conversions} conversions`
+                            )}
+                          </div>
+                        </div>
+                        <span className={`pill ${t.matched ? "delta-pos" : "shortlist"}`}>
+                          {t.matched ? "matched" : "no GA4 data"}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </div>

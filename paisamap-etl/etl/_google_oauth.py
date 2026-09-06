@@ -159,11 +159,13 @@ def _n_days_ago(n):
     return (date.today() - timedelta(days=n)).isoformat()
 
 
-def run_ga4_report(access_token, property_id, days=28):
+def run_ga4_report(access_token, property_id, days=28, limit=10):
     """Sessions/users/conversions/pageviews by city over the trailing window —
     GA4 has no pincode dimension, so city is the finest free geography
-    dimension available; pincode-level joining happens later (roadmap item
-    "Location-tagging pipeline") via the business's own store address list."""
+    dimension available. The default `limit=10` suits the human-readable
+    report view; the location-tagging join (roadmap item "Location-tagging
+    pipeline") calls this with a higher limit to maximize how many of a
+    business's own store cities get matched."""
     payload = {
         "dateRanges": [{"startDate": f"{days}daysAgo", "endDate": "today"}],
         "dimensions": [{"name": "city"}],
@@ -171,7 +173,7 @@ def run_ga4_report(access_token, property_id, days=28):
             {"name": "sessions"}, {"name": "totalUsers"},
             {"name": "conversions"}, {"name": "screenPageViews"},
         ],
-        "limit": 10,
+        "limit": limit,
         "orderBys": [{"metric": {"metricName": "sessions"}, "desc": True}],
     }
     url = GA4_DATA_RUN_REPORT.format(property=f"properties/{property_id}")
