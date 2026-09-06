@@ -188,15 +188,26 @@ export default function Reports() {
                         </button>
                       </div>
                     )}
+                    {r.params?.digital_baseline && (
+                      <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
+                        Connected GA4: {r.params.digital_baseline.ecommerce.transactions.toLocaleString("en-IN")} transactions ·
+                        {" "}₹{r.params.digital_baseline.ecommerce.purchase_revenue.toLocaleString("en-IN")} revenue (last 28 days)
+                      </div>
+                    )}
                     {r.params?.locations && r.params.locations.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                         {r.params.locations.map((loc) => (
                           <span
                             key={loc.pincode}
                             className={`pill ${RISK_CLASS[loc.risk.level] || "shortlist"}`}
-                            title={loc.risk.note}
+                            title={
+                              loc.digital_signal
+                                ? `${loc.risk.note} — GA4: ${loc.digital_signal.sessions} sessions, ${loc.digital_signal.conversions} conversions`
+                                : loc.risk.note
+                            }
                           >
                             {loc.name} · {loc.opportunity?.suitability ?? `${loc.economic_score}/100`}
+                            {loc.digital_signal ? " · GA4" : ""}
                           </span>
                         ))}
                       </div>

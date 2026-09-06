@@ -29,7 +29,6 @@ and a real delete-on-disconnect (not just token revocation) is part of that
 review's own recommendation — see delete_oauth_connection's docstring.
 """
 
-import re
 import secrets
 import sys
 from datetime import datetime, timedelta, timezone
@@ -41,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" /
 import _google_oauth  # noqa: E402
 import _signals_data  # noqa: E402
 import _token_crypto  # noqa: E402
-from _google_oauth import GoogleOAuthError  # noqa: E402
+from _google_oauth import GoogleOAuthError, normalize_city  # noqa: E402
 
 from ._session import require_login, _auth_db
 
@@ -49,36 +48,6 @@ analytics_bp = Blueprint("analytics_connections", __name__, url_prefix="/api/pro
 oauth_callback_bp = Blueprint("analytics_oauth_callback", __name__, url_prefix="/api/analytics")
 
 PROVIDERS = ("google_analytics", "search_console")
-
-# Best-effort city-name normalization for joining a store's Census "district"
-# (from _signals_data.load_geography(), the source ml_refinement.py itself
-# uses) against GA4's IP-geolocated "city" dimension — the two vocabularies
-# genuinely differ (district subdivisions like "East Delhi", historical/local
-# names like "Bangalore" vs GA4's "Bengaluru"), so this is approximate by
-# nature, not a guaranteed match. Applied to both sides so e.g. district
-# "Central Delhi" and GA4's "New Delhi" both normalize to "delhi".
-_STRIP_WORDS_RE = re.compile(r"\b(district|urban|rural|city)\b")
-_CITY_ALIASES = {
-    "bangalore": "bengaluru",
-    "bombay": "mumbai",
-    "calcutta": "kolkata",
-    "madras": "chennai",
-    "poona": "pune",
-    "gurgaon": "gurugram",
-    "new delhi": "delhi",
-    "central delhi": "delhi", "east delhi": "delhi", "north delhi": "delhi",
-    "north west delhi": "delhi", "north east delhi": "delhi",
-    "south delhi": "delhi", "south west delhi": "delhi", "south east delhi": "delhi",
-    "west delhi": "delhi", "shahdara": "delhi",
-}
-
-
-def _normalize_city(name):
-    if not name:
-        return None
-    n = _STRIP_WORDS_RE.sub("", name.strip().lower())
-    n = re.sub(r"\s+", " ", n).strip()
-    return _CITY_ALIASES.get(n, n) or None
 
 
 def _redirect_uri():
@@ -132,6 +101,48 @@ def _get_valid_access_token(project_id, provider, user_id):
     new_expiry = now + timedelta(seconds=token_resp.get("expires_in", 3600))
     _auth_db.mark_oauth_connection_tokens(project_id, provider, _token_crypto.encrypt(access_token), new_expiry)
     return access_token, conn
+
+
+def get_project_digital_baseline(project_id, user_id):
+    """Roadmap item "Custom signal generation": the shared join point reports.py
+    calls to blend a project's connected GA4 data into its PDF/JSON report,
+    alongside PaisaMap's own PPI signals (already computed separately via
+    compute_location_intelligence_batch — this function only supplies the
+    "their own data" half of the blend).
+
+    Returns None whenever GA4 isn't usably connected (not connected, no
+    property picked, or a live Google API error) — report generation must
+    degrade to "no digital signals section" rather than fail outright, the
+    same "don't crash on missing config" stance the rest of this module
+    already takes. Not a Flask route; promoted here (rather than duplicated in
+    reports.py) the same way compute_location_intelligence_batch was promoted
+    out of intelligence.py for customer_data.py's reuse."""
+    access_token, conn = _get_valid_access_token(project_id, "google_analytics", user_id)
+    if conn is None or not conn.get("external_ref") or access_token is None:
+        return None
+    try:
+        totals_raw = _google_oauth.run_ga4_ecommerce_totals(access_token, conn["external_ref"])
+        city_raw = _google_oauth.run_ga4_report(access_token, conn["external_ref"], limit=50)
+    except GoogleOAuthError:
+        return None
+
+    totals_values = (totals_raw.get("rows") or [{}])[0].get("metricValues", [])
+    ecommerce = {
+        "transactions": int(totals_values[0]["value"]) if len(totals_values) > 0 else 0,
+        "purchase_revenue": float(totals_values[1]["value"]) if len(totals_values) > 1 else 0.0,
+        "average_order_value": float(totals_values[2]["value"]) if len(totals_values) > 2 else 0.0,
+    }
+    city_signals = {}
+    for r in city_raw.get("rows", []):
+        key = normalize_city(r["dimensionValues"][0]["value"])
+        if key is None:
+            continue
+        mv = r["metricValues"]
+        city_signals[key] = {
+            "sessions": int(mv[0]["value"]), "users": int(mv[1]["value"]),
+            "conversions": float(mv[2]["value"]), "pageviews": int(mv[3]["value"]),
+        }
+    return {"external_ref": conn["external_ref"], "ecommerce": ecommerce, "city_signals": city_signals}
 
 
 # ── Consent + status ─────────────────────────────────────────────────────────
@@ -364,7 +375,7 @@ def get_location_tags(user_id, project_id):
     already resolved to a pincode) against the connected GA4 property's
     city-level traffic — "their store address list × GA4's location
     dimension," per the roadmap. GA4 has no pincode dimension, so the join key
-    is a best-effort normalized city name (see _normalize_city) — this is
+    is a best-effort normalized city name (see normalize_city) — this is
     explicitly approximate, not a guaranteed match, and every result says so
     per-store rather than silently treating a miss as zero traffic."""
     access_token, conn = _get_valid_access_token(project_id, "google_analytics", user_id)
@@ -392,7 +403,7 @@ def get_location_tags(user_id, project_id):
     ga4_by_city = {}
     for r in raw.get("rows", []):
         city_name = r["dimensionValues"][0]["value"]
-        key = _normalize_city(city_name)
+        key = normalize_city(city_name)
         if key is None:
             continue
         mv = r["metricValues"]
@@ -405,7 +416,7 @@ def get_location_tags(user_id, project_id):
     tagged = []
     for loc in locations:
         district = (geography.get(loc["pincode"]) or {}).get("district")
-        key = _normalize_city(district)
+        key = normalize_city(district)
         match = ga4_by_city.get(key) if key else None
         tagged.append({
             "id": loc["id"], "store_name": loc.get("store_name"), "pincode": loc["pincode"],

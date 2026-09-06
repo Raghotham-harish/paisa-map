@@ -24,8 +24,11 @@ from flask import Blueprint, request, jsonify, send_file
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" / "etl"))
 import _report_pdf  # noqa: E402
+import _signals_data  # noqa: E402
+from _google_oauth import normalize_city  # noqa: E402
 
 from ._session import require_login, require_db, _auth_db
+from .analytics_connections import get_project_digital_baseline  # noqa: E402
 from .intelligence import compute_location_intelligence_batch  # noqa: E402
 
 reports_bp = Blueprint("reports", __name__, url_prefix="/api/reports")
@@ -74,6 +77,19 @@ def generate_report(user_id):
             i["name"] = loc["name"]
     intel_list = [intel_by_pincode[pc] for pc in pincodes if pc in intel_by_pincode]
 
+    # Roadmap item "Custom signal generation": blend the project's own connected
+    # GA4 data (if any) into the report — a baseline (ecommerce totals) plus an
+    # insight per location (this pincode's city, matched against real GA4
+    # traffic). None whenever GA4 isn't usably connected; the report still
+    # generates fine without it, same as it already did before this existed.
+    digital_baseline = get_project_digital_baseline(project_id, user_id)
+    if digital_baseline:
+        geography = _signals_data.load_geography()
+        for loc in intel_list:
+            district = (geography.get(loc["pincode"]) or {}).get("district")
+            key = normalize_city(district)
+            loc["digital_signal"] = digital_baseline["city_signals"].get(key) if key else None
+
     title = (body.get("title") or "").strip() or f"{project['name']} — Location Intelligence Report"
     report = _auth_db.create_report(user_id, project_id, title, status="processing",
                                      params={"pincodes": pincodes, "business": business})
@@ -82,14 +98,15 @@ def generate_report(user_id):
     user_dir.mkdir(parents=True, exist_ok=True)
     file_path = user_dir / f"report_{report['id']}.pdf"
     try:
-        _report_pdf.build_project_report_pdf(project, intel_list, str(file_path))
+        _report_pdf.build_project_report_pdf(project, intel_list, str(file_path), digital_baseline=digital_baseline)
     except Exception as e:
         _auth_db.update_report(report["id"], user_id, status="failed")
         return jsonify({"error": "generation_failed", "detail": str(e)}), 500
 
     report = _auth_db.update_report(
         report["id"], user_id, status="ready", file_path=str(file_path),
-        params={"pincodes": pincodes, "business": business, "locations": intel_list},
+        params={"pincodes": pincodes, "business": business, "locations": intel_list,
+                "digital_baseline": digital_baseline},
     )
     _auth_db.log_activity(user_id, "report_generate", target_type="report", target_id=report["id"],
                            metadata={"project_id": project_id})

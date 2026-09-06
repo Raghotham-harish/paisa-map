@@ -110,7 +110,10 @@ export interface Report {
   format: string;
   status: "pending" | "processing" | "ready" | "failed";
   file_path: string | null;
-  params: { locations?: LocationScore[] } | null;
+  params: {
+    locations?: LocationScore[];
+    digital_baseline?: { external_ref: string; ecommerce: EcommerceTotals } | null;
+  } | null;
   share_token: string | null;
   created_at: string;
   completed_at: string | null;
@@ -159,6 +162,7 @@ export interface LocationScore {
   risk: RiskAssessment;
   opportunity?: OpportunityAssessment;
   risk_opportunity: string;
+  digital_signal?: DigitalSignal | null;
 }
 
 export type CanonicalField = "store_name" | "address" | "pincode" | "revenue" | "rent" | "capex";

@@ -15,6 +15,7 @@ analytics.readonly + webmasters.readonly only, both Google's lighter
 
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -218,3 +219,37 @@ def run_gsc_query(access_token, site_url, days=28):
     }
     url = GSC_SEARCH_ANALYTICS.format(site=urllib.parse.quote(site_url, safe=""))
     return _post_json(url, access_token, payload)
+
+
+# Best-effort city-name normalization for joining a store's Census "district"
+# (from _signals_data.load_geography(), the source ml_refinement.py itself
+# uses) against GA4's IP-geolocated "city" dimension — the two vocabularies
+# genuinely differ (district subdivisions like "East Delhi", historical/local
+# names like "Bangalore" vs GA4's "Bengaluru"), so this is approximate by
+# nature, not a guaranteed match. Applied to both sides so e.g. district
+# "Central Delhi" and GA4's "New Delhi" both normalize to "delhi". Lives here
+# (not in a blueprint) so both analytics_connections.py's location-tagging
+# endpoint and reports.py's PDF generation can share one join key without a
+# blueprint-to-blueprint import.
+_STRIP_WORDS_RE = re.compile(r"\b(district|urban|rural|city)\b")
+_CITY_ALIASES = {
+    "bangalore": "bengaluru",
+    "bombay": "mumbai",
+    "calcutta": "kolkata",
+    "madras": "chennai",
+    "poona": "pune",
+    "gurgaon": "gurugram",
+    "new delhi": "delhi",
+    "central delhi": "delhi", "east delhi": "delhi", "north delhi": "delhi",
+    "north west delhi": "delhi", "north east delhi": "delhi",
+    "south delhi": "delhi", "south west delhi": "delhi", "south east delhi": "delhi",
+    "west delhi": "delhi", "shahdara": "delhi",
+}
+
+
+def normalize_city(name):
+    if not name:
+        return None
+    n = _STRIP_WORDS_RE.sub("", name.strip().lower())
+    n = re.sub(r"\s+", " ", n).strip()
+    return _CITY_ALIASES.get(n, n) or None

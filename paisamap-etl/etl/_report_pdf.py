@@ -121,10 +121,33 @@ def _benchmark_table(benchmark):
     return t
 
 
-def build_project_report_pdf(project, locations, out_path):
+def _digital_baseline_table(ecommerce):
+    rows = [
+        ["Transactions", f"{ecommerce['transactions']:,}"],
+        ["Revenue", _fmt_money(ecommerce["purchase_revenue"])],
+        ["Avg. order value", _fmt_money(ecommerce["average_order_value"])],
+    ]
+    t = Table(rows, colWidths=[45 * mm, 45 * mm])
+    t.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9.5),
+        ("TEXTCOLOR", (0, 0), (0, -1), INK_SOFT),
+        ("TEXTCOLOR", (1, 0), (1, -1), INK),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    return t
+
+
+def build_project_report_pdf(project, locations, out_path, digital_baseline=None):
     """project: a projects table row (dict). locations: list of
-    blueprints.intelligence payload dicts (may include 'opportunity').
-    Writes the PDF to out_path."""
+    blueprints.intelligence payload dicts (may include 'opportunity' and, when
+    a GA4 connection is live for this project, 'digital_signal'). digital_baseline:
+    the dict from blueprints.analytics_connections.get_project_digital_baseline,
+    or None when GA4 isn't usably connected — the whole "Digital Signals"
+    section is omitted in that case rather than rendered empty. Writes the PDF
+    to out_path."""
     styles = _styles()
     doc = SimpleDocTemplate(
         out_path, pagesize=A4,
@@ -146,6 +169,17 @@ def build_project_report_pdf(project, locations, out_path):
     story.append(Paragraph(" &nbsp;·&nbsp; ".join(meta_bits), styles["Meta"]))
     story.append(HRFlowable(width="100%", thickness=1, color=BORDER, spaceAfter=10))
 
+    if digital_baseline:
+        story.append(Paragraph("Digital Signals (connected Google Analytics)", styles["LocHeading"]))
+        story.append(_digital_baseline_table(digital_baseline["ecommerce"]))
+        story.append(Paragraph(
+            "Trailing 28 days, this project's connected GA4 property. Per-location traffic below is "
+            "matched by city (approximate — GA4 has no pincode data), not by store.",
+            styles["Note"],
+        ))
+        story.append(Spacer(1, 6))
+        story.append(HRFlowable(width="100%", thickness=1, color=BORDER, spaceAfter=10))
+
     if not locations:
         story.append(Paragraph("This project has no saved locations yet.", styles["Body"]))
 
@@ -160,6 +194,13 @@ def build_project_report_pdf(project, locations, out_path):
         story.append(Paragraph(loc.get("executive_summary", ""), styles["Body"]))
         story.append(Spacer(1, 4))
         story.append(Paragraph(loc["risk"]["note"], styles["Note"]))
+        digital_signal = loc.get("digital_signal")
+        if digital_signal:
+            story.append(Paragraph(
+                f"Connected GA4 traffic for this location's city: {digital_signal['sessions']:,} sessions, "
+                f"{digital_signal['conversions']:g} conversions (trailing 28 days, approximate city match).",
+                styles["Note"],
+            ))
         if i < len(locations) - 1:
             story.append(HRFlowable(width="100%", thickness=0.5, color=BORDER, spaceBefore=14, spaceAfter=4))
 
