@@ -161,3 +161,48 @@ CREATE TABLE IF NOT EXISTS activity_log (
 
 CREATE INDEX IF NOT EXISTS ix_activity_log_user_id ON activity_log (user_id);
 CREATE INDEX IF NOT EXISTS ix_activity_log_created_at ON activity_log (created_at);
+
+-- Phase 3 (Monetisation) — orders/invoices. NOTE: this mirror block was already
+-- missing customer_uploads/customer_locations/oauth_connections (Phase 05/05B)
+-- before this addition — canonical definitions for all tables live in
+-- _auth_db.py; this file is a human-readable reference only, kept best-effort
+-- in sync, not authoritative.
+
+CREATE SEQUENCE IF NOT EXISTS invoice_seq;
+
+CREATE TABLE IF NOT EXISTS orders (
+    id                   SERIAL PRIMARY KEY,
+    user_id              INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    kind                 TEXT NOT NULL CHECK (kind IN ('credit_pack','plan_upgrade','report_purchase')),
+    razorpay_order_id    TEXT NOT NULL UNIQUE,
+    razorpay_payment_id  TEXT,
+    razorpay_signature   TEXT,
+    amount_paise         INTEGER NOT NULL,
+    currency             TEXT NOT NULL DEFAULT 'INR',
+    status               TEXT NOT NULL DEFAULT 'created' CHECK (status IN ('created','paid','failed','refunded')),
+    credit_pack_id       TEXT,
+    target_plan          TEXT,
+    project_id           INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+    report_id            INTEGER REFERENCES reports(id) ON DELETE SET NULL,
+    meta                 JSONB,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    paid_at              TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS invoices (
+    id                     SERIAL PRIMARY KEY,
+    order_id               INTEGER NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
+    user_id                INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    invoice_number         TEXT NOT NULL UNIQUE,
+    buyer_name             TEXT,
+    buyer_email            TEXT NOT NULL,
+    buyer_gstin            TEXT,
+    seller_gstin           TEXT,
+    taxable_amount_paise   INTEGER NOT NULL,
+    gst_rate               DOUBLE PRECISION NOT NULL CHECK (gst_rate >= 0),
+    gst_amount_paise       INTEGER NOT NULL,
+    total_amount_paise     INTEGER NOT NULL,
+    line_item_label        TEXT NOT NULL,
+    file_path              TEXT,
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);

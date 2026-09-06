@@ -25,9 +25,10 @@ from flask import Blueprint, request, jsonify, send_file
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" / "etl"))
 import _report_pdf  # noqa: E402
 import _signals_data  # noqa: E402
+import _pricing  # noqa: E402
 from _google_oauth import normalize_city  # noqa: E402
 
-from ._session import require_login, require_db, _auth_db
+from ._session import require_login, require_db, _auth_db, charge_credits
 from .analytics_connections import get_project_digital_baseline  # noqa: E402
 from .intelligence import compute_location_intelligence_batch  # noqa: E402
 
@@ -58,6 +59,7 @@ def list_reports(user_id):
 def generate_report(user_id):
     body = request.get_json(silent=True) or {}
     project_id = body.get("project_id")
+    order_id = body.get("order_id")  # present only for the "pay per report" flow
     project = _auth_db.get_project(project_id, user_id) if project_id else None
     if project is None:
         return jsonify({"error": "project not_found"}), 404
@@ -66,6 +68,21 @@ def generate_report(user_id):
     if not locations:
         return jsonify({"error": "no_locations",
                          "detail": "This project has no saved locations yet."}), 400
+
+    # ── Credit gate: fail fast before the expensive compute below ───────────
+    paid_via_order = None
+    if order_id is not None:
+        order = _auth_db.get_order(order_id, user_id)
+        if (order is None or order["kind"] != "report_purchase"
+                or order["status"] != "paid" or order.get("report_id") is not None):
+            return jsonify({"error": "invalid_order"}), 400
+        paid_via_order = order
+    else:
+        cost = _pricing.credit_cost("report_generate")
+        balance = _auth_db.get_credit_balance(user_id)
+        if balance < cost:
+            return jsonify({"error": "insufficient_credits", "balance": balance, "required": cost,
+                             "report_purchase_price_paise": _pricing.REPORT_PURCHASE_PRICE_PAISE}), 402
 
     business = _business_profile(project)
     pincodes = [loc["pincode"] for loc in locations]
@@ -108,6 +125,13 @@ def generate_report(user_id):
         params={"pincodes": pincodes, "business": business, "locations": intel_list,
                 "digital_baseline": digital_baseline},
     )
+
+    # ── Charge only after success — a failed generation must not burn credits ─
+    if paid_via_order is not None:
+        _auth_db.link_order_to_report(paid_via_order["id"], report["id"])
+    else:
+        charge_credits(user_id, "report_generate", ref_type="report", ref_id=report["id"])
+
     _auth_db.log_activity(user_id, "report_generate", target_type="report", target_id=report["id"],
                            metadata={"project_id": project_id})
     return jsonify({"report": report}), 201

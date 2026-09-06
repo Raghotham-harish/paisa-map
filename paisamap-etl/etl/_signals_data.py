@@ -57,6 +57,39 @@ EXPORT_SIGNAL_FILES = [
 ]
 EXPORT_ALL_COLUMNS = EXPORT_CORE_FIELDS + [c for _, cols in EXPORT_SIGNAL_FILES for c in cols]
 
+# Pro/free column split (Phase 3) — canonical source of truth, ported verbatim
+# from index.html's SIGNAL_GROUPS (the map's own JS-only pro:true/false flags,
+# now mirrored here so the backend can actually enforce it — previously
+# /api/export had no auth check at all and served every column, Pro or not, to
+# any caller; the map's client-side toggle was the only "gate," which anyone
+# calling the endpoint directly could just skip). If SIGNAL_GROUPS in
+# index.html ever changes which columns are pro:true, update this set to match.
+PRO_COLUMNS = {
+    # Banking & UPI
+    "bank_branches_per_lakh", "deposits_per_capita", "sfb_branches", "coop_branches",
+    "rrb_branches", "fin_branches_total", "fin_density_per_km2", "upi_txn_value_per_capita",
+    # Tax & economy
+    "filers_per_capita", "msme_per_lakh", "factories_per_lakh", "nsdp_per_capita",
+    "cropping_intensity_pct",
+    # Infrastructure
+    "radiance_mean", "premium_poi_per_km2", "schools_per_lakh",
+    # Vehicles
+    "cars_per_1000", "lmv_per_1000", "car_2w_ratio", "luxury_share", "ev_share",
+}
+# Everything else in EXPORT_ALL_COLUMNS (Property, Nationwide coverage, and the
+# core identity/PPI fields) is free.
+
+
+def columns_for_plan(requested_columns, plan):
+    """Filters a column list down to what `plan` may actually see. Core
+    identity/PPI fields riding along regardless of plan is decided upstream
+    (server.py's existing columns_param opt-in logic) — this is the actual
+    enforcement point: a free or anonymous caller's PRO_COLUMNS entries are
+    stripped no matter what was requested."""
+    if plan in ("pro", "team"):
+        return requested_columns
+    return [c for c in requested_columns if c not in PRO_COLUMNS]
+
 # Human-readable labels — copied verbatim from index.html's signal switcher (the
 # map's own JS, not reachable from Python or from the separate workspace/ React
 # app) so anything the backend surfaces about a signal uses the same wording a

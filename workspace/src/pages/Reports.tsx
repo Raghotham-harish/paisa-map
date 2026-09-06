@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { ApiError, api, LocationScore, Project, Report } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
+import { useAuth } from "../lib/auth";
+import { openCheckout } from "../lib/razorpay";
 
 const RISK_CLASS: Record<string, string> = {
   Low: "delta-pos",
@@ -27,11 +30,20 @@ function summarize(locations?: LocationScore[]): string | null {
   );
 }
 
+interface InsufficientCredits {
+  balance: number;
+  required: number;
+  reportPurchasePricePaise: number;
+}
+
 export default function Reports() {
+  const { user } = useAuth();
   const [reports, setReports] = useState<Report[] | null>(null);
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [generating, setGenerating] = useState<number | null>(null);
   const [errors, setErrors] = useState<Record<number, string>>({});
+  const [insufficientFor, setInsufficientFor] = useState<Record<number, InsufficientCredits>>({});
+  const [buying, setBuying] = useState<number | null>(null);
   const [sharing, setSharing] = useState<number | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
 
@@ -45,17 +57,54 @@ export default function Reports() {
   const onGenerate = async (project: Project) => {
     setGenerating(project.id);
     setErrors((prev) => ({ ...prev, [project.id]: "" }));
+    setInsufficientFor((prev) => ({ ...prev, [project.id]: undefined as any }));
     try {
       await api.generateReport(project.id);
       await loadReports();
     } catch (e) {
-      const detail =
-        e instanceof ApiError && (e.body?.detail || e.body?.error)
-          ? String(e.body.detail || e.body.error)
-          : "Couldn't generate that report — try again.";
-      setErrors((prev) => ({ ...prev, [project.id]: detail }));
+      if (e instanceof ApiError && e.body?.error === "insufficient_credits") {
+        setInsufficientFor((prev) => ({
+          ...prev,
+          [project.id]: {
+            balance: e.body.balance, required: e.body.required,
+            reportPurchasePricePaise: e.body.report_purchase_price_paise,
+          },
+        }));
+      } else {
+        const detail =
+          e instanceof ApiError && (e.body?.detail || e.body?.error)
+            ? String(e.body.detail || e.body.error)
+            : "Couldn't generate that report — try again.";
+        setErrors((prev) => ({ ...prev, [project.id]: detail }));
+      }
     } finally {
       setGenerating(null);
+    }
+  };
+
+  const onBuyThisReport = async (project: Project) => {
+    setBuying(project.id);
+    try {
+      const { razorpay_order_id, razorpay_key_id, amount_paise, order } = await api.createReportOrder(project.id);
+      await openCheckout({
+        key: razorpay_key_id,
+        amount: amount_paise,
+        currency: "INR",
+        order_id: razorpay_order_id,
+        description: `Report — ${project.name}`,
+        prefillEmail: user?.email,
+        onSuccess: async (resp) => {
+          await api.verifyPayment(resp);
+          await api.generateReport(project.id, undefined, order.id);
+          await loadReports();
+          setInsufficientFor((prev) => ({ ...prev, [project.id]: undefined as any }));
+        },
+        onDismiss: () => setBuying(null),
+      });
+    } catch {
+      setErrors((prev) => ({ ...prev, [project.id]: "Couldn't complete that purchase — try again." }));
+    } finally {
+      setBuying(null);
     }
   };
 
@@ -129,6 +178,22 @@ export default function Reports() {
                       </div>
                     )}
                     {errors[p.id] && <div style={{ color: "var(--flame)", fontSize: 12, marginTop: 4 }}>{errors[p.id]}</div>}
+                    {insufficientFor[p.id] && (
+                      <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 6 }}>
+                        You have {insufficientFor[p.id].balance} credits, need {insufficientFor[p.id].required}.{" "}
+                        <Link to="/billing">Buy credits</Link> or{" "}
+                        <button
+                          className="btn secondary"
+                          style={{ padding: "2px 8px", fontSize: 12 }}
+                          disabled={buying === p.id}
+                          onClick={() => onBuyThisReport(p)}
+                        >
+                          {buying === p.id
+                            ? "Opening…"
+                            : `Buy this report — ₹${(insufficientFor[p.id].reportPurchasePricePaise / 100).toLocaleString("en-IN")}`}
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <button className="btn secondary" disabled={generating === p.id} onClick={() => onGenerate(p)}>
                     {generating === p.id ? "Generating…" : "Generate report"}

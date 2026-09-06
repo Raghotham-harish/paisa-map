@@ -44,3 +44,49 @@ def require_login(fn):
             return jsonify({"error": "not_authenticated"}), 401
         return fn(uid, *args, **kwargs)
     return wrapper
+
+
+def require_plan(min_plan):
+    """Decorator factory — must sit UNDER @require_login in the stacking order
+    (@require_login above, @require_plan below) since it needs user_id already
+    injected as the route's first positional arg. 403 if the caller's plan
+    ranks below min_plan. Not used by any route yet (no Pro-only workspace
+    route exists as of Phase 3) — added alongside get_effective_plan() below
+    since both need the same plan_rank() concept, and this gives any future
+    Pro-gated workspace route a ready decorator."""
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(user_id, *args, **kwargs):
+            import _pricing
+            user = _auth_db.get_user(user_id)
+            if user is None or _pricing.plan_rank(user["plan"]) < _pricing.plan_rank(min_plan):
+                return jsonify({"error": "plan_required",
+                                 "detail": f"requires {min_plan} plan or higher"}), 403
+            return fn(user_id, *args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def get_effective_plan():
+    """Returns the caller's plan without requiring a session — 'free' for an
+    anonymous request or when the DB is unavailable, the real users.plan for a
+    logged-in one. Use this (not require_login) for an endpoint like
+    /api/export that must stay public but still needs to filter server-side by
+    whatever plan is actually available."""
+    uid = session.get("user_id")
+    if not uid or _auth_db is None or not _auth_db.enabled():
+        return "free"
+    user = _auth_db.get_user(uid)
+    return user["plan"] if user else "free"
+
+
+def charge_credits(user_id, action_key, ref_type=None, ref_id=None):
+    """Thin wrapper: looks up the cost of `action_key` and spends it. Not a
+    decorator — deliberately called at a different point in a handler body
+    than the balance check (see reports.py/expansion.py): check the balance
+    early (fail fast, before expensive work), charge only after the action
+    actually succeeds, since a failed report generation must not burn
+    credits."""
+    import _pricing
+    cost = _pricing.credit_cost(action_key)
+    return _auth_db.spend_credits(user_id, cost, reason=action_key, ref_type=ref_type, ref_id=ref_id)

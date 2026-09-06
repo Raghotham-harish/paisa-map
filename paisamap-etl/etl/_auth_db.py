@@ -237,31 +237,95 @@ def _get_tables():
         CheckConstraint("status IN ('connected','error')", name="ck_oauth_connections_status"),
     )
 
+    orders = Table(
+        "orders", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        Column("kind", Text, nullable=False),  # 'credit_pack' | 'plan_upgrade' | 'report_purchase'
+        Column("razorpay_order_id", Text, nullable=False, unique=True),
+        Column("razorpay_payment_id", Text),   # filled on verification
+        Column("razorpay_signature", Text),    # filled on verification (audit trail)
+        Column("amount_paise", Integer, nullable=False),
+        Column("currency", Text, nullable=False, server_default="INR"),
+        Column("status", Text, nullable=False, server_default="created"),
+        # exactly one of these three is populated, depending on `kind`:
+        Column("credit_pack_id", Text),        # key into _pricing.CREDIT_PACKS
+        Column("target_plan", Text),           # 'pro' | 'team'
+        Column("project_id", Integer, ForeignKey("projects.id", ondelete="SET NULL")),
+        Column("report_id", Integer, ForeignKey("reports.id", ondelete="SET NULL")),  # linked
+                                                # once the paid-for report is actually generated
+        Column("meta", JSONType),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("paid_at", DateTime(timezone=True)),
+        CheckConstraint("kind IN ('credit_pack','plan_upgrade','report_purchase')",
+                         name="ck_orders_kind"),
+        CheckConstraint("status IN ('created','paid','failed','refunded')",
+                         name="ck_orders_status"),
+    )
+
+    invoices = Table(
+        "invoices", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("order_id", Integer, ForeignKey("orders.id", ondelete="CASCADE"),
+               nullable=False, unique=True),
+        Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        Column("invoice_number", Text, nullable=False, unique=True),  # "PM-<year>-<seq>"
+        Column("buyer_name", Text),
+        Column("buyer_email", Text, nullable=False),
+        Column("buyer_gstin", Text),           # optional — B2C buyers have none
+        Column("seller_gstin", Text),          # PaisaMap's own GSTIN, from env — not user input
+        Column("taxable_amount_paise", Integer, nullable=False),
+        Column("gst_rate", Float, nullable=False),
+        Column("gst_amount_paise", Integer, nullable=False),
+        Column("total_amount_paise", Integer, nullable=False),
+        Column("line_item_label", Text, nullable=False),
+        Column("file_path", Text),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        CheckConstraint("gst_rate >= 0", name="ck_invoices_gst_rate"),
+    )
+
     _tables = {
         "organizations": organizations, "users": users, "org_members": org_members,
         "projects": projects, "saved_locations": saved_locations, "reports": reports,
         "credits_ledger": credits_ledger, "activity_log": activity_log,
         "customer_uploads": customer_uploads, "customer_locations": customer_locations,
         "oauth_connections": oauth_connections,
+        "orders": orders, "invoices": invoices,
     }
     return _tables
 
 
 def init_schema():
-    """Create all 8 tables if they don't exist yet. Raises if DATABASE_URL unset —
+    """Create all tables if they don't exist yet. Raises if DATABASE_URL unset —
     callers (init_auth_schema.py) are expected to check enabled() first and print
     a friendly message rather than let this raise."""
     engine = _require_engine()
     tables = _get_tables()
     # organizations before users (users.org_id references it) — no real cycle since
     # organizations.owner_user_id is left unconstrained at the SQLAlchemy level.
+    # orders/invoices last — both reference users/projects/reports, which must
+    # already exist.
     _metadata.create_all(engine, tables=[
         tables["organizations"], tables["users"], tables["org_members"],
         tables["projects"], tables["saved_locations"], tables["reports"],
         tables["credits_ledger"], tables["activity_log"],
         tables["customer_uploads"], tables["customer_locations"],
         tables["oauth_connections"],
+        tables["orders"], tables["invoices"],
     ])
+    _ensure_invoice_sequence(engine)
+
+
+def _ensure_invoice_sequence(engine):
+    """Postgres SEQUENCE backing sequential invoice numbers — avoids a race two
+    concurrent payments could hit with a naive count()+1. No-op on SQLite
+    (local dev only, single-writer, _next_invoice_number falls back to
+    MAX(id)+1 there instead)."""
+    if engine.dialect.name != "postgresql":
+        return
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        conn.execute(text("CREATE SEQUENCE IF NOT EXISTS invoice_seq"))
 
 
 # Additive column changes to tables that may already exist in production —
@@ -384,6 +448,225 @@ def get_credit_balance(user_id):
             .order_by(ledger.c.id.desc()).limit(1)
         ).scalar()
     return bal or 0
+
+
+class InsufficientCreditsError(Exception):
+    """Raised by spend_credits() when the balance is short. The caller (a
+    blueprint route) turns this into a 402 Payment Required with the current
+    balance and the shortfall, so the frontend can offer a top-up or a one-off
+    purchase inline instead of a bare error."""
+    def __init__(self, balance, required):
+        self.balance = balance
+        self.required = required
+        super().__init__(f"insufficient credits: have {balance}, need {required}")
+
+
+def spend_credits(user_id, amount, reason, ref_type=None, ref_id=None):
+    """Debit `amount` credits if the balance covers it, atomically. Raises
+    InsufficientCreditsError (balance left unchanged) if not. Unlike
+    grant_credits() above (read-then-insert, fine since it only ever adds),
+    this locks the latest ledger row with SELECT ... FOR UPDATE on Postgres so
+    two concurrent spends for the same user can't both read the same stale
+    balance and drive it negative. SQLite (local dev only) has no row-level
+    locking but is single-writer by default, so it degrades safely without it."""
+    assert amount > 0, "spend_credits amount must be positive"
+    engine = _require_engine()
+    tables = _get_tables()
+    ledger = tables["credits_ledger"]
+    from sqlalchemy import select
+    with engine.begin() as conn:
+        query = (select(ledger.c.balance_after).where(ledger.c.user_id == user_id)
+                 .order_by(ledger.c.id.desc()).limit(1))
+        if engine.dialect.name == "postgresql":
+            query = query.with_for_update()
+        balance = conn.execute(query).scalar() or 0
+        if balance < amount:
+            raise InsufficientCreditsError(balance, amount)
+        new_balance = balance - amount
+        conn.execute(ledger.insert().values(
+            user_id=user_id, delta=-amount, reason=reason, ref_type=ref_type, ref_id=ref_id,
+            balance_after=new_balance, created_at=_now(),
+        ))
+        return new_balance
+
+
+# ── Plan ─────────────────────────────────────────────────────────────────────
+def set_user_plan(user_id, plan):
+    """First-ever writer of users.plan post-signup (upsert_user only ever sets
+    it to 'free' at creation). No plan-history table this phase — activity_log
+    already covers "when did this happen" well enough."""
+    assert plan in ("free", "pro", "team")
+    engine = _require_engine()
+    tables = _get_tables()
+    users = tables["users"]
+    with engine.begin() as conn:
+        conn.execute(users.update().where(users.c.id == user_id).values(plan=plan))
+    return get_user(user_id)
+
+
+# ── Orders (Razorpay) ────────────────────────────────────────────────────────
+def create_order(user_id, kind, razorpay_order_id, amount_paise, *, credit_pack_id=None,
+                  target_plan=None, project_id=None, report_id=None, meta=None):
+    engine = _require_engine()
+    tables = _get_tables()
+    orders = tables["orders"]
+    with engine.begin() as conn:
+        result = conn.execute(
+            orders.insert().values(
+                user_id=user_id, kind=kind, razorpay_order_id=razorpay_order_id,
+                amount_paise=amount_paise, currency="INR", status="created",
+                credit_pack_id=credit_pack_id, target_plan=target_plan,
+                project_id=project_id, report_id=report_id, meta=meta,
+                created_at=_now(),
+            )
+        )
+        new_id = result.inserted_primary_key[0]
+    return get_order(new_id, user_id)
+
+
+def get_order(order_id, user_id):
+    """Ownership-scoped, same convention as get_project/get_report."""
+    engine = _require_engine()
+    tables = _get_tables()
+    orders = tables["orders"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(orders).where(orders.c.id == order_id, orders.c.user_id == user_id)
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def get_order_by_razorpay_id(razorpay_order_id):
+    """Unscoped by design — the webhook has no Flask session, only whatever
+    Razorpay's payload gives it (the razorpay_order_id), so there's no user_id
+    to scope by until after this lookup."""
+    engine = _require_engine()
+    tables = _get_tables()
+    orders = tables["orders"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(orders).where(orders.c.razorpay_order_id == razorpay_order_id)
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def mark_order_paid(order_id, razorpay_payment_id, razorpay_signature):
+    """UPDATE ... WHERE status='created' — the rowcount tells the caller
+    whether this call actually transitioned the order (rowcount 1) or the
+    order was already paid (rowcount 0), which matters because Razorpay
+    webhooks can be redelivered and the client-side /verify call can race the
+    webhook for the same payment. Callers must treat rowcount 0 as "already
+    handled, no-op the side effect" rather than double-granting credits or
+    re-setting a plan."""
+    engine = _require_engine()
+    tables = _get_tables()
+    orders = tables["orders"]
+    from sqlalchemy import select
+    with engine.begin() as conn:
+        result = conn.execute(
+            orders.update()
+            .where(orders.c.id == order_id, orders.c.status == "created")
+            .values(status="paid", razorpay_payment_id=razorpay_payment_id,
+                    razorpay_signature=razorpay_signature, paid_at=_now())
+        )
+        newly_paid = result.rowcount > 0
+        row = conn.execute(select(orders).where(orders.c.id == order_id)).mappings().first()
+    return (dict(row) if row else None), newly_paid
+
+
+def link_order_to_report(order_id, report_id):
+    engine = _require_engine()
+    tables = _get_tables()
+    orders = tables["orders"]
+    with engine.begin() as conn:
+        conn.execute(orders.update().where(orders.c.id == order_id).values(report_id=report_id))
+
+
+def list_orders(user_id, limit=50):
+    engine = _require_engine()
+    tables = _get_tables()
+    orders = tables["orders"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(orders).where(orders.c.user_id == user_id)
+            .order_by(orders.c.id.desc()).limit(limit)
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+# ── Invoices ─────────────────────────────────────────────────────────────────
+def _next_invoice_number(conn, engine):
+    """Sequential, per-year: PM-<year>-<zero-padded-seq>. Uses a real Postgres
+    SEQUENCE (see _ensure_invoice_sequence) for correctness under concurrency —
+    two payments settling at once must never compute the same "next" number.
+    SQLite (local dev only, single-writer) falls back to a naive MAX(id)+1."""
+    year = _now().year
+    if engine.dialect.name == "postgresql":
+        from sqlalchemy import text
+        seq = conn.execute(text("SELECT nextval('invoice_seq')")).scalar()
+    else:
+        from sqlalchemy import text
+        seq = (conn.execute(text("SELECT COALESCE(MAX(id), 0) + 1 FROM invoices")).scalar())
+    return f"PM-{year}-{seq:06d}"
+
+
+def create_invoice(order_id, user_id, buyer_email, taxable_amount_paise, gst_amount_paise,
+                    total_amount_paise, line_item_label, *, buyer_name=None, buyer_gstin=None,
+                    seller_gstin=None):
+    import _pricing
+    engine = _require_engine()
+    tables = _get_tables()
+    invoices = tables["invoices"]
+    with engine.begin() as conn:
+        invoice_number = _next_invoice_number(conn, engine)
+        result = conn.execute(
+            invoices.insert().values(
+                order_id=order_id, user_id=user_id, invoice_number=invoice_number,
+                buyer_name=buyer_name, buyer_email=buyer_email, buyer_gstin=buyer_gstin,
+                seller_gstin=seller_gstin, taxable_amount_paise=taxable_amount_paise,
+                gst_rate=_pricing.GST_RATE, gst_amount_paise=gst_amount_paise,
+                total_amount_paise=total_amount_paise, line_item_label=line_item_label,
+                created_at=_now(),
+            )
+        )
+        new_id = result.inserted_primary_key[0]
+    return get_invoice(new_id, user_id)
+
+
+def get_invoice(invoice_id, user_id):
+    engine = _require_engine()
+    tables = _get_tables()
+    invoices = tables["invoices"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(invoices).where(invoices.c.id == invoice_id, invoices.c.user_id == user_id)
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def list_invoices(user_id):
+    engine = _require_engine()
+    tables = _get_tables()
+    invoices = tables["invoices"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(invoices).where(invoices.c.user_id == user_id)
+            .order_by(invoices.c.created_at.desc())
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def update_invoice_file_path(invoice_id, file_path):
+    engine = _require_engine()
+    tables = _get_tables()
+    invoices = tables["invoices"]
+    with engine.begin() as conn:
+        conn.execute(invoices.update().where(invoices.c.id == invoice_id).values(file_path=file_path))
 
 
 # ── Activity log ─────────────────────────────────────────────────────────────

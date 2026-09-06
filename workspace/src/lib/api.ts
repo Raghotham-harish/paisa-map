@@ -339,6 +339,43 @@ export interface LocationTagsResponse {
   locations: LocationTag[];
 }
 
+export interface PricingConfig {
+  gst_rate: number;
+  credit_costs: Record<string, number>;
+  credit_packs: Record<string, { credits: number; price_paise: number; label: string }>;
+  plan_prices: Record<string, { price_paise: number; label: string; interval: string }>;
+  report_purchase_price_paise: number;
+}
+
+export type OrderKind = "credit_pack" | "plan_upgrade" | "report_purchase";
+
+export interface Order {
+  id: number;
+  kind: OrderKind;
+  status: "created" | "paid" | "failed" | "refunded";
+  amount_paise: number;
+  razorpay_order_id: string;
+  created_at: string;
+}
+
+export interface RazorpayOrderResponse {
+  order: Order;
+  razorpay_order_id: string;
+  razorpay_key_id: string;
+  amount_paise: number;
+  currency: string;
+}
+
+export interface Invoice {
+  id: number;
+  invoice_number: string;
+  line_item_label: string;
+  total_amount_paise: number;
+  gst_amount_paise: number;
+  taxable_amount_paise: number;
+  created_at: string;
+}
+
 export const api = {
   config: () => request("/api/config"),
   me: () => request("/api/auth/me") as Promise<MeResponse>,
@@ -367,10 +404,10 @@ export const api = {
   getCredits: () => request("/api/credits") as Promise<{ balance: number; ledger: CreditLedgerEntry[] }>,
 
   listReports: () => request("/api/reports") as Promise<{ reports: Report[] }>,
-  generateReport: (projectId: number, title?: string) =>
+  generateReport: (projectId: number, title?: string, orderId?: number) =>
     request("/api/reports", {
       method: "POST",
-      body: JSON.stringify({ project_id: projectId, title }),
+      body: JSON.stringify({ project_id: projectId, title, order_id: orderId }),
     }) as Promise<{ report: Report }>,
   reportDownloadUrl: (id: number) => `/api/reports/${id}/download`,
   shareReport: (id: number) =>
@@ -439,4 +476,22 @@ export const api = {
     request(`/api/projects/${projectId}/connections/google_analytics/ecommerce`) as Promise<EcommerceSummary>,
   getLocationTags: (projectId: number) =>
     request(`/api/projects/${projectId}/connections/google_analytics/location-tags`) as Promise<LocationTagsResponse>,
+
+  getPricing: () => request("/api/billing/pricing") as Promise<PricingConfig>,
+  createCreditOrder: (packId: string) =>
+    request("/api/billing/orders/credits", {
+      method: "POST", body: JSON.stringify({ pack_id: packId }),
+    }) as Promise<RazorpayOrderResponse>,
+  createPlanOrder: (plan: "pro" | "team") =>
+    request("/api/billing/orders/plan", {
+      method: "POST", body: JSON.stringify({ plan }),
+    }) as Promise<RazorpayOrderResponse>,
+  createReportOrder: (projectId: number) =>
+    request("/api/billing/orders/report", {
+      method: "POST", body: JSON.stringify({ project_id: projectId }),
+    }) as Promise<RazorpayOrderResponse>,
+  verifyPayment: (params: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) =>
+    request("/api/billing/verify", { method: "POST", body: JSON.stringify(params) }) as Promise<{ order: Order; status: string }>,
+  listInvoices: () => request("/api/billing/invoices") as Promise<{ invoices: Invoice[] }>,
+  invoiceDownloadUrl: (id: number) => `/api/billing/invoices/${id}/download`,
 };

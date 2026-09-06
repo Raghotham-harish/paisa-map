@@ -6,6 +6,7 @@ import Projects from "./pages/Projects";
 import SavedLocations from "./pages/SavedLocations";
 import Activity from "./pages/Activity";
 import Credits from "./pages/Credits";
+import Billing from "./pages/Billing";
 import Reports from "./pages/Reports";
 import CustomerData from "./pages/CustomerData";
 import Connections from "./pages/Connections";
@@ -19,6 +20,7 @@ const NAV = [
   { to: "/reports", label: "Reports", icon: "ti-file-text" },
   { to: "/activity", label: "Activity", icon: "ti-activity" },
   { to: "/credits", label: "Credits", icon: "ti-coin" },
+  { to: "/billing", label: "Billing", icon: "ti-receipt" },
 ];
 
 export default function App() {
@@ -79,6 +81,7 @@ export default function App() {
           <Route path="/reports" element={<Reports />} />
           <Route path="/activity" element={<Activity />} />
           <Route path="/credits" element={<Credits />} />
+          <Route path="/billing" element={<Billing />} />
         </Routes>
       </main>
     </div>

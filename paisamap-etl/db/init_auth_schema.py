@@ -29,7 +29,9 @@ def main():
     print("Applying additive schema migrations (if not already applied)…")
     _auth_db.migrate_schema()
     print("Done. Tables: organizations, users, org_members, projects, "
-          "saved_locations, reports, credits_ledger, activity_log")
+          "saved_locations, reports, credits_ledger, activity_log, "
+          "customer_uploads, customer_locations, oauth_connections, "
+          "orders, invoices")
 
 
 if __name__ == "__main__":

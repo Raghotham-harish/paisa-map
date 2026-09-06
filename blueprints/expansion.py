@@ -27,8 +27,9 @@ from flask import Blueprint, request, jsonify
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" / "etl"))
 import _signals_data  # noqa: E402
+import _pricing  # noqa: E402
 
-from ._session import require_login, _auth_db
+from ._session import require_login, _auth_db, charge_credits
 from .intelligence import opportunity_assessment, risk_assessment  # noqa: E402
 
 expansion_bp = Blueprint("expansion", __name__, url_prefix="/api/expansion")
@@ -149,6 +150,11 @@ def recommend(user_id):
     if budget is None or budget <= 0:
         return jsonify({"error": "budget must be a positive number"}), 400
 
+    cost = _pricing.credit_cost("expansion_recommend")
+    balance = _auth_db.get_credit_balance(user_id)
+    if balance < cost:
+        return jsonify({"error": "insufficient_credits", "balance": balance, "required": cost}), 402
+
     locations = _auth_db.list_customer_locations(user_id, project_id)
     owned_pincodes = {loc["pincode"] for loc in locations if loc.get("pincode")}
     rows_by_pincode, _source = _signals_data.load_ppi_signals_rows()
@@ -243,6 +249,8 @@ def recommend(user_id):
     else:
         candidates.sort(key=lambda c: c["combined_score"], reverse=True)
         portfolio = candidates[:RECOMMEND_FALLBACK_TOP_N]
+
+    charge_credits(user_id, "expansion_recommend", ref_type="expansion", ref_id=project_id)
 
     return jsonify({
         "budget": budget,

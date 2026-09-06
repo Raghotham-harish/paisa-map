@@ -101,9 +101,20 @@ def _mirror_to_static():
 # can reuse the exact same join without importing server.py back into a blueprint
 # it registers. Pull the names in locally so every existing reference below
 # (EXPORT_CORE_FIELDS, EXPORT_ALL_COLUMNS, etc.) keeps working unchanged.
-from _signals_data import (EXPORT_CORE_FIELDS, EXPORT_ALL_COLUMNS,
+from _signals_data import (EXPORT_CORE_FIELDS, EXPORT_ALL_COLUMNS, columns_for_plan,
                             haversine_km as _haversine_km, coerce as _coerce,
                             load_ppi_signals_rows as _load_ppi_signals_rows)
+
+# Guarded like every other cross-package import here: /api/export is a public
+# endpoint that predates the whole auth stack and must keep working even if
+# the auth blueprints fail to import for some reason (e.g. sqlalchemy
+# missing) — it just falls back to treating every caller as "free" in that
+# case, same as get_effective_plan() already does for an anonymous request.
+try:
+    from blueprints._session import get_effective_plan
+except ImportError:
+    def get_effective_plan():
+        return "free"
 
 app = Flask(__name__)
 
@@ -150,6 +161,7 @@ try:
     from blueprints.customer_data import customer_data_bp
     from blueprints.expansion import expansion_bp
     from blueprints.analytics_connections import analytics_bp, oauth_callback_bp
+    from blueprints.billing import billing_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(projects_bp)
     app.register_blueprint(locations_bp)
@@ -161,6 +173,7 @@ try:
     app.register_blueprint(expansion_bp)
     app.register_blueprint(analytics_bp)
     app.register_blueprint(oauth_callback_bp)
+    app.register_blueprint(billing_bp)
 except ImportError as e:
     print(f"[server] auth/workspace blueprints unavailable: {e}", flush=True)
 
@@ -441,6 +454,13 @@ def api_export():
             requested = set(columns_param.split(","))
             # core identity/PPI fields always ride along; signal columns are opt-in
             columns = [c for c in EXPORT_ALL_COLUMNS if c in EXPORT_CORE_FIELDS or c in requested]
+        # Phase 3: strip Pro-flagged columns for anyone not on a pro/team plan
+        # (anonymous visitors included) — regardless of what columns_param
+        # asked for. Closes a real gap: this endpoint previously had no auth
+        # check at all, so the map's client-side "Pro signal, upgrade to
+        # unlock" toggle was the only gate, trivially bypassed by calling
+        # /api/export directly.
+        columns = columns_for_plan(columns, get_effective_plan())
         sheet_name = "PPI & Signals"
         base_name  = "paisamap_ppi_signals"
 

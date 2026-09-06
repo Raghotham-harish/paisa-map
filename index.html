@@ -921,7 +921,7 @@
             <div class="user-menu-body">
               <span class="user-menu-name" id="userMenuName"></span>
               <span class="user-menu-email" id="userMenuEmail"></span>
-              <span class="user-menu-plan"><i class="ti ti-crown"></i> Pro plan</span>
+              <span class="user-menu-plan"><i class="ti ti-crown"></i> <span id="userMenuPlanText">Free plan</span></span>
             </div>
             <div class="user-menu-divider"></div>
             <button type="button" class="user-menu-signout" id="signOutBtn"><i class="ti ti-logout"></i> Sign out</button>
@@ -3137,6 +3137,10 @@ function isProPlan(){ return userPlan === "pro" || userPlan === "team"; }
 function renderPlanPill(){
   const pill = document.getElementById("planPill");
   if(pill) pill.textContent = isProPlan() ? userPlan.toUpperCase() : "FREE";
+  // Was hardcoded "Pro plan" regardless of userPlan — bind it for real, same
+  // fix as the header pill above.
+  const menuText = document.getElementById("userMenuPlanText");
+  if(menuText) menuText.textContent = isProPlan() ? `${userPlan.charAt(0).toUpperCase()}${userPlan.slice(1)} plan` : "Free plan";
 }
 renderPlanPill();
 
