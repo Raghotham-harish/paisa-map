@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
-  ApiError, api, ConnectionProperty, ConnectionProvider, GA4ReportRow, GSCReportRow,
+  ApiError, api, ConnectionProperty, ConnectionProvider, EcommerceSummary, GA4ReportRow, GSCReportRow,
   OAuthConnection, Project,
 } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
@@ -34,6 +34,7 @@ export default function Connections() {
   const [banner, setBanner] = useState<{ kind: "success" | "error"; text: string } | null>(null);
   const [propertiesByProvider, setPropertiesByProvider] = useState<Partial<Record<ConnectionProvider, ConnectionProperty[]>>>({});
   const [reportByProvider, setReportByProvider] = useState<Partial<Record<ConnectionProvider, (GA4ReportRow | GSCReportRow)[]>>>({});
+  const [ecommerce, setEcommerce] = useState<EcommerceSummary | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -71,6 +72,7 @@ export default function Connections() {
 
   useEffect(() => {
     if (projectId != null) load(projectId);
+    setEcommerce(null);
   }, [projectId]);
 
   const onAcceptConsent = async () => {
@@ -134,6 +136,20 @@ export default function Connections() {
     }
   };
 
+  const onViewEcommerce = async () => {
+    if (projectId == null) return;
+    setBusy("ecommerce:google_analytics");
+    setError(null);
+    try {
+      const summary = await api.getEcommerceSummary(projectId);
+      setEcommerce(summary);
+    } catch (e) {
+      setError(e instanceof ApiError && e.body?.detail ? String(e.body.detail) : "Couldn't fetch ecommerce data.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const onDisconnect = async (provider: ConnectionProvider) => {
     if (projectId == null) return;
     if (!confirm("Disconnect and permanently delete the stored access tokens for this connection?")) return;
@@ -142,6 +158,7 @@ export default function Connections() {
       await api.disconnectConnection(projectId, provider);
       setReportByProvider((prev) => ({ ...prev, [provider]: undefined }));
       setPropertiesByProvider((prev) => ({ ...prev, [provider]: undefined }));
+      if (provider === "google_analytics") setEcommerce(null);
       load(projectId);
     } finally {
       setBusy(null);
@@ -302,7 +319,47 @@ export default function Connections() {
                               >
                                 {busy === `report:${id}` ? "Loading…" : "View report (last 28 days)"}
                               </button>
+                              {id === "google_analytics" && (
+                                <button
+                                  className="btn secondary"
+                                  disabled={busy === "ecommerce:google_analytics"}
+                                  onClick={onViewEcommerce}
+                                >
+                                  {busy === "ecommerce:google_analytics" ? "Loading…" : "View ecommerce summary"}
+                                </button>
+                              )}
                             </div>
+                            {id === "google_analytics" && ecommerce && (
+                              <div style={{ marginTop: 12 }}>
+                                <div style={{ display: "flex", gap: 18, fontSize: 12.5, color: "var(--ink-soft)" }}>
+                                  <span>Transactions: <b style={{ color: "var(--ink)" }}>{ecommerce.totals.transactions}</b></span>
+                                  <span>Revenue: <b style={{ color: "var(--ink)" }}>₹{ecommerce.totals.purchase_revenue.toLocaleString("en-IN")}</b></span>
+                                  <span>Avg order: <b style={{ color: "var(--ink)" }}>₹{ecommerce.totals.average_order_value.toLocaleString("en-IN")}</b></span>
+                                </div>
+                                {ecommerce.top_items.length > 0 && (
+                                  <div style={{ overflowX: "auto", marginTop: 10 }}>
+                                    <table style={{ borderCollapse: "collapse", fontSize: 12.5, width: "100%" }}>
+                                      <thead>
+                                        <tr>
+                                          <th style={thStyle}>Item</th>
+                                          <th style={thStyle}>Revenue</th>
+                                          <th style={thStyle}>Units sold</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {ecommerce.top_items.map((item, i) => (
+                                          <tr key={i}>
+                                            <td style={tdStyle}>{item.item_name}</td>
+                                            <td style={tdStyle}>₹{item.item_revenue.toLocaleString("en-IN")}</td>
+                                            <td style={tdStyle}>{item.items_purchased}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                             {report && (
                               <div style={{ overflowX: "auto", marginTop: 12 }}>
                                 <table style={{ borderCollapse: "collapse", fontSize: 12.5, width: "100%" }}>

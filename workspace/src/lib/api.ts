@@ -292,6 +292,25 @@ export interface GSCReportRow {
   position: number | null;
 }
 
+export interface EcommerceTotals {
+  transactions: number;
+  purchase_revenue: number;
+  average_order_value: number;
+}
+
+export interface EcommerceTopItem {
+  item_name: string;
+  item_revenue: number;
+  items_purchased: number;
+}
+
+export interface EcommerceSummary {
+  provider: "google_analytics";
+  external_ref: string;
+  totals: EcommerceTotals;
+  top_items: EcommerceTopItem[];
+}
+
 export const api = {
   config: () => request("/api/config"),
   me: () => request("/api/auth/me") as Promise<MeResponse>,
@@ -388,4 +407,6 @@ export const api = {
     }>,
   disconnectConnection: (projectId: number, provider: ConnectionProvider) =>
     request(`/api/projects/${projectId}/connections/${provider}`, { method: "DELETE" }),
+  getEcommerceSummary: (projectId: number) =>
+    request(`/api/projects/${projectId}/connections/google_analytics/ecommerce`) as Promise<EcommerceSummary>,
 };

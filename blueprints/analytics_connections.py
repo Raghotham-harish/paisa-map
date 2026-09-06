@@ -283,6 +283,47 @@ def get_report(user_id, project_id, provider):
     return jsonify({"provider": provider, "external_ref": conn["external_ref"], "rows": rows})
 
 
+@analytics_bp.route("/google_analytics/ecommerce", methods=["GET"])
+@require_login
+def get_ecommerce_summary(user_id, project_id):
+    """Purchase totals + top-selling items over the trailing 28 days — GA4-only
+    (Search Console has no purchase data). Roadmap item "Transaction /
+    ecommerce data ingestion": GA4 ecommerce events first, a POS/payment-export
+    path can follow later if a business's GA4 coverage proves too thin."""
+    access_token, conn = _get_valid_access_token(project_id, "google_analytics", user_id)
+    if conn is None:
+        return jsonify({"error": "not_connected"}), 404
+    if not conn.get("external_ref"):
+        return jsonify({"error": "property_not_selected"}), 400
+    if access_token is None:
+        return jsonify({"error": "reconnect_required", "detail": conn.get("last_error")}), 409
+    try:
+        totals_raw = _google_oauth.run_ga4_ecommerce_totals(access_token, conn["external_ref"])
+        items_raw = _google_oauth.run_ga4_ecommerce_top_items(access_token, conn["external_ref"])
+    except GoogleOAuthError as e:
+        return jsonify({"error": "google_api_error", "detail": str(e)}), 502
+
+    totals_row = (totals_raw.get("rows") or [{}])[0]
+    totals_values = totals_row.get("metricValues", [])
+    totals = {
+        "transactions": int(totals_values[0]["value"]) if len(totals_values) > 0 else 0,
+        "purchase_revenue": float(totals_values[1]["value"]) if len(totals_values) > 1 else 0.0,
+        "average_order_value": float(totals_values[2]["value"]) if len(totals_values) > 2 else 0.0,
+    }
+    top_items = [
+        {
+            "item_name": r["dimensionValues"][0]["value"],
+            "item_revenue": float(r["metricValues"][0]["value"]),
+            "items_purchased": int(r["metricValues"][1]["value"]),
+        }
+        for r in items_raw.get("rows", [])
+    ]
+    return jsonify({
+        "provider": "google_analytics", "external_ref": conn["external_ref"],
+        "totals": totals, "top_items": top_items,
+    })
+
+
 # ── Disconnect ───────────────────────────────────────────────────────────────
 @analytics_bp.route("/<provider>", methods=["DELETE"])
 @require_login

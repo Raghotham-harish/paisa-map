@@ -178,6 +178,34 @@ def run_ga4_report(access_token, property_id, days=28):
     return _post_json(url, access_token, payload)
 
 
+def run_ga4_ecommerce_totals(access_token, property_id, days=28):
+    """Account-wide purchase totals, no dimension — GA4's runReport returns a
+    single row when no `dimensions` are requested, one value per requested
+    metric in order."""
+    payload = {
+        "dateRanges": [{"startDate": f"{days}daysAgo", "endDate": "today"}],
+        "metrics": [
+            {"name": "transactions"}, {"name": "purchaseRevenue"}, {"name": "averagePurchaseRevenue"},
+        ],
+    }
+    url = GA4_DATA_RUN_REPORT.format(property=f"properties/{property_id}")
+    return _post_json(url, access_token, payload)
+
+
+def run_ga4_ecommerce_top_items(access_token, property_id, days=28):
+    """Top 10 items by revenue — the "what's actually selling" half of
+    ecommerce ingestion, alongside the account-wide totals above."""
+    payload = {
+        "dateRanges": [{"startDate": f"{days}daysAgo", "endDate": "today"}],
+        "dimensions": [{"name": "itemName"}],
+        "metrics": [{"name": "itemRevenue"}, {"name": "itemsPurchased"}],
+        "limit": 10,
+        "orderBys": [{"metric": {"metricName": "itemRevenue"}, "desc": True}],
+    }
+    url = GA4_DATA_RUN_REPORT.format(property=f"properties/{property_id}")
+    return _post_json(url, access_token, payload)
+
+
 def run_gsc_query(access_token, site_url, days=28):
     """Top search queries driving traffic to the site over the trailing window
     — the "what people search before visiting/buying" signal the roadmap
