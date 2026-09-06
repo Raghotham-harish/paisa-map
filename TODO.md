@@ -1,5 +1,68 @@
 # TODO
 
+## Map-first workspace (branch `feat/map-first-workspace` → PR)
+
+**P1 + the project-setup wizard are built and Playwright-verified locally**
+(commit `90b8592`) but **not deployed**. `/workspace/map` embeds `index.html`
+at `/?embed=1` in an iframe with a `postMessage` bridge; React docks a filter
+bar / map controls / live Location Intelligence panel / KPI strip / compare
+modal around it. New `/projects/new` 4-step wizard with a searchable
+MultiSelect (type-and-Enter custom values). Design canvas:
+https://claude.ai/code/artifact/840c310c-ad6b-41e3-b975-d41f9c1c173d
+
+Deploy checklist (do in order, none done):
+
+- [ ] Merge the PR and deploy (`deploy.sh` already builds `workspace/` — no
+      change needed there).
+- [ ] Run the schema migration on prod Postgres over SSH — 7 new additive
+      `projects` columns (industry, signals, target_pincodes, catchment_km,
+      total_investment, outcome_goal, time_horizon_months):
+      `sudo bash -c 'set -a; source /etc/paisamap/db.env; set +a; venv-flask/bin/python3 -c "import sys; sys.path.insert(0,\"paisamap-etl/etl\"); import _auth_db; _auth_db.migrate_schema()"'`
+      then confirm with `inspect(engine).get_columns("projects")`.
+- [ ] **Check nginx does NOT send `X-Frame-Options: DENY` for `/`** — the
+      `/workspace/map` iframe loads `/?embed=1` and needs at least `SAMEORIGIN`
+      (workspace is same-origin, so `SAMEORIGIN` is fine). The repo sets no
+      framing header; if nginx sends `DENY`, relax it to `SAMEORIGIN` (or add
+      `add_header Content-Security-Policy "frame-ancestors 'self'"`) for the
+      `location /` block. nginx config lives only on the server.
+- [ ] Real-account browser smoke on prod once deployed: `/workspace/map` →
+      click a pincode → panel shows real score → Save → appears in
+      `/workspace/locations`; compare 2 → ranked modal; wizard `/projects/new`
+      → finish → lands on `/map?project_id=<id>`.
+- [ ] Copy the updated `deploy.sh` to `/home/ubuntu/deploy.sh` if `deploy.sh`
+      was touched (it was NOT in this change — noting the standing rule only).
+
+Follow-ups (not blockers):
+
+- [ ] Wire the MapControls layer toggles (choropleth / rings / clusters / my
+      stores) through the bridge — needs matching one-line inbound handlers in
+      `index.html`'s embed bridge (`ringsLayer.addTo/removeFrom` etc.). Left as
+      display-only copy for P1.
+- [ ] Surface `industry`/`segment` edits inline in the FilterBar instead of
+      bouncing to the wizard `?edit=` route.
+- [ ] Custom signals typed in the wizard are captured as free-text strings on
+      the project but do NOT become real data columns — real custom-signal
+      *generation* is a separate piece (overlaps Phase 05B).
+- [ ] Salesforce connector — placeholder "coming soon" card only in the wizard.
+
+## P3 — Forecast & investment split (NOT started — needs a modelling workstream)
+
+The design canvas has the radar / hotspot-bubble / investment→reach curve /
+recommended-₹-split screens, and `ProjectWizard` already captures
+`total_investment` / `outcome_goal` / `time_horizon_months`. But the maths does
+not exist: today's engine (`blueprints/intelligence.py`, `blueprints/expansion.py`)
+does percentile scoring, benchmark means, Pearson revenue-vs-signal drivers, and
+a budget-constrained greedy portfolio — **no elasticity model, no payback, no
+reachable-spend curve**.
+
+- [ ] Design the reachable-household-spend-within-catchment × saturation/
+      diminishing-returns model (fit the curve on the customer's own store
+      revenue-ramp data from `customer_locations`).
+- [ ] `GET /api/forecast/*` endpoints returning the curve, recommended split,
+      payback, and market-capture forecast.
+- [ ] Build the Forecast page from the design artboard once the model returns
+      real numbers — do NOT ship the illustrative mockup values.
+
 ## Phase 03 — Monetisation
 
 **Shipped and live as of 2026-09-06** — credits spend/purchase, Razorpay
