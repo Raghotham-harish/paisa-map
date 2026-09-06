@@ -224,8 +224,13 @@ def webhook():
     signature = request.headers.get("X-Razorpay-Signature", "")
     raw_body = request.get_data(as_text=True)
     try:
-        razorpay.Utility.verify_webhook_signature(raw_body, signature, secret)
-    except Exception:
+        # Utility.verify_webhook_signature is an instance method — it must be
+        # instantiated, not called on the class directly (that silently binds
+        # the wrong argument to `self` instead of raising a clear error, since
+        # Python allows calling an unbound method this way). No client
+        # needed for a pure local HMAC check.
+        razorpay.Utility(None).verify_webhook_signature(raw_body, signature, secret)
+    except razorpay.errors.SignatureVerificationError:
         return jsonify({"error": "signature_invalid"}), 400
 
     payload = request.get_json(silent=True) or {}
