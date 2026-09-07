@@ -34,3 +34,4 @@ paisamap-etl/data/reference/rbi_branch_master_india/
 # committed — that's the actual reproducible national base layer
 # fetch_boundaries.py reads on every run.
 paisamap-etl/data/reference/pincode_boundary_master/All_India_pincode_Boundary-19312.geojson
+.deployed_commit

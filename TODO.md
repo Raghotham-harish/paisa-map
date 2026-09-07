@@ -205,6 +205,90 @@ B2B + Paisa Buzz growth plan, whose own artifact `511014c7…` is gone — see
       ("conflicting server name" warning on every reload).
 - [ ] Apply the pending Lightsail kernel upgrade (deliberate reboot window).
 
+## Enterprise readiness (the 5 gaps from the growth-plan review)
+
+Growth-plan artifact (reconstruction):
+https://claude.ai/code/artifact/ce7caba8-be97-4759-a394-3b3829f00777
+Gap 2 (datastore) is done — Postgres dual-write. The other four below.
+
+### Observability — foundations SHIPPED 2026-09-07, rest open
+- [x] `paisamap-etl/etl/_ops.py` — in-process request/error counters, optional
+      Sentry hook (guarded), token-bucket rate limiter.
+- [x] `server.py`: `before_request` rate-limit, `after_request` security headers
+      + 5xx counter, `errorhandler(Exception)` that logs + counts + Sentry-captures.
+- [x] `/api/health` enriched (commit, DB reachability, ratelimit flag, uptime);
+      new `/api/metrics` (aggregate counters, no data).
+- [x] `deploy.sh` installs `sentry-sdk` and writes `.deployed_commit`.
+- [ ] **Set `SENTRY_DSN` in `/etc/paisamap/db.env`** (+ optional `SENTRY_ENV`,
+      `SENTRY_TRACES_SAMPLE_RATE`) — Sentry is inert until this is set. Free tier
+      is fine to start.
+- [ ] External uptime check hitting `/api/health` (UptimeRobot / BetterStack
+      free tier) with alerting to email/Slack.
+- [ ] Structured request logging to a file nginx/journald can ship somewhere
+      (today it's `print()` to stdout → journald only).
+- [ ] Multi-worker note: `_ops` counters + buckets are per-process. Fine on the
+      current single-process setup; revisit if gunicorn workers > 1.
+
+### Security hardening — first pass SHIPPED 2026-09-07, rest open
+- [x] Per-IP token-bucket rate limiter on `/api/*` (`_ops.check`), 429 +
+      `Retry-After`, three tiers (geo / data / default), **fails open**, and
+      **off unless `RATELIMIT_ENABLED=1`** so deploying it is inert.
+- [x] Baseline security headers on every response (`X-Content-Type-Options`,
+      `Referrer-Policy`, `X-Frame-Options: SAMEORIGIN`, CSP `frame-ancestors 'self'`).
+- [ ] **Flip `RATELIMIT_ENABLED=1`** in prod after watching `/api/metrics`
+      `requests_ratelimited` for a day at the default caps (tune the
+      `RATELIMIT_*_CAP` / `_RPS` env vars if legit traffic trips it).
+- [ ] Secrets audit: everything sensitive is in `/etc/paisamap/db.env` (600,
+      root) — confirm nothing secret is in the repo, GitHub Actions, or the
+      systemd unit inline; rotate `SECRET_KEY` and the DB password once; generate
+      the distinct `RAZORPAY_WEBHOOK_SECRET` (already tracked under Phase 03).
+- [ ] A real WSGI server (gunicorn/uwsgi) in front of Flask instead of
+      `app.run()` — `deploy.sh`/systemd currently run the dev server.
+- [ ] `fail2ban` or nginx `limit_req` as a second layer at the edge (the app
+      limiter only sees requests nginx already forwarded).
+- [ ] HSTS header (nginx, once certain the apex + www are HTTPS-only — they are).
+- [ ] Dependency scanning (`pip-audit` / Dependabot) — no lockfile today; deps
+      are an inline `pip install` list in `deploy.sh`. Consider a real
+      `requirements.txt` with pinned versions.
+
+### Data licensing — inventory DONE 2026-09-07, clearances open
+- [x] `docs/DATA_LICENSING.md` — every source, its licence, commercial-resale
+      posture, risk flags.
+- [ ] 🔴 **OSM / ODbL for `premium_poi_per_km2`** — get advice on produced-work
+      vs. derivative-database, or drop/replace the column for any sold tier.
+- [ ] 🔴 **Nominatim** — the server-side proxy breaches the usage policy at
+      scale; plan a self-hosted Nominatim or a paid geocoder before the API
+      product or before real traffic growth.
+- [ ] ⚠️ Read **RBI website terms** (Handbook of Statistics, BSR) — yes/no on
+      commercial redistribution of derived figures. Same for **UDISE+** bulk export.
+- [ ] ⚠️ Switch the vehicle signals to the **MoRTH annual-report** provenance
+      (not the live VAHAN scrape) for anything sold.
+- [ ] 🕰️ Refresh or footnote `cropping_intensity_pct` (data is 2012-13).
+- [ ] Document where `CITY_PRIORS` (seed for `rate_per_sqft`) came from.
+- [ ] Publish the attribution block (draft in the doc) once the above clear.
+
+### Auth / multi-tenancy / org billing — NOT started (needs design first)
+`organizations` + `org_members` tables exist and are unused. This is Phase 06+
+territory; don't start it before a paying customer needs seats.
+- [ ] Decide the model: per-seat vs. flat-org pricing; who can invite; whether
+      projects belong to a user or an org.
+- [ ] Org creation + member invite/accept/remove flow (email invite tokens).
+- [ ] Move project/report/location ownership from `user_id` to `org_id` (or add
+      org scoping alongside) — a real migration touching every workspace query.
+- [ ] Role-based permissions (owner / editor / viewer) enforced in `_session.py`.
+- [ ] Seat-based billing: Razorpay subscription with quantity, proration on
+      seat add/remove, an org-level invoice.
+- [ ] Team plan today is a `users.plan` string only — reconcile with real org billing.
+
+### Target-customer definition — decision brief written, unanswered
+- [x] `docs/TARGET_CUSTOMER.md` — candidate segments, product-shape fork, the
+      5 questions to answer, a weak recommendation (retail site-selection wedge).
+- [ ] **Pick one segment for the first 3 paying customers** and the wedge
+      (SaaS / API / bespoke). This unblocks Track 1 · P4 (pricing) and P5 (outreach).
+- [ ] Build the one proof point a buyer in that segment would check before
+      believing the data (e.g. PPI vs. bureau-data correlation for lenders;
+      score vs. the customer's own best/worst store for retail).
+
 ## Phase 03 — Monetisation
 
 **Shipped and live as of 2026-09-06** — credits spend/purchase, Razorpay

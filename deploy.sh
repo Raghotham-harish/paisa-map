@@ -147,7 +147,7 @@ fi
 # Install any new Python deps for Flask server
 if [ -f venv-flask/bin/activate ]; then
   source venv-flask/bin/activate
-  pip install -q flask openpyxl sqlalchemy psycopg2-binary google-auth requests reportlab razorpay
+  pip install -q flask openpyxl sqlalchemy psycopg2-binary google-auth requests reportlab razorpay sentry-sdk
   deactivate
 fi
 
@@ -155,6 +155,11 @@ fi
 if [ -d paisamap-etl/venv ]; then
   paisamap-etl/venv/bin/pip install -q pandas requests pdfplumber scikit-learn sqlalchemy psycopg2-binary
 fi
+
+# Record the deployed commit so /api/health can report it — a plain file the
+# app reads directly (no systemd EnvironmentFile change needed).
+git -C "$REPO" rev-parse --short HEAD > "$REPO/.deployed_commit" 2>/dev/null || true
+echo "[deploy] recorded commit $(cat "$REPO/.deployed_commit" 2>/dev/null || echo unknown)"
 
 # Restart Flask service
 sudo systemctl restart "$SERVICE"
