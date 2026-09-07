@@ -50,6 +50,9 @@ export interface MeResponse {
   credits: number;
 }
 
+export type OutcomeGoal = "revenue_reach" | "store_count" | "balanced";
+export type RevenuePeriod = "monthly" | "annual";
+
 export interface Project {
   id: number;
   name: string;
@@ -58,6 +61,15 @@ export interface Project {
   target_segment: string | null;
   avg_ticket: number | null;
   website_url: string | null;
+  industry: string | null;
+  signals: string[];
+  target_pincodes: string[];
+  catchment_km: number | null;
+  total_investment: number | null;
+  outcome_goal: OutcomeGoal | null;
+  time_horizon_months: number | null;
+  gross_margin_pct: number | null;
+  revenue_period: RevenuePeriod | null;
   created_at: string;
   updated_at: string;
 }
@@ -69,6 +81,22 @@ export interface ProjectFields {
   target_segment?: string;
   avg_ticket?: string | number;
   website_url?: string;
+  industry?: string;
+  signals?: string[];
+  target_pincodes?: string[];
+  catchment_km?: string | number;
+  total_investment?: string | number;
+  outcome_goal?: OutcomeGoal;
+  time_horizon_months?: string | number;
+  gross_margin_pct?: string | number;
+  revenue_period?: RevenuePeriod;
+}
+
+export interface SignalCatalogItem {
+  key: string;
+  label: string;
+  pro: boolean;
+  group: string;
 }
 
 export type LocationStatus = "shortlist" | "reviewing" | "approved" | "rejected";
@@ -252,6 +280,98 @@ export interface ExpansionRecommendation {
   detail: string | null;
 }
 
+export interface ForecastInsufficient {
+  sufficient_data: false;
+  reason: string;
+  detail: string;
+  stores_usable?: number;
+  min_stores_required?: number;
+}
+
+export interface ForecastCurvePoint {
+  investment: number;
+  monthly_revenue: number;
+  stores: number;
+}
+
+export interface ForecastSite {
+  pincode: string;
+  name: string;
+  state: string | null;
+  monthly_revenue: number;
+  capex: number | null;
+  capture_rate: number;
+  ppi_percentile: number;
+  cannibalisation_discount: number;
+  payback_months: number | null;
+}
+
+export interface ForecastSplit {
+  state: string;
+  stores: number;
+  investment: number;
+  monthly_revenue: number;
+  investment_share_pct: number | null;
+}
+
+export interface LeverFit {
+  signal: string;
+  label: string;
+  lever_fit: number | null;
+  direction: "positive" | "negative" | null;
+  sample_size: number;
+  in_top_drivers: boolean;
+}
+
+export interface Forecast {
+  sufficient_data: true;
+  budget: number;
+  catchment_km: number;
+  time_horizon_months: number;
+  gross_margin_pct: number;
+  revenue_period: RevenuePeriod;
+  capex_priced: boolean;
+  capex_basis: string | null;
+  capture_model: {
+    method: "regression" | "pooled_median";
+    median_capture_rate: number;
+    r2: number | null;
+    confidence_band_pct: number;
+    stores_used: number;
+  };
+  confidence: "high" | "medium" | "low";
+  candidates_considered: number;
+  reach_curve: {
+    points: ForecastCurvePoint[];
+    diminishing_returns_from: number | null;
+    note: string;
+  };
+  recommended_portfolio: {
+    stores: number;
+    investment: number | null;
+    monthly_revenue: number;
+    monthly_gross_profit: number;
+    horizon_gross_profit: number;
+    payback_months: number | null;
+    within_horizon: boolean;
+    sites: ForecastSite[];
+  };
+  investment_split: ForecastSplit[];
+  market_capture: {
+    addressable_monthly_spend: number;
+    current_monthly_revenue: number;
+    current_capture_pct: number | null;
+    projected_monthly_revenue: number;
+    projected_capture_pct: number | null;
+    note: string;
+  };
+  lever_fit_radar: LeverFit[];
+  drivers: DriverAnalysis;
+  assumptions: Record<string, string | number>;
+}
+
+export type ForecastResponse = Forecast | ForecastInsufficient;
+
 export type ConnectionProvider = "google_analytics" | "search_console";
 
 export interface OAuthConnection {
@@ -392,14 +512,30 @@ export const api = {
 
   listLocations: (projectId?: number) =>
     request(`/api/locations${projectId ? `?project_id=${projectId}` : ""}`) as Promise<{ locations: SavedLocation[] }>,
+  createLocation: (fields: { pincode: string; name?: string | null; lat?: number | null; lng?: number | null; project_id?: number }) =>
+    request("/api/locations", { method: "POST", body: JSON.stringify(fields) }) as Promise<{ location: SavedLocation; created: boolean }>,
   updateLocation: (id: number, fields: { status?: LocationStatus; notes?: string }) =>
     request(`/api/locations/${id}`, { method: "PUT", body: JSON.stringify(fields) }) as Promise<{ location: SavedLocation }>,
   deleteLocation: (id: number) => request(`/api/locations/${id}`, { method: "DELETE" }),
 
   listActivity: (limit = 50) => request(`/api/activity?limit=${limit}`) as Promise<{ activity: ActivityEntry[] }>,
 
-  getLocationScore: (pincode: string) =>
-    request(`/api/intelligence/score?pincode=${pincode}`) as Promise<LocationScore>,
+  signalCatalog: () => request("/api/signals/catalog") as Promise<{ signals: SignalCatalogItem[] }>,
+
+  getLocationScore: (pincode: string, business?: { avg_ticket?: number | null; target_segment?: string | null; business_type?: string | null }) => {
+    const q = new URLSearchParams({ pincode });
+    if (business?.avg_ticket != null) q.set("avg_ticket", String(business.avg_ticket));
+    if (business?.target_segment) q.set("target_segment", business.target_segment);
+    if (business?.business_type) q.set("business_type", business.business_type);
+    return request(`/api/intelligence/score?${q.toString()}`) as Promise<LocationScore>;
+  },
+  compareLocations: (pincodes: string[], business?: { avg_ticket?: number | null; target_segment?: string | null; business_type?: string | null }) => {
+    const q = new URLSearchParams({ pincodes: pincodes.join(",") });
+    if (business?.avg_ticket != null) q.set("avg_ticket", String(business.avg_ticket));
+    if (business?.target_segment) q.set("target_segment", business.target_segment);
+    if (business?.business_type) q.set("business_type", business.business_type);
+    return request(`/api/intelligence/compare?${q.toString()}`) as Promise<{ locations: (LocationScore & { rank: number })[] }>;
+  },
 
   getCredits: () => request("/api/credits") as Promise<{ balance: number; ledger: CreditLedgerEntry[] }>,
 
@@ -447,6 +583,8 @@ export const api = {
     request(`/api/expansion/drivers?project_id=${projectId}`) as Promise<DriverAnalysis>,
   getExpansionRecommendation: (projectId: number, budget: number) =>
     request(`/api/expansion/recommend?project_id=${projectId}&budget=${budget}`) as Promise<ExpansionRecommendation>,
+  getForecast: (projectId: number, budget?: number) =>
+    request(`/api/forecast?project_id=${projectId}${budget ? `&budget=${budget}` : ""}`) as Promise<ForecastResponse>,
 
   getConnections: (projectId: number) =>
     request(`/api/projects/${projectId}/connections`) as Promise<ConnectionsResponse>,

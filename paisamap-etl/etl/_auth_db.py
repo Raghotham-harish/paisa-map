@@ -107,6 +107,20 @@ def _get_tables():
         Column("avg_ticket", Float),
         Column("website_url", Text),
         Column("analytics_consent_at", DateTime(timezone=True)),
+        # Project-setup wizard fields (map-first workspace). signals /
+        # target_pincodes are JSON arrays stored as text — same "no JSON column
+        # type, for SQLite portability" convention used elsewhere in this file.
+        Column("industry", Text),
+        Column("signals", Text),
+        Column("target_pincodes", Text),
+        Column("catchment_km", Float),
+        Column("total_investment", Float),
+        Column("outcome_goal", Text),
+        Column("time_horizon_months", Integer),
+        # Forecast model inputs (P3) — gross margin drives payback, revenue_period
+        # says whether an uploaded store's `revenue` figure is monthly or annual.
+        Column("gross_margin_pct", Float),
+        Column("revenue_period", Text),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("updated_at", DateTime(timezone=True), nullable=False),
     )
@@ -341,6 +355,15 @@ _MIGRATIONS = [
     ("projects", "website_url", "TEXT"),
     ("reports", "share_token", "TEXT"),
     ("projects", "analytics_consent_at", "TIMESTAMP"),
+    ("projects", "industry", "TEXT"),
+    ("projects", "signals", "TEXT"),
+    ("projects", "target_pincodes", "TEXT"),
+    ("projects", "catchment_km", "FLOAT"),
+    ("projects", "total_investment", "FLOAT"),
+    ("projects", "outcome_goal", "TEXT"),
+    ("projects", "time_horizon_months", "INTEGER"),
+    ("projects", "gross_margin_pct", "FLOAT"),
+    ("projects", "revenue_period", "TEXT"),
 ]
 
 
@@ -684,12 +707,21 @@ def log_activity(user_id, action, target_type=None, target_id=None, metadata=Non
 
 
 PROJECT_EDITABLE_FIELDS = ("name", "description", "business_type", "target_segment",
-                           "avg_ticket", "website_url")
+                           "avg_ticket", "website_url", "industry", "signals",
+                           "target_pincodes", "catchment_km", "total_investment",
+                           "outcome_goal", "time_horizon_months",
+                           "gross_margin_pct", "revenue_period")
 
 
 # ── Projects ─────────────────────────────────────────────────────────────────
-def create_project(user_id, name, description=None, business_type=None,
-                    target_segment=None, avg_ticket=None, website_url=None):
+def create_project(user_id, name, description=None, **fields):
+    """`fields` accepts any of PROJECT_EDITABLE_FIELDS (business_type,
+    target_segment, avg_ticket, website_url, and the wizard fields industry/
+    signals/target_pincodes/catchment_km/total_investment/outcome_goal/
+    time_horizon_months) — None values are dropped so the column keeps its
+    default rather than being written as NULL explicitly."""
+    extra = {k: v for k, v in fields.items()
+             if k in PROJECT_EDITABLE_FIELDS and k != "name" and v is not None}
     engine = _require_engine()
     tables = _get_tables()
     projects = tables["projects"]
@@ -698,9 +730,7 @@ def create_project(user_id, name, description=None, business_type=None,
         result = conn.execute(
             projects.insert().values(
                 user_id=user_id, name=name, description=description,
-                business_type=business_type, target_segment=target_segment,
-                avg_ticket=avg_ticket, website_url=website_url,
-                created_at=now, updated_at=now,
+                created_at=now, updated_at=now, **extra,
             )
         )
         new_id = result.inserted_primary_key[0]

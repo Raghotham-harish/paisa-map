@@ -158,8 +158,10 @@ try:
     from blueprints.credits import credits_bp
     from blueprints.reports import reports_bp
     from blueprints.intelligence import intelligence_bp
+    from blueprints.signals import signals_bp
     from blueprints.customer_data import customer_data_bp
     from blueprints.expansion import expansion_bp
+    from blueprints.forecast import forecast_bp
     from blueprints.analytics_connections import analytics_bp, oauth_callback_bp
     from blueprints.billing import billing_bp
     app.register_blueprint(auth_bp)
@@ -169,13 +171,68 @@ try:
     app.register_blueprint(credits_bp)
     app.register_blueprint(reports_bp)
     app.register_blueprint(intelligence_bp)
+    app.register_blueprint(signals_bp)
     app.register_blueprint(customer_data_bp)
     app.register_blueprint(expansion_bp)
+    app.register_blueprint(forecast_bp)
     app.register_blueprint(analytics_bp)
     app.register_blueprint(oauth_callback_bp)
     app.register_blueprint(billing_bp)
 except ImportError as e:
     print(f"[server] auth/workspace blueprints unavailable: {e}", flush=True)
+
+# ── Ops: rate limiting, request/error counters, optional Sentry ──────────────
+# See paisamap-etl/etl/_ops.py. Inert unless RATELIMIT_ENABLED=1 / SENTRY_DSN
+# are set — deploying this is a no-op until those are flipped on. Guarded import
+# like every other cross-package one here.
+try:
+    import _ops
+    _ops.init_sentry()
+except ImportError:
+    _ops = None
+
+
+@app.before_request
+def _ratelimit():
+    if _ops is None or not request.path.startswith("/api/"):
+        return None
+    _ops.incr("requests_total")
+    allowed, retry_after = _ops.check(request.remote_addr, request.path)
+    if not allowed:
+        _ops.incr("requests_ratelimited")
+        return jsonify({"error": "rate_limited",
+                        "detail": "Too many requests — slow down and retry."}), 429, {
+            "Retry-After": str(retry_after)}
+    return None
+
+
+@app.after_request
+def _security_headers(resp):
+    # Conservative, static-safe headers. frame-ancestors 'self' lets the
+    # /workspace/map React route keep embedding index.html?embed=1 (same origin)
+    # while blocking third-party framing; the map itself sets no framing header.
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    resp.headers.setdefault("Content-Security-Policy", "frame-ancestors 'self'")
+    if _ops is not None and resp.status_code >= 500:
+        _ops.incr("responses_5xx")
+    return resp
+
+
+@app.errorhandler(Exception)
+def _log_unhandled(exc):
+    # Let Flask's own HTTP exceptions (404/400/…) pass through untouched.
+    from werkzeug.exceptions import HTTPException
+    if isinstance(exc, HTTPException):
+        return exc
+    if _ops is not None:
+        _ops.incr("unhandled_exceptions")
+        _ops.capture_exception(exc)
+    print(f"[server] unhandled {type(exc).__name__} on {request.method} {request.path}: {exc}",
+          flush=True)
+    return jsonify({"error": "internal_error"}), 500
+
 
 # Job registry: pincode → {status, ppi, log, error, source}
 _jobs: dict = {}
@@ -326,7 +383,36 @@ def api_status(pincode):
 
 @app.route("/api/health")
 def health():
-    return jsonify({"status": "ok"})
+    """Liveness + a cheap dependency check. Returns 200 when the app can serve;
+    `checks.database` is informational (the CSV path still works without it)."""
+    db_ok = None
+    if _db is not None:
+        try:
+            db_ok = bool(_db.enabled()) and _db.fetch_pincodes() is not None
+        except Exception:
+            db_ok = False
+    commit = os.environ.get("GIT_COMMIT")
+    if not commit:
+        try:
+            commit = (APP / ".deployed_commit").read_text().strip()
+        except OSError:
+            commit = "unknown"
+    payload = {
+        "status": "ok",
+        "commit": commit,
+        "checks": {"database": db_ok, "ratelimit": (_ops.enabled() if _ops else False)},
+    }
+    if _ops is not None:
+        payload["uptime_seconds"] = _ops.snapshot().get("uptime_seconds")
+    return jsonify(payload)
+
+
+@app.route("/api/metrics")
+def metrics():
+    """In-process request/error counters since boot (per worker process). Not
+    auth-gated — it exposes no data, just aggregate counts for a quick ops look
+    or an uptime probe. Returns {} when the ops module isn't loaded."""
+    return jsonify(_ops.snapshot() if _ops is not None else {})
 
 
 @app.route("/api/config")

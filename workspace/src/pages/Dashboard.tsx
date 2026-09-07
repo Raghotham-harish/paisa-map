@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../lib/auth";
-import { api, ActivityEntry, SavedLocation } from "../lib/api";
+import { api, ActivityEntry, Project, SavedLocation } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 
 const ACTION_LABELS: Record<string, string> = {
@@ -19,18 +20,60 @@ export default function Dashboard() {
   const { user } = useAuth();
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
   const [locations, setLocations] = useState<SavedLocation[] | null>(null);
+  const [projects, setProjects] = useState<Project[] | null>(null);
 
   useEffect(() => {
     api.listActivity(5).then((data) => setActivity(data.activity));
     api.listLocations().then((data) => setLocations(data.locations));
+    api.listProjects().then((data) => setProjects(data.projects));
   }, []);
 
   if (!user) return null;
+
+  const activeProject = projects?.[0] ?? null;
 
   return (
     <>
       <h1 className="page-title">Welcome back{user.name ? `, ${user.name.split(" ")[0]}` : ""}</h1>
       <p className="page-sub">{user.email}</p>
+
+      <div className="card map-hero">
+        <div className="map-hero-copy">
+          <p className="map-hero-kicker">Your map workspace</p>
+          <div className="map-hero-title">
+            {activeProject ? activeProject.name : "Start with the map"}
+          </div>
+          <p className="map-hero-sub">
+            {locations && locations.length > 0
+              ? `${locations.length} saved location${locations.length > 1 ? "s" : ""} · pick up where you left off.`
+              : "Explore purchasing power, score any pincode, and build a shortlist — all on the map."}
+          </p>
+          <div className="map-hero-actions">
+            <Link className="btn" to="/map">Open map workspace →</Link>
+            {!activeProject && <Link className="btn secondary" to="/projects/new">New project</Link>}
+          </div>
+        </div>
+        <div className="map-hero-thumb" aria-hidden="true">
+          <svg width="100%" height="100%" viewBox="0 0 360 200" preserveAspectRatio="xMidYMid slice">
+            <rect width="360" height="200" fill="#EDEFE7" />
+            <g stroke="#C9CEBF" strokeWidth="2" fill="none">
+              <path d="M-10 60 C 120 40 240 90 370 50" />
+              <path d="M-10 130 C 130 110 260 150 370 120" />
+              <path d="M110 -10 C 130 70 100 130 150 210" />
+              <path d="M250 -10 C 240 70 270 130 250 210" />
+            </g>
+            <path d="M300 200 L360 200 L360 92 q-40 20 -40 55 q-2 30 -20 26z" fill="#CAD8D2" />
+            <circle cx="180" cy="100" r="46" fill="#216A0B" fillOpacity="0.16" />
+            <g fill="#216A0B" stroke="#fff" strokeWidth="2">
+              <circle cx="180" cy="96" r="17" />
+              <circle cx="120" cy="70" r="12" />
+              <circle cx="238" cy="120" r="13" />
+              <circle cx="150" cy="140" r="9" />
+            </g>
+            <circle cx="205" cy="82" r="16" fill="none" stroke="#DFAE3A" strokeWidth="1.5" />
+          </svg>
+        </div>
+      </div>
 
       <div className="stat-row">
         <div className="stat-tile">
@@ -44,6 +87,10 @@ export default function Dashboard() {
         <div className="stat-tile">
           <div className="label">Saved locations</div>
           <div className="value">{locations === null ? "—" : locations.length}</div>
+        </div>
+        <div className="stat-tile">
+          <div className="label">Projects</div>
+          <div className="value">{projects === null ? "—" : projects.length}</div>
         </div>
       </div>
 

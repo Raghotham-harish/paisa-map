@@ -19,6 +19,7 @@ GST_RATE = 0.18  # 18% GST, placeholder — confirm actual applicable rate/HSN o
 CREDIT_COSTS = {
     "report_generate": 10,
     "expansion_recommend": 5,
+    "forecast": 8,
 }
 
 # ── Purchasable credit packs: id -> {credits, price_paise, label} ──────────

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, Project, ProjectFields } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { SearchInput } from "../components/SearchInput";
@@ -111,7 +112,10 @@ export default function Projects() {
   return (
     <>
       <h1 className="page-title">Projects</h1>
-      <p className="page-sub">A project is the container for saved locations, comparisons, and reports.</p>
+      <p className="page-sub">
+        A project is the container for saved locations, comparisons, and reports.{" "}
+        <Link to="/projects/new">Use the guided setup →</Link>
+      </p>
 
       <form className="new-project-form" onSubmit={onCreate}>
         <input
