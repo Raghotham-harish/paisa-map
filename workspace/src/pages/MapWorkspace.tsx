@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, Project, SignalCatalogItem } from "../lib/api";
-import { MAP_SRC, useMapBridge } from "../lib/mapBridge";
+import { MapStyle, MAP_SRC, MyStorePoint, useMapBridge } from "../lib/mapBridge";
 import { useAuth } from "../lib/auth";
+import { saveMapSession } from "../lib/mapSession";
 import { FilterBar } from "../components/map/FilterBar";
 import { MapControls } from "../components/map/MapControls";
 import { LocationPanel } from "../components/map/LocationPanel";
@@ -22,6 +23,14 @@ export default function MapWorkspace() {
   const [primarySignal, setPrimarySignal] = useState<string>("ppi_ml");
   const [compareOpen, setCompareOpen] = useState(false);
   const [signInPrompt, setSignInPrompt] = useState(false);
+  const [mapStyle, setMapStyle] = useState<MapStyle>("symbol");
+  const [ringsOn, setRingsOn] = useState(false);
+  const [myStoresOn, setMyStoresOn] = useState(false);
+  // Fetched whenever the project changes, independent of the toggle — the
+  // toggle's checkbox needs a real count (to grey itself out when the
+  // project has no geocoded stores) even before it's ever been switched on.
+  const [myStoreCandidates, setMyStoreCandidates] = useState<MyStorePoint[]>([]);
+  const myStores = myStoresOn ? myStoreCandidates : [];
 
   const project = useMemo(
     () => projects.find((p) => p.id === projectId) ?? null,
@@ -60,6 +69,67 @@ export default function MapWorkspace() {
   useEffect(() => {
     if (bridge.ready) bridge.send({ type: "setSignal", col: primarySignal });
   }, [bridge.ready, primarySignal, bridge]);
+
+  // Deep-link from the dashboard's "Resume on the map" — fly to the
+  // last-selected pincode once, then drop the param so it doesn't re-fire on
+  // every unrelated re-render (or override a later manual selection).
+  useEffect(() => {
+    const pincode = searchParams.get("pincode");
+    if (!pincode || !bridge.ready) return;
+    bridge.send({ type: "flyTo", pincode });
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete("pincode");
+      return next;
+    }, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bridge.ready]);
+
+  useEffect(() => {
+    if (bridge.ready) bridge.send({ type: "setRepresentation", repr: mapStyle });
+  }, [bridge.ready, mapStyle, bridge]);
+
+  const catchmentKm = project?.catchment_km ?? 3;
+  useEffect(() => {
+    if (bridge.ready) bridge.send({ type: "setRings", on: ringsOn, radiusKm: catchmentKm });
+  }, [bridge.ready, ringsOn, catchmentKm, bridge]);
+
+  // Fetched per project regardless of the toggle (see myStoreCandidates'
+  // comment above) — cheap, a project's own store list is never large.
+  useEffect(() => {
+    if (projectId == null) {
+      setMyStoreCandidates([]);
+      return;
+    }
+    let cancelled = false;
+    api.listCustomerLocations(projectId).then((d) => {
+      if (cancelled) return;
+      const pts: MyStorePoint[] = d.locations
+        .filter((l) => l.lat != null && l.lng != null)
+        .map((l) => ({ lat: l.lat as number, lng: l.lng as number, name: l.store_name }));
+      setMyStoreCandidates(pts);
+    }).catch(() => {
+      if (!cancelled) setMyStoreCandidates([]);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (bridge.ready) bridge.send({ type: "setMyStores", stores: myStores });
+  }, [bridge.ready, myStores, bridge]);
+
+  // "Pick up where you left off" — see lib/mapSession.ts. Written on every
+  // selection/compare-basket change, read back by the Dashboard hero.
+  useEffect(() => {
+    saveMapSession({
+      projectId,
+      pincode: bridge.selected?.pincode ?? null,
+      name: bridge.selected?.name ?? null,
+      compareCount: bridge.compare.length,
+    });
+  }, [projectId, bridge.selected, bridge.compare]);
 
   // Map asked for sign-in (Save while signed out).
   useEffect(() => {
@@ -104,6 +174,15 @@ export default function MapWorkspace() {
             setPrimarySignal(v);
             if (!signals.includes(v)) setSignals([v, ...signals]);
           }}
+          mapStyle={mapStyle}
+          onMapStyleChange={setMapStyle}
+          ringsOn={ringsOn}
+          onRingsToggle={setRingsOn}
+          catchmentKm={catchmentKm}
+          myStoresOn={myStoresOn}
+          onMyStoresToggle={setMyStoresOn}
+          myStoresCount={myStoreCandidates.length}
+          kpis={bridge.kpis}
         />
 
         <LocationPanel

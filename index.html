@@ -603,6 +603,20 @@
     border-radius:50%;background:#fff;border:1px solid #19548C;
   }
 
+  /* "My stores" marker (embed-only, see pm-embed's setMyStores) — a square
+     badge so a project's own locations read as visually distinct from the
+     round teardrop pins used for every ordinary pincode marker. */
+  .my-store-pin{position:absolute}
+  .my-store-pin .body{
+    position:absolute;left:2px;top:2px;width:16px;height:16px;
+    background:var(--ink);border:1.5px solid #fff;border-radius:3px;
+    box-shadow:0 1px 3px rgba(0,0,0,.35);
+  }
+  .my-store-pin .dot{
+    position:absolute;left:7px;top:7px;width:6px;height:6px;
+    border-radius:50%;background:var(--amber);
+  }
+
   /* "Icons" representation — categorized pin: a round badge tinted by the same
      zoneColor() value-tier scale every other mode uses, with a Tabler glyph inside
      showing what KIND of signal it is (bank, tax, vehicles, etc.) instead of a plain
@@ -1335,6 +1349,7 @@ async function loadPPIData(){
       pincodeMap = {};
       nameIndex  = [];
       parsed.forEach(r=>{ pincodeMap[r.pincode]=r; nameIndex.push(r); });
+      ppiTierCutoffsCache = null; // stale — pincodeMap's ppi distribution just changed
 
       // Keep NCR localities not covered by the CSV (Noida, Faridabad hardcoded)
       const NCR_SCALE = 5.5;
@@ -1496,6 +1511,25 @@ async function loadBroadCoverage(){
   }catch(e){ /* broad coverage optional — core PPI/income/spend unaffected */ }
 }
 
+// Per-pincode household-count estimate (build_household_estimates.py) — merged
+// straight into signalMap like every other per-pincode signal, so it's usable
+// wherever signalValue()/signalMap already is (currently: the embed bridge's
+// "Households in view" KPI tile). Doesn't add dataset records of its own —
+// only pincodes that already have one (from the core CSV or broad coverage)
+// get a household figure.
+async function loadHouseholdEstimates(){
+  try{
+    const res = await fetch(`data/output/pincode_households.csv?t=${Date.now()}`);
+    if(!res.ok) return;
+    const text = await res.text();
+    text.trim().split("\n").slice(1).forEach(line=>{
+      const [pincode, households] = splitCsvLine(line);
+      if(!pincode) return;
+      signalMap[pincode] = { ...(signalMap[pincode] || {}), pincode, households: households || "" };
+    });
+  }catch(e){ /* households KPI optional — everything else unaffected */ }
+}
+
 // deterministic pseudo-random (so heat jitter is stable per locality)
 function rng(seed){ return () => (seed = (seed*9301+49297)%233280) / 233280; }
 
@@ -1642,6 +1676,16 @@ let markerGroup = L.layerGroup().addTo(map);
 let nearbyGroup = L.layerGroup().addTo(map);
 let boundaryLayer = null;
 let nearbyOn = false;
+
+// Distance-ring (catchment radius around the currently-selected pincode) and
+// "my stores" (a project's own uploaded locations) — both driven entirely by
+// the embed bridge (see the pm-embed block at the bottom of this file); the
+// public (non-embed) map never turns either on, so they stay inert there.
+let ringLayer = null;
+let ringsOn = false;
+let ringRadiusKm = 3;
+let myStoresGroup = L.layerGroup().addTo(map);
+let myStores = [];
 // "choropleth" | "symbol" | "heatmap" | "cluster" | "bivariate" | "topn"
 let representation = "symbol";
 let bivariateSecondary = null;   // signal id — set the first time bivariate is opened
@@ -2878,6 +2922,66 @@ function setActive(id, fromList){
   } else {
     render();
   }
+  updateRingLayer();
+}
+
+// Catchment-radius ring around whatever's currently selected — embed-only
+// (see pm-embed's "setRings" handler below), radius set by the active
+// project's own catchment_km. Recomputed on every setActive() so it follows
+// the selection rather than staying pinned to wherever it was first drawn.
+function updateRingLayer(){
+  if(ringLayer){ map.removeLayer(ringLayer); ringLayer = null; }
+  if(!ringsOn) return;
+  const d = dataset.find(x=>x.id===activeId);
+  if(!d || !isFinite(d.lat) || !isFinite(d.lng)) return;
+  ringLayer = L.circle([d.lat, d.lng], {
+    radius: ringRadiusKm * 1000, color:"#216A0B", weight:1.5, dashArray:"5,5",
+    fill:false, interactive:false,
+  }).addTo(map);
+}
+
+// Market tiers (Core / Edge / Expansion) — national PPI terciles computed
+// from pincodeMap's real CSV-sourced ppi values, NOT computePPI()'s
+// render-local d.ppi (that one's relative to whatever's currently in the
+// radius/viewport and gets recomputed on every render, so it's a different
+// scale each time — unusable for a stable, comparable-anywhere tier).
+// Cached until the next loadPPIData() rebuilds pincodeMap.
+let ppiTierCutoffsCache = null;
+function ppiTierCutoffs(){
+  if(ppiTierCutoffsCache) return ppiTierCutoffsCache;
+  const vals = Object.values(pincodeMap).map(r=>+r.ppi).filter(Number.isFinite).sort((a,b)=>a-b);
+  if(!vals.length) return null;
+  const at = p => vals[Math.min(vals.length-1, Math.floor(p*vals.length))];
+  ppiTierCutoffsCache = { edge: at(1/3), core: at(2/3) };
+  return ppiTierCutoffsCache;
+}
+function ppiTier(pincode){
+  const row = pincode && pincodeMap[pincode];
+  if(!row || !Number.isFinite(+row.ppi)) return null;
+  const cut = ppiTierCutoffs();
+  if(!cut) return null;
+  const v = +row.ppi;
+  if(v >= cut.core) return "core";
+  if(v >= cut.edge) return "edge";
+  return "expansion";
+}
+
+// "My stores" markers — a project's own geocoded customer_locations, pushed
+// down via the embed bridge's "setMyStores" (see pm-embed below). Distinct
+// square badge so they read as "yours" against the round teardrop pins used
+// for every other marker on this map.
+const myStoreIcon = L.divIcon({
+  className:"my-store-pin",
+  html:'<span class="body"></span><span class="dot"></span>',
+  iconSize:[20,20], iconAnchor:[10,10], popupAnchor:[0,-10], tooltipAnchor:[0,-10],
+});
+function renderMyStores(){
+  myStoresGroup.clearLayers();
+  myStores.forEach(s=>{
+    if(!s || !isFinite(s.lat) || !isFinite(s.lng)) return;
+    const m = L.marker([s.lat, s.lng], {icon: myStoreIcon, zIndexOffset:900}).addTo(myStoresGroup);
+    if(s.name) m.bindTooltip(s.name, {direction:"top", offset:[0,-10]});
+  });
 }
 
 // Priority order for the popup's real-signal snapshot bars — the first 3-4 of
@@ -4148,7 +4252,7 @@ document.getElementById('spiderBtn').addEventListener('click', ()=>{
 render();
 dataPromise = loadPPIData();
 loadBoundaries();   // async — choropleth upgrades from blur to real polygons when ready
-loadSignalData().then(loadBroadCoverage);   // broad coverage merges into signalMap — load after it
+loadSignalData().then(loadBroadCoverage).then(loadHouseholdEstimates);   // each merges into signalMap — load in sequence
 
 // On load: instantly restore last saved location, then refresh from GPS
 (async ()=>{
@@ -4215,12 +4319,24 @@ if (document.documentElement.classList.contains("pm-embed")) (function(){
     var lo  = vals.length ? Math.min.apply(null, vals) : 0;
     var hi  = vals.length ? Math.max.apply(null, vals) : 1;
     var topTier = hi > lo ? vals.filter(function(v){ return (v - lo) / (hi - lo) >= 0.8; }).length : 0;
+    var tierCounts = { core: 0, edge: 0, expansion: 0 };
+    var householdsInView = 0, householdsKnown = false;
+    inView.forEach(function(d){
+      var t = ppiTier(d.pincode);
+      if (t) tierCounts[t]++;
+      var hh = signalValue(d, "households");
+      if (isFinite(hh)) { householdsInView += hh; householdsKnown = true; }
+    });
     post({ type: "viewport", kpis: {
       pincodesInView: inView.length,
       metricLabel: metricLabel(),
       metricAvg: avg,
       medianIncome: median(incomes),
       topTierZones: topTier,
+      coreCount: tierCounts.core,
+      edgeCount: tierCounts.edge,
+      expansionCount: tierCounts.expansion,
+      householdsInView: householdsKnown ? Math.round(householdsInView) : null,
     } });
   }
 
@@ -4229,7 +4345,7 @@ if (document.documentElement.classList.contains("pm-embed")) (function(){
 
   window.__pmEmbed = {
     post: post,
-    emitSelect:   function(d){ post({ type: "select", pincode: d.pincode || null, name: d.name || null, lat: d.lat, lng: d.lng }); },
+    emitSelect:   function(d){ post({ type: "select", pincode: d.pincode || null, name: d.name || null, lat: d.lat, lng: d.lng, tier: ppiTier(d.pincode) }); },
     emitCompare:  function(list){ post({ type: "compare", pincodes: list }); },
     emitSaved:    function(pc){ post({ type: "saved", pincode: pc }); },
     emitAuth:     function(u){ post({ type: "auth", user: u }); },
@@ -4250,7 +4366,15 @@ if (document.documentElement.classList.contains("pm-embed")) (function(){
         }
         case "flyTo": {
           var rec = d.pincode && pincodeMap[d.pincode];
-          if (rec) map.flyTo([rec.lat, rec.lng], Math.max(map.getZoom(), 13), { duration: .6 });
+          if (rec) {
+            map.flyTo([rec.lat, rec.lng], Math.max(map.getZoom(), 13), { duration: .6 });
+            // Best-effort: if that pincode also has a live dataset record
+            // (not guaranteed — dataset can be narrowed to whatever's near
+            // the current YOU ARE HERE pin), select it too so the location
+            // panel reopens instead of just recentring the map.
+            var dsRec = dataset.find(function(x){ return x.pincode === d.pincode; });
+            if (dsRec) setActive(dsRec.id);
+          }
           break;
         }
         case "toggleCompare": if (d.pincode) window.toggleCompare(d.pincode); break;
@@ -4262,6 +4386,20 @@ if (document.documentElement.classList.contains("pm-embed")) (function(){
             .catch(function(){});
           break;
         case "requestViewport": emitViewport(); break;
+        case "setRepresentation": {
+          var REPR_ALLOWED = { symbol:1, choropleth:1, heatmap:1, cluster:1, bivariate:1, topn:1, icons:1 };
+          if (d.repr && REPR_ALLOWED[d.repr]) setRepresentation(d.repr);
+          break;
+        }
+        case "setRings":
+          ringsOn = !!d.on;
+          if (isFinite(d.radiusKm) && d.radiusKm > 0) ringRadiusKm = d.radiusKm;
+          updateRingLayer();
+          break;
+        case "setMyStores":
+          myStores = Array.isArray(d.stores) ? d.stores : [];
+          renderMyStores();
+          break;
       }
     } catch (e) {}
   });

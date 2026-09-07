@@ -331,6 +331,16 @@ export default function CustomerData() {
                         {[loc.pincode, loc.raw_address].filter(Boolean).join(" · ") || "No location resolved"}
                         {" · "}Revenue {money(loc.revenue)} · Rent {money(loc.rent)} · CapEx {money(loc.capex)}
                       </div>
+                      {loc.extra_fields && Object.keys(loc.extra_fields).length > 0 && (
+                        <details style={{ marginTop: 4 }}>
+                          <summary style={{ fontSize: 11.5, color: "var(--ink-soft)", cursor: "pointer" }}>
+                            {Object.keys(loc.extra_fields).length} extra column{Object.keys(loc.extra_fields).length > 1 ? "s" : ""} from your file
+                          </summary>
+                          <div className="secondary" style={{ marginTop: 4 }}>
+                            {Object.entries(loc.extra_fields).map(([k, v]) => `${k}: ${v}`).join(" · ")}
+                          </div>
+                        </details>
+                      )}
                     </div>
                     <div className="row-actions">
                       <span className={`pill ${GEOCODE_CLASS[loc.geocode_status]}`}>{loc.geocode_status}</span>

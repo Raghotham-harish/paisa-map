@@ -208,13 +208,24 @@ def _ratelimit():
 
 @app.after_request
 def _security_headers(resp):
-    # Conservative, static-safe headers. frame-ancestors 'self' lets the
-    # /workspace/map React route keep embedding index.html?embed=1 (same origin)
-    # while blocking third-party framing; the map itself sets no framing header.
+    # Conservative, static-safe headers. frame-ancestors 'self' would let the
+    # /workspace/map React route keep embedding index.html?embed=1 (same
+    # origin in production) while blocking third-party framing — EXCEPT this
+    # app has always run "/" and "/workspace" on two different ports in local
+    # dev (vite proxies /api and /assets to Flask, but the map iframe still
+    # points straight at Flask's own port), so 'self' fails there and blanks
+    # the iframe. In production this class of bug stays invisible regardless
+    # of what's fixed here, since nginx serves "/" as a static file and this
+    # hook never runs for it — which is exactly why it's worth not relying on
+    # that as the only thing preventing it from ever biting (a future deploy
+    # without that nginx layer would hit it for real). Skip framing
+    # restrictions on "/" specifically — it's the one route in this app
+    # that's meant to be embedded; everything else still gets them.
     resp.headers.setdefault("X-Content-Type-Options", "nosniff")
     resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
-    resp.headers.setdefault("Content-Security-Policy", "frame-ancestors 'self'")
+    if request.path != "/":
+        resp.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        resp.headers.setdefault("Content-Security-Policy", "frame-ancestors 'self'")
     if _ops is not None and resp.status_code >= 500:
         _ops.incr("responses_5xx")
     return resp

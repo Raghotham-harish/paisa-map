@@ -90,78 +90,124 @@ wizard step 4). `tsc --noEmit` + `vite build` clean.
 Design canvas: https://claude.ai/code/artifact/840c310c-ad6b-41e3-b975-d41f9c1c173d
 Artboards: Workspace · Main (map intelligence) · Setup (wizard) · Forecast · Compare.
 P1 (`90b8592`) built the shells; P3 (`e34b589`) built the forecast model + page.
-Below is what each artboard shows that is NOT yet real.
+**2026-09-08: closed almost everything below** (branch `feat/artboard-gaps`) — real
+Playwright-verified end to end locally (minted session cookie, seeded real customer
+stores, ran actual forecasts/reports/credit charges), not just typechecked. Two real
+bugs found and fixed along the way: (1) `_security_headers` (added earlier the same
+day in `b0438c7`) was sending `frame-ancestors 'self'` on `/` itself — the one route
+meant to be embedded — invisible in prod only because nginx serves it as a static
+file and bypasses Flask's header hook entirely; fixed to exempt `/` specifically so a
+future deploy without that nginx layer wouldn't silently blank the map iframe. (2) the
+hotspot bubble chart's rotated y-axis label overflowed the SVG bounds into the card
+heading above it — fixed to a plain horizontal label. What's left is explicitly
+deferred (needs new data or a new integration, not a wiring gap) — see the bullets
+still unchecked below.
 
-### 1 · Workspace (dashboard)
-- [ ] "Pick up where you left off" hero — show last-selected pincode, compare-basket
-      count, and "forecast ready at ₹X" with a **Resume forecast** button. Today's
-      hero card is generic (no session-resume state).
-- [ ] Recent-activity list embedded on the dashboard (exists as its own /activity page).
+### 1 · Workspace (dashboard) — DONE
+- [x] "Pick up where you left off" hero — last-selected pincode + compare count
+      (`lib/mapSession.ts`, localStorage) and a client-side `MIN_STORES=3` readiness
+      proxy gate a real **Resume forecast** button; **Resume on the map** deep-links
+      back and flies to the pincode (best-effort re-select if it's in the current
+      dataset window, pan always works).
+- [x] Recent-activity on the dashboard — turned out already shipped; `TODO.md` was
+      stale on this one, no code changed.
 
-### 2 · Main / map intelligence (the flagship — biggest gap set)
-- [ ] **Wire MapControls layer toggles through the bridge** (choropleth / hotspot
-      clusters / distance rings / my stores) — still display-only copy. Needs
-      one-line inbound handlers in `index.html`'s embed bridge. *(also listed above)*
-- [ ] **Competitor locations layer** — a whole new data layer in the design's map
-      controls; no competitor data anywhere in the app yet.
-- [ ] **Market tiers panel** (Core / Edge / Expansion counts for pincodes in view) —
-      classify visible pincodes into tiers; show counts in the left rail + a tier
-      badge on the location panel. The forecast model already has a PPI-percentile
-      quality floor that could seed the tier thresholds.
-- [ ] **Viewport-scoped KPI strip** — design shows Population in view / Signal
-      coverage / Avg opportunity / Priority zones / **Est. reachable buyers**.
-      "Population in view" and "reachable buyers" can now be powered by
-      `_forecast_model.estimate_households`. Today's KpiStrip only shows what the
-      bridge emits (pincodes in view, metric avg, median income, top-tier zones).
-- [ ] **Metric selector** ("Opportunity score" as a map metric, not just a raw
-      signal layer) — the filter bar has a Metric chip but switching it doesn't
-      drive an opportunity choropleth; the map only knows raw signal columns.
-- [ ] Location panel: "Top drivers of **your** revenue" (the design shows the
-      project's own Pearson drivers here) — currently shows "what drives the model"
-      (global feature importance). `/api/expansion/drivers` already computes the
-      real per-project version.
+### 2 · Main / map intelligence — DONE except competitor data
+- [x] **Wired the map-style toggle, distance ring, and my-stores layer through the
+      bridge** — `setRepresentation`/`setRings`/`setMyStores` inbound messages call
+      `index.html`'s existing native representation engine / new ring-circle layer /
+      new square-badge marker layer.
+- [ ] **Competitor locations layer** — still deferred, no competitor dataset exists
+      anywhere in the repo; a data-acquisition project, not a wiring task.
+- [x] **Market tiers panel** — national PPI terciles computed from `pincodeMap` (not
+      the render-local relative `d.ppi`), counts shown in MapControls, tier badge on
+      the location panel and on Forecast's hotspot bubbles.
+- [x] **Viewport-scoped "Households in view"** — new standalone
+      `build_household_estimates.py` (reuses `_forecast_model.estimate_households`
+      exactly, no re-derived formula) ships `data/output/pincode_households.csv` as a
+      companion file merged into `signalMap`, so it's one more instant client-side
+      sum on pan/zoom like every other KPI tile — no new API call. Named "Households
+      in view," not "reachable buyers" — that number only means something with a
+      project's own catchment/capture math (forecast-time), not as a global map KPI.
+- [ ] **Opportunity-score metric selector** — deliberately deferred, not missing
+      data this time: `SIGNAL_DEFS[metric]` is read unguarded (no `?.`) from a dozen+
+      call sites across popups/icons/legend, so registering a synthetic
+      project-relative signal safely needs a fuller audit of that surface first, not
+      a quick add — real risk of regressing every *existing* signal if rushed.
+- [x] Location panel: "Top drivers of **your** revenue" via `/api/expansion/drivers`
+      when a project is active (falls back to the global top signals when the
+      project doesn't have ≥5 samples yet — confirmed both branches live).
 
-### 3 · Setup (wizard)
-- [ ] Step 2 integration cards should reflect **real connection state** per project
-      (LINKED + account/property, CSV upload status + mapped columns) — currently
-      static "Connect"/"Upload" links.
-- [ ] Step 3 custom lever → **suggest matching govt/public datasets** to bind it to
-      (design: type "cold chain" → "Cold storage capacity (govt)" etc.). Today
-      custom signals are free-text only, never become columns. *(also above)*
-- [ ] Arbitrary CSV columns (e.g. **footfall**) — `CANONICAL_FIELDS` is
-      store_name/address/pincode/revenue/rent/capex only; extras land in
-      `extra_fields` and nothing reads them.
-- [ ] "Save draft" (wizard is create-on-finish; no partial save).
-- [ ] Salesforce connector — "coming soon" placeholder only. *(also above)*
+### 3 · Setup (wizard) — DONE except full custom-column modeling
+- [x] Step 2 integration cards show **real connection/upload state** — project now
+      created on leaving step 1 (was create-on-finish only), so every later step has
+      a real id to query `/api/projects/<id>/connections` and
+      `/api/customer-data/uploads` against. This is also "Save draft," for free —
+      the schema and `update_project` were already partial-PUT-safe.
+- [x] Custom lever → **catalog fuzzy-match suggestion** (`lib/fuzzyMatch.ts`, token
+      overlap against the already-loaded signal catalog) — confirmed live: typing
+      "branch density" surfaces "Did you mean 'Bank branches /lakh'?".
+- [x] `extra_fields` surfaced read-only on the customer-data table row (collapsed
+      `<details>`) — the cheap half of this gap.
+- [ ] Full extra-field → modeling-signal promotion (e.g. footfall actually feeding
+      the driver/forecast math) — still deferred, a separate workstream touching
+      upload processing + `_forecast_model.py` + `expansion.py`.
+- [ ] Salesforce connector — still "coming soon"; needs a real OAuth integration,
+      no Salesforce auth code exists anywhere in this app.
 
-### 4 · Forecast (page shipped `e34b589`, these are the remaining artboard bits)
-- [ ] **"Sweet spot" callout** on the growth curve — mark the optimal investment
-      point distinct from the user's budget line (model returns
-      `diminishing_returns_from`; turn that into an explicit recommended number).
-- [ ] **The "Nudge"** — a concrete prose recommendation ("move ₹15 L from A to B →
-      +₹40 L reachable spend, payback 14→13 mo; A is near saturation"). This is a
-      marquee feature of the artboard; needs a marginal-reallocation pass over the
-      portfolio.
-- [ ] **Hotspot bubble chart** (x = market size, y = opportunity, bubble = reachable
-      buyers, Core/Edge/Expansion bands). Today the page shows a site list instead.
-- [ ] **Comparative radar** — design overlays the top 3 candidate locations on a
-      fixed 7-lever radar ("which candidate fits your levers best"). Today's radar
-      is a single polygon (project signals vs revenue).
-- [ ] **"Levers you're under-using"** explicit list (derived from the weak radar
-      spokes).
-- [ ] **Segment/category market capture** — design says "*segment* market capture
-      4.2% → 6.8%"; the model deliberately reports share of ALL household spend
-      (no category-share data). Revisit if a category-spend source appears.
+### 4 · Forecast — DONE
+- [x] **"Sweet spot" callout** — explicit card using `diminishing_returns_from`.
+- [x] **The "Nudge"** — new `_forecast_model.py` computation: weakest FUNDED site by
+      revenue-per-rupee vs. strongest UNFUNDED one, with a revenue-delta + payback
+      comparison. Confirmed it correctly returns `None` when no beneficial swap
+      exists (e.g. the current allocation is already the best available at that
+      budget) as well as a real concrete recommendation at other budgets — verified
+      both branches, not just the happy path.
+- [x] **Hotspot bubble chart** — `reach_gross`/`lat`/`lng` (previously computed but
+      dropped before serialization) now included on the top sites; new hand-rolled
+      inline-SVG bubble chart, colour = market tier.
+- [x] **Comparative radar** — up to 3 recommended sites' own national percentile on
+      every project lever, overlaid as dashed polygons on the historical (Pearson-
+      fit) solid one, with a legend. Confirmed rendering correctly with a real
+      4-signal project (3-signal minimum for the polygon form).
+- [x] **"Levers you're under-using"** — derived list from `lever_fit_radar` entries
+      below 40/100.
+- [ ] **Segment/category market capture** — still deferred per this file's own
+      earlier note; no category-spend data source exists.
 
-### 5 · Compare (modal shipped `90b8592`)
-- [ ] "Retail rent / sqft" row + "**Rent headroom vs nearby %**" row (modal has PPI
-      "vs nearby" only).
-- [ ] "**Strongest driver**" per location (modal shows "Top signals" — global, not
-      per-project).
-- [ ] "**Save all to project**" bulk action from the compare basket.
-- [ ] **Saved-locations shortlist panel** inside the compare view — status tags
-      (Approved/Reviewing/Shortlist/Rejected), notes, and ₹-allocated per location.
-- [ ] "**Generate expansion report — 5 credits**" CTA from the compare view.
+### 5 · Compare — DONE except rent (no data)
+- [ ] "Retail rent / sqft" + "Rent headroom vs nearby %" rows — still deferred,
+      confirmed no rent-per-sqft signal exists anywhere (`_signals_data.py`'s only
+      commercial column is `msme_per_lakh`) — same "needs new data" bucket as the
+      competitor layer.
+- [x] "**Strongest driver**" per location — highlights whichever of a compared
+      location's own top signals also appears in the project's real top-5 drivers.
+- [x] "**Save all to project**" bulk action — loops `createLocation` client-side
+      (≤8 items, `MAX_COMPARE`, no bulk endpoint needed at that scale); confirmed
+      idempotent ("Saved 3 locations." then "All of these are already saved.").
+- [x] **Saved-locations shortlist panel** inside the compare view, incl. a new
+      `saved_locations.allocated_investment` column (additive, `migrate_schema()`)
+      editable inline.
+- [x] "**Generate expansion report**" CTA — chains bulk-save → the real
+      `/api/reports` endpoint. **Corrected the artboard's "5 credits" to the real
+      10** (that's `report_generate`'s actual price; no endpoint in this app
+      generates a PDF report from a compare selection for 5 — `expansion_recommend`
+      is 5 credits but needs an uploaded customer dataset, unrelated to the compare
+      list). Confirmed end to end: real PDF generated (2 pages), real credit charge,
+      real download link.
+
+### Deploy steps for the above (none done yet)
+- [ ] Merge `feat/artboard-gaps`, deploy.
+- [ ] `migrate_schema()` on prod Postgres — one new column,
+      `saved_locations.allocated_investment`.
+- [ ] Run `paisamap-etl/etl/build_household_estimates.py` on the server (or scp the
+      already-generated `data/output/pincode_households.csv` up) so "Households in
+      view" has data live — it's a companion file, not wired into any existing cron,
+      so it won't regenerate itself; note it somewhere if the household-population
+      reference data ever gets refreshed.
+- [ ] Real-account browser smoke on prod once deployed, same shape as the local pass
+      above (map style/rings/my-stores/tiers, wizard incremental save, forecast
+      nudge/bubbles/radar, compare save-all/shortlist/report).
 
 ## Product roadmap — open threads not tracked in a phase above
 

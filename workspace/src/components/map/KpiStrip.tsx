@@ -14,6 +14,13 @@ export function KpiStrip({ kpis }: { kpis: MapKpis | null }) {
         { label: kpis.metricLabel, value: fmt(kpis.metricAvg, "num") },
         { label: "Median income /mo", value: fmt(kpis.medianIncome, "money") },
         { label: "Top-tier zones", value: fmt(kpis.topTierZones, "int") },
+        // A population proxy, not a project's calibrated reachable-spend
+        // figure (that only exists at forecast time, per-project) — omitted
+        // entirely rather than shown as "—" when the estimate file hasn't
+        // loaded, since a whole extra always-dash tile reads as broken.
+        ...(kpis.householdsInView != null
+          ? [{ label: "Households in view", value: fmt(kpis.householdsInView, "int") }]
+          : []),
       ]
     : [];
 

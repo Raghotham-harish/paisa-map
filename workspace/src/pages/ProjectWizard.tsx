@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ApiError, OutcomeGoal, Project, ProjectFields, RevenuePeriod, SignalCatalogItem, api } from "../lib/api";
+import {
+  ApiError,
+  ConnectionProvider,
+  CustomerUpload,
+  OAuthConnection,
+  OutcomeGoal,
+  ProjectFields,
+  RevenuePeriod,
+  SignalCatalogItem,
+  api,
+} from "../lib/api";
 import { MultiSelect, Option, SingleSelect } from "../components/MultiSelect";
+import { fuzzyBestMatch } from "../lib/fuzzyMatch";
 
 const INDUSTRIES = [
   "Apparel & Footwear", "Jewellery & Accessories", "Food & Beverage / QSR", "Grocery & Kirana",
@@ -33,6 +44,13 @@ export default function ProjectWizard() {
   const [catalog, setCatalog] = useState<SignalCatalogItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set once the project exists on the server — either `edit`'s id up front,
+  // or whatever createProject() hands back the first time step 0 is left.
+  // From then on every step persists via updateProject, so leaving the
+  // wizard partway through still leaves a real (draft) project behind.
+  const [projectId, setProjectId] = useState<number | null>(editId);
+  const [connections, setConnections] = useState<OAuthConnection[]>([]);
+  const [uploads, setUploads] = useState<CustomerUpload[]>([]);
 
   const [name, setName] = useState("");
   const [website, setWebsite] = useState("");
@@ -71,6 +89,15 @@ export default function ProjectWizard() {
     }
   }, [editId]);
 
+  // Real connection / upload state for step 1's integration cards — only
+  // meaningful once a project id exists, so re-fetch whenever that appears
+  // or the user lands back on that step.
+  useEffect(() => {
+    if (!projectId || step !== 1) return;
+    api.getConnections(projectId).then((d) => setConnections(d.connections)).catch(() => setConnections([]));
+    api.listCustomerUploads(projectId).then((d) => setUploads(d.uploads)).catch(() => setUploads([]));
+  }, [projectId, step]);
+
   const signalOptions: Option[] = useMemo(
     () => catalog.map((c) => ({ value: c.key, label: c.label, meta: c.pro ? "PRO" : c.group })),
     [catalog],
@@ -78,35 +105,63 @@ export default function ProjectWizard() {
 
   const canFinish = name.trim().length > 0;
 
-  const submit = async () => {
-    setSaving(true);
+  const buildFields = (): ProjectFields => ({
+    name: name.trim(),
+    website_url: website || undefined,
+    industry: industry || undefined,
+    business_type: industry || undefined,
+    target_segment: segment || undefined,
+    avg_ticket: avgTicket || undefined,
+    signals,
+    target_pincodes: pincodes,
+    catchment_km: catchment,
+    total_investment: investment || undefined,
+    outcome_goal: outcome,
+    time_horizon_months: horizon || undefined,
+    gross_margin_pct: grossMargin || undefined,
+    revenue_period: revenuePeriod,
+  });
+
+  // Creates the project the first time it's called (as soon as step 0 has a
+  // name), then updates it in place on every later call — this is the whole
+  // "save draft" story: the schema already supports partial projects and
+  // partial PUTs (blueprints/projects.py's _wizard_fields), so there was
+  // never a backend gap here, just a frontend that only ever saved once at
+  // the very end.
+  const persistStep = async (): Promise<number | null> => {
+    if (!name.trim()) {
+      setError("Give the project a name.");
+      return null;
+    }
     setError(null);
-    const fields: ProjectFields = {
-      name: name.trim(),
-      website_url: website || undefined,
-      industry: industry || undefined,
-      business_type: industry || undefined,
-      target_segment: segment || undefined,
-      avg_ticket: avgTicket || undefined,
-      signals,
-      target_pincodes: pincodes,
-      catchment_km: catchment,
-      total_investment: investment || undefined,
-      outcome_goal: outcome,
-      time_horizon_months: horizon || undefined,
-      gross_margin_pct: grossMargin || undefined,
-      revenue_period: revenuePeriod,
-    };
+    const fields = buildFields();
     try {
-      const { project } = editId
-        ? ((await api.updateProject(editId, fields)) as { project: Project })
-        : await api.createProject(fields);
-      navigate(`/map?project_id=${project.id}`);
+      if (projectId) {
+        await api.updateProject(projectId, fields);
+        return projectId;
+      }
+      const { project } = await api.createProject(fields);
+      setProjectId(project.id);
+      return project.id;
     } catch (e) {
       setError(e instanceof ApiError && e.body?.error === "name is required" ? "Give the project a name." : "Couldn't save — try again.");
-      setSaving(false);
-      setStep(0);
+      return null;
     }
+  };
+
+  const handleContinue = async () => {
+    setSaving(true);
+    const id = await persistStep();
+    setSaving(false);
+    if (id != null) setStep((s) => Math.min(STEPS.length - 1, s + 1));
+  };
+
+  const submit = async () => {
+    setSaving(true);
+    const id = await persistStep();
+    setSaving(false);
+    if (id != null) navigate(`/map?project_id=${id}`);
+    else setStep(0);
   };
 
   return (
@@ -160,26 +215,22 @@ export default function ProjectWizard() {
               You can do this now or later from <Link to="/connections">Connections</Link> and <Link to="/customer-data">Store Data</Link>.
             </p>
             <div className="wiz-integrations">
-              <div className="wiz-int-card">
-                <b>Google Analytics</b>
-                <span>Traffic & conversions by city</span>
-                <Link className="btn secondary" to="/connections">Connect</Link>
-              </div>
-              <div className="wiz-int-card">
-                <b>Search Console</b>
-                <span>What people search before buying</span>
-                <Link className="btn secondary" to="/connections">Connect</Link>
-              </div>
+              <IntegrationCard
+                title="Google Analytics"
+                desc="Traffic & conversions by city"
+                conn={connections.find((c) => c.provider === "google_analytics")}
+              />
+              <IntegrationCard
+                title="Search Console"
+                desc="What people search before buying"
+                conn={connections.find((c) => c.provider === "search_console")}
+              />
               <div className="wiz-int-card wiz-int-soon">
                 <b>Salesforce</b>
                 <span>Won-deal ship-to pincodes</span>
                 <span className="pill shortlist">Coming soon</span>
               </div>
-              <div className="wiz-int-card">
-                <b>CSV upload</b>
-                <span>Store revenue, rent, footfall</span>
-                <Link className="btn secondary" to="/customer-data">Upload</Link>
-              </div>
+              <UploadCard uploads={uploads} />
             </div>
           </div>
         )}
@@ -188,7 +239,14 @@ export default function ProjectWizard() {
           <div className="wiz-grid-2">
             <label>
               Business levers to capture
-              <MultiSelect options={signalOptions} value={signals} onChange={setSignals} allowCustom placeholder="Search signals, or add your own…" />
+              <MultiSelect
+                options={signalOptions}
+                value={signals}
+                onChange={setSignals}
+                allowCustom
+                placeholder="Search signals, or add your own…"
+                suggest={(q) => fuzzyBestMatch(q, signalOptions)}
+              />
               <span className="wiz-hint">{signals.length} selected · your uploaded revenue weights each one.</span>
             </label>
             <label>
@@ -254,8 +312,8 @@ export default function ProjectWizard() {
           ← Back
         </button>
         {step < STEPS.length - 1 ? (
-          <button className="btn" onClick={() => setStep((s) => Math.min(STEPS.length - 1, s + 1))}>
-            Continue →
+          <button className="btn" disabled={saving} onClick={handleContinue}>
+            {saving ? "Saving…" : "Continue →"}
           </button>
         ) : (
           <button className="btn" disabled={!canFinish || saving} onClick={submit}>
@@ -264,5 +322,62 @@ export default function ProjectWizard() {
         )}
       </div>
     </>
+  );
+}
+
+const PROVIDER_LABEL: Record<ConnectionProvider, string> = {
+  google_analytics: "Google Analytics",
+  search_console: "Search Console",
+};
+
+/** GA4 / Search Console card — real linked-account state once a project
+ *  exists, the plain "Connect" link before that (new, unsaved project). */
+function IntegrationCard({ title, desc, conn }: { title: string; desc: string; conn: OAuthConnection | undefined }) {
+  return (
+    <div className="wiz-int-card">
+      <b>{title}</b>
+      <span>{desc}</span>
+      {conn ? (
+        <>
+          <span className={`pill ${conn.status === "connected" ? "approved" : "rejected"}`}>
+            {conn.status === "connected"
+              ? `Linked${conn.external_account_email ? " · " + conn.external_account_email : ""}`
+              : `Reconnect ${PROVIDER_LABEL[conn.provider]}`}
+          </span>
+          <Link className="btn secondary" to="/connections">Manage</Link>
+        </>
+      ) : (
+        <Link className="btn secondary" to="/connections">Connect</Link>
+      )}
+    </div>
+  );
+}
+
+const UPLOAD_STATUS_PILL: Record<CustomerUpload["status"], string> = {
+  ready: "approved",
+  pending_mapping: "reviewing",
+  geocoding: "reviewing",
+  failed: "rejected",
+};
+
+/** CSV upload card — real status/row-count once something's been uploaded
+ *  for this project, the plain "Upload" link before that. */
+function UploadCard({ uploads }: { uploads: CustomerUpload[] }) {
+  const latest = uploads[0];
+  return (
+    <div className="wiz-int-card">
+      <b>CSV upload</b>
+      <span>Store revenue, rent, footfall</span>
+      {latest ? (
+        <>
+          <span className={`pill ${UPLOAD_STATUS_PILL[latest.status]}`}>
+            {latest.status === "ready" ? `Linked · ${latest.row_count} rows` : latest.status.replace("_", " ")}
+          </span>
+          <Link className="btn secondary" to="/customer-data">Manage</Link>
+        </>
+      ) : (
+        <Link className="btn secondary" to="/customer-data">Upload</Link>
+      )}
+    </div>
   );
 }

@@ -51,6 +51,7 @@ def update_location(user_id, location_id):
     location = _auth_db.update_saved_location(
         location_id, user_id,
         status=body.get("status"), tags=body.get("tags"), notes=body.get("notes"),
+        allocated_investment=body.get("allocated_investment"),
     )
     return jsonify({"location": location})
 

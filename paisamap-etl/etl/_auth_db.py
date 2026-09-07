@@ -138,6 +138,10 @@ def _get_tables():
         Column("status", Text, nullable=False, server_default="shortlist"),
         Column("tags", JSONType),
         Column("notes", Text),
+        # ₹ this project's plan allocates to this specific site — the compare
+        # view's shortlist panel (map-first workspace). Purely user-entered,
+        # not derived from the forecast model.
+        Column("allocated_investment", Float),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("updated_at", DateTime(timezone=True), nullable=False),
         UniqueConstraint("project_id", "pincode", name="uq_saved_locations_project_pincode"),
@@ -364,6 +368,7 @@ _MIGRATIONS = [
     ("projects", "time_horizon_months", "INTEGER"),
     ("projects", "gross_margin_pct", "FLOAT"),
     ("projects", "revenue_period", "TEXT"),
+    ("saved_locations", "allocated_investment", "FLOAT"),
 ]
 
 
@@ -869,7 +874,7 @@ def get_saved_location(location_id, user_id):
     return dict(row) if row else None
 
 
-LOCATION_EDITABLE_FIELDS = ("status", "tags", "notes")
+LOCATION_EDITABLE_FIELDS = ("status", "tags", "notes", "allocated_investment")
 
 
 def update_saved_location(location_id, user_id, **fields):
