@@ -665,6 +665,58 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
 
     horizon_gross_profit = portfolio_gross_profit * max(0.0, horizon_months - RAMP_MONTHS / 2)
 
+    # "The nudge" — a concrete marginal-reallocation suggestion: swap the
+    # weakest-by-revenue-per-rupee FUNDED site for the strongest UNFUNDED one
+    # your budget didn't reach. Both lists are already ranked best-first, so
+    # this reuses that ordering rather than a second optimisation pass.
+    # Capex-priced only — "move ₹X" is meaningless without a capex figure.
+    nudge = None
+    if priced and portfolio and len(ranked) > len(portfolio):
+        funded_pcs = {e["pincode"] for e in portfolio}
+        weakest_funded = portfolio[-1]
+        best_unfunded = next((e for e in ranked if e["pincode"] not in funded_pcs), None)
+        if best_unfunded and best_unfunded["pincode"] != weakest_funded["pincode"]:
+            revenue_delta = best_unfunded["monthly_revenue"] - weakest_funded["monthly_revenue"]
+            if revenue_delta > 0:
+                old_payback = payback_months(weakest_funded["capex"], weakest_funded["monthly_revenue"] * gross_margin)
+                new_payback = payback_months(best_unfunded["capex"], best_unfunded["monthly_revenue"] * gross_margin)
+                nudge = {
+                    "from_pincode": weakest_funded["pincode"], "from_name": weakest_funded["name"],
+                    "to_pincode": best_unfunded["pincode"], "to_name": best_unfunded["name"],
+                    "from_capex": round(weakest_funded["capex"]) if weakest_funded["capex"] else None,
+                    "to_capex": round(best_unfunded["capex"]) if best_unfunded["capex"] else None,
+                    "monthly_revenue_delta": round(revenue_delta),
+                    "old_payback_months": old_payback,
+                    "new_payback_months": new_payback,
+                    "note": (f"{weakest_funded['name']} is your weakest funded site by revenue-per-rupee; "
+                             f"{best_unfunded['name']} is the strongest site your budget didn't reach."),
+                }
+
+    # Per-candidate lever percentiles for the top 3 recommended sites — lets
+    # the Forecast page overlay each candidate's OWN signal percentiles on
+    # the same radar as the historical (Pearson-fit) polygon, instead of
+    # only ever showing how well the project's signals fit past stores.
+    # National percentile, not relative to whatever's nearby, so it's
+    # comparable across candidates the same way ppi_pct() already is.
+    lever_sig_ids = project.get("signals") or ["ppi_ml"]
+    lever_sorted_vals = {}
+    for sig in lever_sig_ids:
+        vals = sorted(v for v in (_num(r.get(sig)) for r in rows_by_pincode.values()) if v is not None)
+        if vals:
+            lever_sorted_vals[sig] = vals
+
+    def lever_percentiles_for(pincode):
+        row = rows_by_pincode.get(pincode)
+        if not row:
+            return []
+        out = []
+        for sig in lever_sig_ids:
+            vals = lever_sorted_vals.get(sig)
+            v = _num(row.get(sig))
+            pct = round(bisect.bisect_right(vals, v) / len(vals) * 100, 1) if (vals and v is not None) else None
+            out.append({"signal": sig, "label": _signals_data.SIGNAL_LABELS.get(sig, sig), "percentile": pct})
+        return out
+
     return {
         "sufficient_data": True,
         "budget": round(budget),
@@ -698,16 +750,24 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
             "sites": [
                 {
                     "pincode": e["pincode"], "name": e["name"], "state": e["state"],
+                    "lat": e["lat"], "lng": e["lng"],
                     "monthly_revenue": round(e["monthly_revenue"]),
+                    "reach_gross": round(e["reach_gross"]),
                     "capex": round(e["capex"]) if e["capex"] else None,
                     "capture_rate": round(e["capture_rate"], 5),
                     "ppi_percentile": e["ppi_percentile"],
                     "cannibalisation_discount": e["cannibalisation_discount"],
                     "payback_months": payback_months(e["capex"], e["monthly_revenue"] * gross_margin) if e["capex"] else None,
+                    # Only the top 3 carry this — a comparative radar overlay
+                    # of every recommended site would be unreadable, and the
+                    # rest of the site list never needs it.
+                    "lever_percentiles": lever_percentiles_for(e["pincode"]) if i < 3 else None,
                 }
-                for e in portfolio[:25]
+                for i, e in enumerate(portfolio[:25])
             ],
         },
+
+        "nudge": nudge,
 
         "investment_split": split_list,
 

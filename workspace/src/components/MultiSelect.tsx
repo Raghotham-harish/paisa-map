@@ -34,10 +34,15 @@ export function MultiSelect({
   placeholder = "Search…",
   disabled = false,
   max,
+  suggest,
 }: CommonProps & {
   value: string[];
   onChange: (next: string[]) => void;
   max?: number;
+  /** Optional "did you mean…" lookup, tried when the typed text matches no
+   *  option by substring but allowCustom would otherwise let it through as
+   *  free text (e.g. a catalog fuzzy-match for a custom signal name). */
+  suggest?: (query: string) => Option | undefined;
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -58,9 +63,14 @@ export function MultiSelect({
     options.some((o) => o.label.toLowerCase() === q) ||
     value.some((v) => labelFor(v).toLowerCase() === q);
   const showAdd = allowCustom && q.length > 0 && !exactExists;
+  // Only offer a fuzzy suggestion when a literal substring search found
+  // nothing — if the option is already visible in `filtered`, let the user
+  // just click it rather than second-guessing an obvious match.
+  const suggestion = showAdd && filtered.length === 0 ? suggest?.(q) : undefined;
 
-  const rows: ({ kind: "opt"; opt: Option } | { kind: "add" })[] = [
+  const rows: ({ kind: "opt"; opt: Option } | { kind: "suggest"; opt: Option } | { kind: "add" })[] = [
     ...filtered.map((opt) => ({ kind: "opt" as const, opt })),
+    ...(suggestion ? [{ kind: "suggest" as const, opt: suggestion }] : []),
     ...(showAdd ? [{ kind: "add" as const }] : []),
   ];
 
@@ -86,7 +96,7 @@ export function MultiSelect({
     } else if (e.key === "Enter") {
       e.preventDefault();
       const row = rows[highlight];
-      if (row?.kind === "opt") add(row.opt.value);
+      if (row?.kind === "opt" || row?.kind === "suggest") add(row.opt.value);
       else if (showAdd) add(query);
     } else if (e.key === "Backspace" && !query && value.length) {
       remove(value[value.length - 1]);
@@ -146,6 +156,21 @@ export function MultiSelect({
                 <span>{row.opt.label}</span>
                 {row.opt.meta && <span className="ms-meta">{row.opt.meta}</span>}
               </div>
+            ) : row.kind === "suggest" ? (
+              <div
+                key="__suggest"
+                className={`ms-row ms-suggest ${i === highlight ? "hl" : ""}`}
+                onMouseEnter={() => setHighlight(i)}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  add(row.opt.value);
+                }}
+              >
+                <span>
+                  Did you mean <b>&ldquo;{row.opt.label}&rdquo;</b>?
+                </span>
+                {row.opt.meta && <span className="ms-meta">{row.opt.meta}</span>}
+              </div>
             ) : (
               <div
                 key="__add"
@@ -157,7 +182,7 @@ export function MultiSelect({
                 }}
               >
                 <span>
-                  Add <b>&ldquo;{query.trim()}&rdquo;</b>
+                  Add <b>&ldquo;{query.trim()}&rdquo;</b> as a custom signal
                 </span>
                 <span className="ms-meta">press &crarr;</span>
               </div>

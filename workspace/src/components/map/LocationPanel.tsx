@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ApiError, api, LocationScore, Project } from "../../lib/api";
+import { ApiError, api, DriverAnalysis, LocationScore, Project } from "../../lib/api";
 import { MapSelection } from "../../lib/mapBridge";
 
 const RISK_CLASS: Record<string, string> = {
@@ -8,6 +8,12 @@ const RISK_CLASS: Record<string, string> = {
   Medium: "reviewing",
   High: "rejected",
   Unknown: "shortlist",
+};
+
+const TIER_LABEL: Record<"core" | "edge" | "expansion", string> = {
+  core: "Core market",
+  edge: "Edge market",
+  expansion: "Expansion market",
 };
 
 function money(n: number | null | undefined) {
@@ -50,8 +56,27 @@ export function LocationPanel({
   const [error, setError] = useState<string | null>(null);
   const [dismissedFor, setDismissedFor] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "exists" | "error">("idle");
+  const [projectDrivers, setProjectDrivers] = useState<DriverAnalysis | null>(null);
 
   const pincode = selection?.pincode ?? null;
+
+  // Project-scoped, not per-location — one fetch per project selection, reused
+  // across every pincode clicked while that project stays active.
+  useEffect(() => {
+    if (!project) {
+      setProjectDrivers(null);
+      return;
+    }
+    let cancelled = false;
+    api.getDriverAnalysis(project.id).then((d) => {
+      if (!cancelled) setProjectDrivers(d);
+    }).catch(() => {
+      if (!cancelled) setProjectDrivers(null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [project]);
 
   useEffect(() => {
     setSaveState("idle");
@@ -124,6 +149,7 @@ export function LocationPanel({
         <div className="lp-title">
           <span className="lp-name">{selection.name || pincode}</span>
           {pincode && <span className="mono lp-pin">{pincode}</span>}
+          {selection.tier && <span className={`pill mc-tier-${selection.tier}`}>{TIER_LABEL[selection.tier]}</span>}
         </div>
 
         {loading && <p className="loading" style={{ padding: "24px 0" }}>Loading…</p>}
@@ -152,17 +178,30 @@ export function LocationPanel({
               <span className={`pill ${RISK_CLASS[score.risk.level] ?? "shortlist"}`}>{score.risk.level} risk</span>
             </div>
 
-            {score.top_signals?.length > 0 && (
+            {projectDrivers?.sufficient_data && projectDrivers.drivers.length > 0 ? (
               <>
-                <div className="kicker" style={{ marginTop: 14 }}>What drives the model</div>
+                <div className="kicker" style={{ marginTop: 14 }}>Top drivers of your revenue</div>
                 <div className="lp-drivers">
-                  {score.top_signals.map((s) => (
-                    <span className="lp-driver" key={s}>
-                      {s}
+                  {projectDrivers.drivers.map((d) => (
+                    <span className={`lp-driver ${d.direction === "positive" ? "pos" : "neg"}`} key={d.signal}>
+                      {d.label}
                     </span>
                   ))}
                 </div>
               </>
+            ) : (
+              score.top_signals?.length > 0 && (
+                <>
+                  <div className="kicker" style={{ marginTop: 14 }}>What drives the model</div>
+                  <div className="lp-drivers">
+                    {score.top_signals.map((s) => (
+                      <span className="lp-driver" key={s}>
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )
             )}
 
             <div className="lp-money">

@@ -9,11 +9,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const MAP_ORIGIN = import.meta.env.DEV ? "http://localhost:8080" : window.location.origin;
 export const MAP_SRC = `${import.meta.env.DEV ? "http://localhost:8080" : ""}/?embed=1`;
 
+export type MarketTier = "core" | "edge" | "expansion" | null;
+
+/** The 4 native map styles worth exposing in the workspace shell — a subset
+ *  of index.html's full representation picker (which also has bivariate/topn/
+ *  icons; those stay iframe-only, reachable by clicking inside the map
+ *  itself, not promoted to a shell-level control). */
+export type MapStyle = "symbol" | "choropleth" | "heatmap" | "cluster";
+
 export interface MapSelection {
   pincode: string | null;
   name: string | null;
   lat: number;
   lng: number;
+  tier: MarketTier;
 }
 
 export interface MapKpis {
@@ -22,6 +31,19 @@ export interface MapKpis {
   metricAvg: number | null;
   medianIncome: number | null;
   topTierZones: number;
+  coreCount: number;
+  edgeCount: number;
+  expansionCount: number;
+  /** Sum of the household-count estimate over pincodes in view — null until
+   *  build_household_estimates.py's companion file has loaded (or if it
+   *  never was, e.g. offline dev without having run that script). */
+  householdsInView: number | null;
+}
+
+export interface MyStorePoint {
+  lat: number;
+  lng: number;
+  name?: string | null;
 }
 
 type Outbound =
@@ -30,7 +52,10 @@ type Outbound =
   | { type: "toggleCompare"; pincode: string }
   | { type: "save"; pincode: string }
   | { type: "refreshAuth" }
-  | { type: "requestViewport" };
+  | { type: "requestViewport" }
+  | { type: "setRepresentation"; repr: MapStyle }
+  | { type: "setRings"; on: boolean; radiusKm?: number }
+  | { type: "setMyStores"; stores: MyStorePoint[] };
 
 export function useMapBridge(iframeRef: React.RefObject<HTMLIFrameElement>) {
   const [ready, setReady] = useState(false);
@@ -62,7 +87,7 @@ export function useMapBridge(iframeRef: React.RefObject<HTMLIFrameElement>) {
           setReady(true);
           break;
         case "select":
-          setSelected({ pincode: d.pincode ?? null, name: d.name ?? null, lat: d.lat, lng: d.lng });
+          setSelected({ pincode: d.pincode ?? null, name: d.name ?? null, lat: d.lat, lng: d.lng, tier: d.tier ?? null });
           break;
         case "compare":
           setCompare(Array.isArray(d.pincodes) ? d.pincodes : []);

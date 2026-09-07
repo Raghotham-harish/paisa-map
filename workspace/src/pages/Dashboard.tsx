@@ -1,8 +1,16 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../lib/auth";
-import { api, ActivityEntry, Project, SavedLocation } from "../lib/api";
+import { api, ActivityEntry, CustomerLocation, Project, SavedLocation } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
+import { MapSessionState, readMapSession } from "../lib/mapSession";
+
+// Mirrors _forecast_model.py's MIN_STORES — a client-side proxy so the
+// dashboard can tell "forecast ready" without calling /api/forecast itself,
+// which checks credit balance BEFORE checking data sufficiency (a 402 for a
+// low-credit user just from probing readiness would be a real bug, not a
+// hypothetical — see project_map_first_redesign memory).
+const MIN_STORES = 3;
 
 const ACTION_LABELS: Record<string, string> = {
   login: "Signed in",
@@ -21,16 +29,36 @@ export default function Dashboard() {
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
   const [locations, setLocations] = useState<SavedLocation[] | null>(null);
   const [projects, setProjects] = useState<Project[] | null>(null);
+  const [session, setSession] = useState<MapSessionState | null>(null);
+  const [customerLocations, setCustomerLocations] = useState<CustomerLocation[] | null>(null);
 
   useEffect(() => {
     api.listActivity(5).then((data) => setActivity(data.activity));
     api.listLocations().then((data) => setLocations(data.locations));
     api.listProjects().then((data) => setProjects(data.projects));
+    setSession(readMapSession());
   }, []);
 
   if (!user) return null;
 
-  const activeProject = projects?.[0] ?? null;
+  // Prefer whatever project the map session was last on (real "pick up where
+  // you left off"), falling back to the first project when there's no
+  // session yet or it points at a project that's since been deleted.
+  const sessionProject = session?.projectId != null ? (projects?.find((p) => p.id === session.projectId) ?? null) : null;
+  const activeProject = sessionProject ?? projects?.[0] ?? null;
+
+  useEffect(() => {
+    if (!activeProject) {
+      setCustomerLocations(null);
+      return;
+    }
+    api.listCustomerLocations(activeProject.id).then((d) => setCustomerLocations(d.locations)).catch(() => setCustomerLocations(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject?.id]);
+
+  const usableStoreCount = (customerLocations ?? []).filter((l) => l.pincode && l.revenue != null && l.revenue > 0).length;
+  const forecastReady = usableStoreCount >= MIN_STORES;
+  const hasRecentSelection = session?.pincode != null;
 
   return (
     <>
@@ -44,12 +72,25 @@ export default function Dashboard() {
             {activeProject ? activeProject.name : "Start with the map"}
           </div>
           <p className="map-hero-sub">
-            {locations && locations.length > 0
-              ? `${locations.length} saved location${locations.length > 1 ? "s" : ""} · pick up where you left off.`
-              : "Explore purchasing power, score any pincode, and build a shortlist — all on the map."}
+            {hasRecentSelection ? (
+              <>
+                Last viewed <b>{session?.name || session?.pincode}</b>
+                {(session?.compareCount ?? 0) > 0 ? ` · ${session?.compareCount} in your compare basket` : ""}
+                {activeProject && forecastReady ? " · forecast ready" : ""}.
+              </>
+            ) : locations && locations.length > 0 ? (
+              `${locations.length} saved location${locations.length > 1 ? "s" : ""} · pick up where you left off.`
+            ) : (
+              "Explore purchasing power, score any pincode, and build a shortlist — all on the map."
+            )}
           </p>
           <div className="map-hero-actions">
-            <Link className="btn" to="/map">Open map workspace →</Link>
+            <Link className="btn" to={hasRecentSelection ? `/map?project_id=${activeProject?.id ?? ""}&pincode=${session?.pincode}` : "/map"}>
+              {hasRecentSelection ? "Resume on the map →" : "Open map workspace →"}
+            </Link>
+            {activeProject && forecastReady && (
+              <Link className="btn secondary" to={`/forecast?project_id=${activeProject.id}`}>Resume forecast</Link>
+            )}
             {!activeProject && <Link className="btn secondary" to="/projects/new">New project</Link>}
           </div>
         </div>

@@ -110,6 +110,7 @@ export interface SavedLocation {
   lng: number | null;
   status: LocationStatus;
   notes: string | null;
+  allocated_investment: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -174,6 +175,8 @@ export interface OpportunityAssessment {
 export interface LocationScore {
   pincode: string;
   name: string;
+  lat: number | null;
+  lng: number | null;
   ppi_ml: number | null;
   income: number | null;
   spend: number | null;
@@ -231,6 +234,10 @@ export interface CustomerLocation {
   revenue: number | null;
   rent: number | null;
   capex: number | null;
+  // Whatever CSV columns weren't mapped to a canonical field (e.g.
+  // "footfall") land here verbatim, per-row — captured at upload time but
+  // not (yet) read by any scoring/driver computation. Surfaced read-only.
+  extra_fields: Record<string, string> | null;
   intelligence: {
     economic_score: number | null;
     risk: RiskAssessment;
@@ -294,16 +301,41 @@ export interface ForecastCurvePoint {
   stores: number;
 }
 
+export interface ForecastLeverPercentile {
+  signal: string;
+  label: string;
+  percentile: number | null;
+}
+
 export interface ForecastSite {
   pincode: string;
   name: string;
   state: string | null;
+  lat: number;
+  lng: number;
   monthly_revenue: number;
+  reach_gross: number;
   capex: number | null;
   capture_rate: number;
   ppi_percentile: number;
   cannibalisation_discount: number;
   payback_months: number | null;
+  // Only populated on the top 3 sites — see _forecast_model.py's
+  // lever_percentiles_for.
+  lever_percentiles: ForecastLeverPercentile[] | null;
+}
+
+export interface ForecastNudge {
+  from_pincode: string;
+  from_name: string;
+  to_pincode: string;
+  to_name: string;
+  from_capex: number | null;
+  to_capex: number | null;
+  monthly_revenue_delta: number;
+  old_payback_months: number | null;
+  new_payback_months: number | null;
+  note: string;
 }
 
 export interface ForecastSplit {
@@ -341,6 +373,7 @@ export interface Forecast {
   };
   confidence: "high" | "medium" | "low";
   candidates_considered: number;
+  quality_floor_ppi_percentile: number;
   reach_curve: {
     points: ForecastCurvePoint[];
     diminishing_returns_from: number | null;
@@ -356,6 +389,7 @@ export interface Forecast {
     within_horizon: boolean;
     sites: ForecastSite[];
   };
+  nudge: ForecastNudge | null;
   investment_split: ForecastSplit[];
   market_capture: {
     addressable_monthly_spend: number;
@@ -514,7 +548,7 @@ export const api = {
     request(`/api/locations${projectId ? `?project_id=${projectId}` : ""}`) as Promise<{ locations: SavedLocation[] }>,
   createLocation: (fields: { pincode: string; name?: string | null; lat?: number | null; lng?: number | null; project_id?: number }) =>
     request("/api/locations", { method: "POST", body: JSON.stringify(fields) }) as Promise<{ location: SavedLocation; created: boolean }>,
-  updateLocation: (id: number, fields: { status?: LocationStatus; notes?: string }) =>
+  updateLocation: (id: number, fields: { status?: LocationStatus; notes?: string; allocated_investment?: number }) =>
     request(`/api/locations/${id}`, { method: "PUT", body: JSON.stringify(fields) }) as Promise<{ location: SavedLocation }>,
   deleteLocation: (id: number) => request(`/api/locations/${id}`, { method: "DELETE" }),
 
