@@ -13,6 +13,7 @@ import Reports from "./pages/Reports";
 import CustomerData from "./pages/CustomerData";
 import Connections from "./pages/Connections";
 import Forecast from "./pages/Forecast";
+import ApiKeys from "./pages/ApiKeys";
 
 const NAV = [
   { to: "/", label: "Dashboard", end: true, icon: "ti-layout-dashboard" },
@@ -26,6 +27,7 @@ const NAV = [
   { to: "/activity", label: "Activity", icon: "ti-activity" },
   { to: "/credits", label: "Credits", icon: "ti-coin" },
   { to: "/billing", label: "Billing", icon: "ti-receipt" },
+  { to: "/api-keys", label: "API Keys", icon: "ti-key" },
 ];
 
 export default function App() {
@@ -92,6 +94,7 @@ export default function App() {
           <Route path="/activity" element={<Activity />} />
           <Route path="/credits" element={<Credits />} />
           <Route path="/billing" element={<Billing />} />
+          <Route path="/api-keys" element={<ApiKeys />} />
         </Routes>
       </main>
     </div>

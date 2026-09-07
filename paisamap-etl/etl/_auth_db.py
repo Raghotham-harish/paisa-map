@@ -55,7 +55,7 @@ def _get_tables():
     if _tables is not None:
         return _tables
     engine = _require_engine()
-    from sqlalchemy import (MetaData, Table, Column, Text, Integer, Float,
+    from sqlalchemy import (MetaData, Table, Column, Text, Integer, Float, Date,
                              DateTime, ForeignKey, UniqueConstraint, CheckConstraint)
     JSONType = _json_type(engine)
     _metadata = MetaData()
@@ -302,6 +302,28 @@ def _get_tables():
         CheckConstraint("gst_rate >= 0", name="ck_invoices_gst_rate"),
     )
 
+    # Track 1 (B2B data-API product) — a key never stores anything recoverable,
+    # only a SHA-256 hash (see _api_keys.py); tier is NOT stored here at all —
+    # it's resolved live from users.plan on every request (a plan upgrade
+    # elevates existing keys immediately, no separate API-product purchase
+    # flow to build). usage_count_today/usage_reset_at are for visibility in
+    # the key-management UI only, not quota enforcement — no real per-tier
+    # numbers exist yet (that's a separate, later pricing decision).
+    api_keys = Table(
+        "api_keys", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        Column("key_hash", Text, nullable=False, unique=True),
+        Column("key_prefix", Text, nullable=False),  # first ~8 chars of the raw key, for
+                                                        # display — never enough to guess the rest
+        Column("label", Text),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("last_used_at", DateTime(timezone=True)),
+        Column("revoked_at", DateTime(timezone=True)),
+        Column("usage_count_today", Integer, nullable=False, server_default="0"),
+        Column("usage_reset_at", Date),
+    )
+
     _tables = {
         "organizations": organizations, "users": users, "org_members": org_members,
         "projects": projects, "saved_locations": saved_locations, "reports": reports,
@@ -309,6 +331,7 @@ def _get_tables():
         "customer_uploads": customer_uploads, "customer_locations": customer_locations,
         "oauth_connections": oauth_connections,
         "orders": orders, "invoices": invoices,
+        "api_keys": api_keys,
     }
     return _tables
 
@@ -330,6 +353,7 @@ def init_schema():
         tables["customer_uploads"], tables["customer_locations"],
         tables["oauth_connections"],
         tables["orders"], tables["invoices"],
+        tables["api_keys"],
     ])
     _ensure_invoice_sequence(engine)
 
@@ -1342,3 +1366,119 @@ def delete_oauth_connection(project_id, provider, user_id):
             conns.delete().where(conns.c.project_id == project_id, conns.c.provider == provider)
         )
     return dict(row._mapping) if row else None
+
+
+# ── API keys (Track 1 — B2B data-API product) ───────────────────────────────
+def create_api_key(user_id, key_hash, key_prefix, label=None):
+    engine = _require_engine()
+    tables = _get_tables()
+    keys = tables["api_keys"]
+    with engine.begin() as conn:
+        result = conn.execute(
+            keys.insert().values(
+                user_id=user_id, key_hash=key_hash, key_prefix=key_prefix, label=label,
+                created_at=_now(), usage_count_today=0,
+            )
+        )
+        new_id = result.inserted_primary_key[0]
+    return get_api_key(new_id, user_id)
+
+
+def get_api_key(key_id, user_id):
+    engine = _require_engine()
+    tables = _get_tables()
+    keys = tables["api_keys"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(keys).where(keys.c.id == key_id, keys.c.user_id == user_id)
+        ).mappings().first()
+    if not row:
+        return None
+    d = dict(row)
+    d.pop("key_hash", None)  # never returned past this module — see list_api_keys
+    return d
+
+
+def list_api_keys(user_id):
+    """Never includes key_hash — the raw key is shown exactly once at creation
+    (blueprints/api_keys.py) and isn't recoverable after that; every response
+    from this module strips it, same convention as
+    analytics_connections.py's _connection_public() for OAuth tokens."""
+    engine = _require_engine()
+    tables = _get_tables()
+    keys = tables["api_keys"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(keys).where(keys.c.user_id == user_id).order_by(keys.c.created_at.desc())
+        ).mappings().all()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d.pop("key_hash", None)
+        out.append(d)
+    return out
+
+
+def get_api_key_by_hash(key_hash):
+    """Auth lookup for an incoming request (see _api_keys.py's resolve()).
+    Resolves to the key owner's LIVE plan, not a tier frozen on the key
+    itself — a plan upgrade elevates every existing key immediately. Returns
+    None for an unknown or revoked key."""
+    engine = _require_engine()
+    tables = _get_tables()
+    keys = tables["api_keys"]
+    users = tables["users"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(keys.c.id, keys.c.user_id)
+            .where(keys.c.key_hash == key_hash, keys.c.revoked_at.is_(None))
+        ).mappings().first()
+        if not row:
+            return None
+        user = conn.execute(
+            select(users.c.plan).where(users.c.id == row["user_id"])
+        ).mappings().first()
+    if not user:
+        return None
+    return {"key_id": row["id"], "user_id": row["user_id"], "plan": user["plan"]}
+
+
+def revoke_api_key(key_id, user_id):
+    """Soft delete (revoked_at, not a real DELETE) — unlike OAuth tokens
+    (delete_oauth_connection above), a revoked API key carries no secret
+    worth scrubbing (only its hash is ever stored) and keeping the row lets
+    the usage history stay visible in the UI after revocation."""
+    engine = _require_engine()
+    tables = _get_tables()
+    keys = tables["api_keys"]
+    with engine.begin() as conn:
+        result = conn.execute(
+            keys.update()
+            .where(keys.c.id == key_id, keys.c.user_id == user_id, keys.c.revoked_at.is_(None))
+            .values(revoked_at=_now())
+        )
+    return result.rowcount > 0
+
+
+def touch_api_key_usage(key_id):
+    """Best-effort visibility counter, not quota enforcement — never let this
+    fail or slow down the API response it's counting. One atomic UPDATE
+    (not a Python read-then-write) so the daily reset-and-increment is
+    race-safe regardless of worker count, even though this app runs
+    single-process today."""
+    engine = _require_engine()
+    from sqlalchemy import text
+    try:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE api_keys SET "
+                "usage_count_today = CASE WHEN usage_reset_at = CURRENT_DATE "
+                "THEN usage_count_today + 1 ELSE 1 END, "
+                "usage_reset_at = CURRENT_DATE, last_used_at = :now "
+                "WHERE id = :id"
+            ), {"now": _now(), "id": key_id})
+    except Exception:
+        pass

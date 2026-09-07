@@ -132,6 +132,19 @@ export interface CreditLedgerEntry {
   created_at: string;
 }
 
+// Track 1 (B2B data-API product). Never carries the raw key or its hash —
+// see api_keys.py's create endpoint for the one-time raw-key response shape.
+export interface ApiKey {
+  id: number;
+  key_prefix: string;
+  label: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  usage_count_today: number;
+  usage_reset_at: string | null;
+}
+
 export interface Report {
   id: number;
   project_id: number;
@@ -666,4 +679,13 @@ export const api = {
     request("/api/billing/verify", { method: "POST", body: JSON.stringify(params) }) as Promise<{ order: Order; status: string }>,
   listInvoices: () => request("/api/billing/invoices") as Promise<{ invoices: Invoice[] }>,
   invoiceDownloadUrl: (id: number) => `/api/billing/invoices/${id}/download`,
+
+  listApiKeys: () => request("/api/developer/keys") as Promise<{ api_keys: ApiKey[] }>,
+  // The raw `key` field only ever appears in THIS response, exactly once —
+  // there is no endpoint that can return it again after creation.
+  createApiKey: (label?: string) =>
+    request("/api/developer/keys", {
+      method: "POST", body: JSON.stringify({ label }),
+    }) as Promise<{ api_key: ApiKey; key: string }>,
+  revokeApiKey: (id: number) => request(`/api/developer/keys/${id}`, { method: "DELETE" }),
 };
