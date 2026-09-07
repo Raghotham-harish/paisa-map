@@ -77,6 +77,13 @@ def snapshot():
 # ── Token-bucket rate limiter, keyed by client IP + route group ──────────────
 _ENABLED = os.environ.get("RATELIMIT_ENABLED", "").strip() in ("1", "true", "yes")
 
+# Multiplier applied to a group's base cap/refill when the request carries a
+# valid Pro/Team-tier API key (see _api_keys.py) — a free-tier key gets the
+# same caps as anonymous traffic in that group, unchanged. No real per-tier
+# numbers exist yet for this product (that's a separate pricing decision), so
+# this is a reasoned default, not a committed price — easy to retune via env.
+_API_KEY_PRO_MULTIPLIER = float(os.environ.get("RATELIMIT_APIKEY_PRO_MULTIPLIER", "5"))
+
 # route-group -> (capacity, refill_per_second). A bucket starts full; each
 # request costs 1 token; it refills continuously. Generous by design — these
 # guard against scraping and runaway loops, not against normal interactive use.
@@ -124,16 +131,29 @@ def _sweep_locked(now):
         del _buckets[k]
 
 
-def check(ip, path):
+def check(ip, path, api_key=None):
     """Returns (allowed: bool, retry_after_seconds: int). Fails OPEN — any
-    exception is swallowed and the request is allowed."""
+    exception is swallowed and the request is allowed.
+
+    `api_key`, when given (a resolved {"key_id","plan",...} dict from
+    _api_keys.resolve — see server.py's _ratelimit hook), buckets the request
+    by key id instead of IP, so a customer's own quota isn't polluted by
+    other traffic sharing their IP/NAT and vice versa. A pro/team-tier key's
+    cap is a multiple of the group's base cap; a free-tier key gets the exact
+    same cap as anonymous IP-based traffic in that group."""
     if not _ENABLED:
         return True, 0
     try:
         group = _group_for(path)
         cap, rps = _LIMITS[group]
+        if api_key:
+            key = ("apikey", api_key["key_id"])
+            if api_key.get("plan") in ("pro", "team"):
+                cap *= _API_KEY_PRO_MULTIPLIER
+                rps *= _API_KEY_PRO_MULTIPLIER
+        else:
+            key = (ip or "?", group)
         now = time.time()
-        key = (ip or "?", group)
         with _buckets_lock:
             _sweep_locked(now)
             tokens, last = _buckets.get(key, (float(cap), now))

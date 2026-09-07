@@ -217,11 +217,30 @@ B2B + Paisa Buzz growth plan, whose own artifact `511014c7…` is gone — see
 `project_growth_plan_two_tracks` in memory.)
 
 ### Track 1 — PaisaMap B2B (from the growth plan; only cosmetic pieces shipped)
-- [ ] **Real API-key auth + tiered access backend** — still not started. Today's
-      Pro-gating is server-side for `/api/export` columns only; there's no API-key
-      issuance, no rate limiting, no per-key quota. This is the actual gate for
-      selling data access.
-- [ ] Developer portal (API docs, key management, usage).
+- [x] **Real API-key auth + tiered access backend** — SHIPPED 2026-09-08 (branch
+      `feat/api-key-auth`). `GET /api/export` now accepts an `X-API-Key` header;
+      tier is resolved LIVE from the key owner's `users.plan` on every request (no
+      separate API-product billing — a Pro/Team workspace upgrade elevates every
+      existing key immediately). Per-key rate limiting reuses `_ops.py`'s existing
+      token-bucket, keyed by key id instead of IP, with a `RATELIMIT_APIKEY_PRO_MULTIPLIER`
+      (default 5×) for pro/team-tier keys. `usage_count_today`/`usage_reset_at` give
+      real visibility (not hard quota enforcement — no per-tier numbers exist yet,
+      that's the separate pricing-page item below). Self-serve key management at
+      `/workspace/api-keys` (create-with-one-time-reveal, list, revoke) —
+      `blueprints/api_keys.py`, `paisamap-etl/etl/_api_keys.py`. Verified live
+      locally: free-tier key gets `PRO_COLUMNS` stripped exactly like anonymous;
+      upgrading the SAME user to pro instantly unlocks the same key's columns; free
+      cap (5, test config) 429s at request 6, pro cap (25 = 5×5) confirmed exact via
+      a direct `_ops.check()` unit-level test (isolated from the DB/HTTP layer,
+      since `/api/export`'s own ~1.2s response latency and SQLite's local-dev-only
+      whole-file locking under genuine concurrency both made an end-to-end burst
+      test an unreliable way to observe the higher cap — a Postgres production
+      deployment doesn't have that locking characteristic, see
+      `project_api_key_auth` in memory); revoking a key falls back to anonymous
+      immediately. NOT deployed yet.
+- [ ] Developer portal (API docs, key management, usage) — key management itself now
+      exists (`/workspace/api-keys` above); real API docs / a public reference page
+      is still open.
 - [ ] Public pricing page for the data/API product (distinct from workspace plans).
 - [ ] Enterprise pilot outreach (12-week Gantt in the — now deleted — growth plan).
 - [ ] Re-run the 4 state-level signal fetchers (agriculture / education / industrial

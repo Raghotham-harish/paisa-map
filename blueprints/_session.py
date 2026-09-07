@@ -10,13 +10,17 @@ an import-order coupling that isn't obvious from reading a blueprint file alone.
 import sys
 from pathlib import Path
 from functools import wraps
-from flask import session, jsonify
+from flask import session, jsonify, request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" / "etl"))
 try:
     import _auth_db
 except ImportError:
     _auth_db = None
+try:
+    import _api_keys
+except ImportError:
+    _api_keys = None
 
 
 def require_db(fn):
@@ -72,12 +76,45 @@ def get_effective_plan():
     anonymous request or when the DB is unavailable, the real users.plan for a
     logged-in one. Use this (not require_login) for an endpoint like
     /api/export that must stay public but still needs to filter server-side by
-    whatever plan is actually available."""
+    whatever plan is actually available.
+
+    Also checks an X-API-Key header (Track 1's B2B data-API product, see
+    _api_keys.py) — a valid key elevates access to its owner's live plan, the
+    same as that user's own session would, checked ahead of the session cookie
+    so a request that legitimately carries both never has the weaker one win.
+    This is the ONLY place API-key auth plugs in — it must never be added to
+    require_login/require_db below. Those gate identity-bearing surfaces
+    (saved locations, customer uploads, billing) that an API key was never
+    meant to reach; merging the two paths would turn a leaked key (meant only
+    to unlock Pro-tier map columns) into access to someone's private
+    workspace data."""
+    if _api_keys is not None:
+        key = _api_keys.resolve(request)
+        if key:
+            return key["plan"]
     uid = session.get("user_id")
     if not uid or _auth_db is None or not _auth_db.enabled():
         return "free"
     user = _auth_db.get_user(uid)
     return user["plan"] if user else "free"
+
+
+def require_api_key(fn):
+    """For a future route that should require a key specifically, rather than
+    get_effective_plan()'s "elevate if present, else stay anonymous"
+    semantics. 401 if no valid key is presented. Injects the resolved key
+    dict ({"key_id","user_id","plan"}) as the first positional arg — deliberately
+    NOT the same shape as require_login's bare user_id, so a route can't
+    accidentally use the two decorators interchangeably."""
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if _api_keys is None:
+            return jsonify({"error": "auth_unavailable"}), 503
+        key = _api_keys.resolve(request)
+        if not key:
+            return jsonify({"error": "invalid_api_key"}), 401
+        return fn(key, *args, **kwargs)
+    return wrapper
 
 
 def charge_credits(user_id, action_key, ref_type=None, ref_id=None):

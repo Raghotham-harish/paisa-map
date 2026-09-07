@@ -31,7 +31,7 @@ def main():
     print("Done. Tables: organizations, users, org_members, projects, "
           "saved_locations, reports, credits_ledger, activity_log, "
           "customer_uploads, customer_locations, oauth_connections, "
-          "orders, invoices")
+          "orders, invoices, api_keys")
 
 
 if __name__ == "__main__":

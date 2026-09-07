@@ -164,6 +164,7 @@ try:
     from blueprints.forecast import forecast_bp
     from blueprints.analytics_connections import analytics_bp, oauth_callback_bp
     from blueprints.billing import billing_bp
+    from blueprints.api_keys import api_keys_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(projects_bp)
     app.register_blueprint(locations_bp)
@@ -178,6 +179,7 @@ try:
     app.register_blueprint(analytics_bp)
     app.register_blueprint(oauth_callback_bp)
     app.register_blueprint(billing_bp)
+    app.register_blueprint(api_keys_bp)
 except ImportError as e:
     print(f"[server] auth/workspace blueprints unavailable: {e}", flush=True)
 
@@ -197,7 +199,16 @@ def _ratelimit():
     if _ops is None or not request.path.startswith("/api/"):
         return None
     _ops.incr("requests_total")
-    allowed, retry_after = _ops.check(request.remote_addr, request.path)
+    # Resolves (and caches on g) the X-API-Key header if present — this is
+    # also what get_effective_plan() reads, so a request carrying a key never
+    # pays for the hash lookup twice. None for anonymous/session traffic.
+    api_key = None
+    try:
+        import _api_keys
+        api_key = _api_keys.resolve(request)
+    except ImportError:
+        pass
+    allowed, retry_after = _ops.check(request.remote_addr, request.path, api_key=api_key)
     if not allowed:
         _ops.incr("requests_ratelimited")
         return jsonify({"error": "rate_limited",
