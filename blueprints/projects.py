@@ -16,6 +16,7 @@ projects_bp = Blueprint("projects", __name__, url_prefix="/api/projects")
 # real arrays in every API response by _shape() below.
 _ARRAY_FIELDS = ("signals", "target_pincodes")
 _OUTCOME_GOALS = ("revenue_reach", "store_count", "balanced")
+_REVENUE_PERIODS = ("monthly", "annual")
 
 
 def _parse_avg_ticket(body):
@@ -83,6 +84,12 @@ def _wizard_fields(body):
         out["outcome_goal"] = goal if goal in _OUTCOME_GOALS else None
     if "time_horizon_months" in body:
         out["time_horizon_months"] = _int_or_none(body.get("time_horizon_months"))
+    if "gross_margin_pct" in body:
+        pct = _num_or_none(body.get("gross_margin_pct"))
+        out["gross_margin_pct"] = pct if pct is not None and 0 < pct <= 100 else None
+    if "revenue_period" in body:
+        period = _str_or_none(body.get("revenue_period"))
+        out["revenue_period"] = period if period in _REVENUE_PERIODS else None
     return out
 
 

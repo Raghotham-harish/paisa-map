@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ApiError, OutcomeGoal, Project, ProjectFields, SignalCatalogItem, api } from "../lib/api";
+import { ApiError, OutcomeGoal, Project, ProjectFields, RevenuePeriod, SignalCatalogItem, api } from "../lib/api";
 import { MultiSelect, Option, SingleSelect } from "../components/MultiSelect";
 
 const INDUSTRIES = [
@@ -45,6 +45,8 @@ export default function ProjectWizard() {
   const [investment, setInvestment] = useState("");
   const [outcome, setOutcome] = useState<OutcomeGoal>("balanced");
   const [horizon, setHorizon] = useState("18");
+  const [grossMargin, setGrossMargin] = useState("");
+  const [revenuePeriod, setRevenuePeriod] = useState<RevenuePeriod>("monthly");
 
   useEffect(() => {
     api.signalCatalog().then((d) => setCatalog(d.signals)).catch(() => setCatalog([]));
@@ -63,6 +65,8 @@ export default function ProjectWizard() {
         setInvestment(p.total_investment != null ? String(p.total_investment) : "");
         if (p.outcome_goal) setOutcome(p.outcome_goal);
         if (p.time_horizon_months != null) setHorizon(String(p.time_horizon_months));
+        setGrossMargin(p.gross_margin_pct != null ? String(p.gross_margin_pct) : "");
+        if (p.revenue_period) setRevenuePeriod(p.revenue_period);
       });
     }
   }, [editId]);
@@ -90,6 +94,8 @@ export default function ProjectWizard() {
       total_investment: investment || undefined,
       outcome_goal: outcome,
       time_horizon_months: horizon || undefined,
+      gross_margin_pct: grossMargin || undefined,
+      revenue_period: revenuePeriod,
     };
     try {
       const { project } = editId
@@ -220,8 +226,24 @@ export default function ProjectWizard() {
               Time horizon (months)
               <input type="text" inputMode="numeric" placeholder="18" value={horizon} onChange={(e) => setHorizon(e.target.value)} />
             </label>
+            <label>
+              Gross margin (%)
+              <input type="text" inputMode="decimal" placeholder="e.g. 38" value={grossMargin} onChange={(e) => setGrossMargin(e.target.value)} />
+              <span className="wiz-hint">Used for payback. Left blank → a retail default is assumed.</span>
+            </label>
+            <label>
+              Store revenue figures are
+              <SingleSelect
+                options={[{ value: "monthly", label: "Monthly" }, { value: "annual", label: "Annual" }]}
+                value={revenuePeriod}
+                onChange={(v) => setRevenuePeriod((v as RevenuePeriod) || "monthly")}
+                placeholder="Monthly or annual…"
+              />
+              <span className="wiz-hint">How to read the revenue column in your uploaded store data.</span>
+            </label>
             <p className="wiz-hint" style={{ gridColumn: "1 / -1" }}>
-              Investment → outcome forecasting arrives in the next release; these inputs are captured on the project now.
+              These feed the <b>Forecast</b> — investment → reachable-revenue curve, recommended ₹ split and payback —
+              once you've uploaded store data for this project.
             </p>
           </div>
         )}

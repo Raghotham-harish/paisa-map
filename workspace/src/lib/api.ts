@@ -51,6 +51,7 @@ export interface MeResponse {
 }
 
 export type OutcomeGoal = "revenue_reach" | "store_count" | "balanced";
+export type RevenuePeriod = "monthly" | "annual";
 
 export interface Project {
   id: number;
@@ -67,6 +68,8 @@ export interface Project {
   total_investment: number | null;
   outcome_goal: OutcomeGoal | null;
   time_horizon_months: number | null;
+  gross_margin_pct: number | null;
+  revenue_period: RevenuePeriod | null;
   created_at: string;
   updated_at: string;
 }
@@ -85,6 +88,8 @@ export interface ProjectFields {
   total_investment?: string | number;
   outcome_goal?: OutcomeGoal;
   time_horizon_months?: string | number;
+  gross_margin_pct?: string | number;
+  revenue_period?: RevenuePeriod;
 }
 
 export interface SignalCatalogItem {
@@ -274,6 +279,98 @@ export interface ExpansionRecommendation {
   candidates_considered: number;
   detail: string | null;
 }
+
+export interface ForecastInsufficient {
+  sufficient_data: false;
+  reason: string;
+  detail: string;
+  stores_usable?: number;
+  min_stores_required?: number;
+}
+
+export interface ForecastCurvePoint {
+  investment: number;
+  monthly_revenue: number;
+  stores: number;
+}
+
+export interface ForecastSite {
+  pincode: string;
+  name: string;
+  state: string | null;
+  monthly_revenue: number;
+  capex: number | null;
+  capture_rate: number;
+  ppi_percentile: number;
+  cannibalisation_discount: number;
+  payback_months: number | null;
+}
+
+export interface ForecastSplit {
+  state: string;
+  stores: number;
+  investment: number;
+  monthly_revenue: number;
+  investment_share_pct: number | null;
+}
+
+export interface LeverFit {
+  signal: string;
+  label: string;
+  lever_fit: number | null;
+  direction: "positive" | "negative" | null;
+  sample_size: number;
+  in_top_drivers: boolean;
+}
+
+export interface Forecast {
+  sufficient_data: true;
+  budget: number;
+  catchment_km: number;
+  time_horizon_months: number;
+  gross_margin_pct: number;
+  revenue_period: RevenuePeriod;
+  capex_priced: boolean;
+  capex_basis: string | null;
+  capture_model: {
+    method: "regression" | "pooled_median";
+    median_capture_rate: number;
+    r2: number | null;
+    confidence_band_pct: number;
+    stores_used: number;
+  };
+  confidence: "high" | "medium" | "low";
+  candidates_considered: number;
+  reach_curve: {
+    points: ForecastCurvePoint[];
+    diminishing_returns_from: number | null;
+    note: string;
+  };
+  recommended_portfolio: {
+    stores: number;
+    investment: number | null;
+    monthly_revenue: number;
+    monthly_gross_profit: number;
+    horizon_gross_profit: number;
+    payback_months: number | null;
+    within_horizon: boolean;
+    sites: ForecastSite[];
+  };
+  investment_split: ForecastSplit[];
+  market_capture: {
+    addressable_monthly_spend: number;
+    current_monthly_revenue: number;
+    current_capture_pct: number | null;
+    projected_monthly_revenue: number;
+    projected_capture_pct: number | null;
+    note: string;
+  };
+  lever_fit_radar: LeverFit[];
+  drivers: DriverAnalysis;
+  assumptions: Record<string, string | number>;
+}
+
+export type ForecastResponse = Forecast | ForecastInsufficient;
 
 export type ConnectionProvider = "google_analytics" | "search_console";
 
@@ -486,6 +583,8 @@ export const api = {
     request(`/api/expansion/drivers?project_id=${projectId}`) as Promise<DriverAnalysis>,
   getExpansionRecommendation: (projectId: number, budget: number) =>
     request(`/api/expansion/recommend?project_id=${projectId}&budget=${budget}`) as Promise<ExpansionRecommendation>,
+  getForecast: (projectId: number, budget?: number) =>
+    request(`/api/forecast?project_id=${projectId}${budget ? `&budget=${budget}` : ""}`) as Promise<ForecastResponse>,
 
   getConnections: (projectId: number) =>
     request(`/api/projects/${projectId}/connections`) as Promise<ConnectionsResponse>,

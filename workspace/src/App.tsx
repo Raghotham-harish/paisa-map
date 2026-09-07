@@ -12,6 +12,7 @@ import Billing from "./pages/Billing";
 import Reports from "./pages/Reports";
 import CustomerData from "./pages/CustomerData";
 import Connections from "./pages/Connections";
+import Forecast from "./pages/Forecast";
 
 const NAV = [
   { to: "/", label: "Dashboard", end: true, icon: "ti-layout-dashboard" },
@@ -19,6 +20,7 @@ const NAV = [
   { to: "/projects", label: "Projects", icon: "ti-briefcase" },
   { to: "/locations", label: "Saved Locations", icon: "ti-map-pin" },
   { to: "/customer-data", label: "Store Data", icon: "ti-upload" },
+  { to: "/forecast", label: "Forecast", icon: "ti-trending-up" },
   { to: "/connections", label: "Connections", icon: "ti-plug" },
   { to: "/reports", label: "Reports", icon: "ti-file-text" },
   { to: "/activity", label: "Activity", icon: "ti-activity" },
@@ -84,6 +86,7 @@ export default function App() {
           <Route path="/projects/new" element={<ProjectWizard />} />
           <Route path="/locations" element={<SavedLocations />} />
           <Route path="/customer-data" element={<CustomerData />} />
+          <Route path="/forecast" element={<Forecast />} />
           <Route path="/connections" element={<Connections />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/activity" element={<Activity />} />

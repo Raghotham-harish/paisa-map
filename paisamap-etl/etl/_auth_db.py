@@ -117,6 +117,10 @@ def _get_tables():
         Column("total_investment", Float),
         Column("outcome_goal", Text),
         Column("time_horizon_months", Integer),
+        # Forecast model inputs (P3) — gross margin drives payback, revenue_period
+        # says whether an uploaded store's `revenue` figure is monthly or annual.
+        Column("gross_margin_pct", Float),
+        Column("revenue_period", Text),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("updated_at", DateTime(timezone=True), nullable=False),
     )
@@ -358,6 +362,8 @@ _MIGRATIONS = [
     ("projects", "total_investment", "FLOAT"),
     ("projects", "outcome_goal", "TEXT"),
     ("projects", "time_horizon_months", "INTEGER"),
+    ("projects", "gross_margin_pct", "FLOAT"),
+    ("projects", "revenue_period", "TEXT"),
 ]
 
 
@@ -703,7 +709,8 @@ def log_activity(user_id, action, target_type=None, target_id=None, metadata=Non
 PROJECT_EDITABLE_FIELDS = ("name", "description", "business_type", "target_segment",
                            "avg_ticket", "website_url", "industry", "signals",
                            "target_pincodes", "catchment_km", "total_investment",
-                           "outcome_goal", "time_horizon_months")
+                           "outcome_goal", "time_horizon_months",
+                           "gross_margin_pct", "revenue_period")
 
 
 # ── Projects ─────────────────────────────────────────────────────────────────

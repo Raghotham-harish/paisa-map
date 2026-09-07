@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ApiError, api, LocationScore, Project } from "../../lib/api";
 import { MapSelection } from "../../lib/mapBridge";
 
@@ -43,6 +44,7 @@ export function LocationPanel({
   onToggleCompare: (pincode: string) => void;
   onSaved: () => void;
 }) {
+  const navigate = useNavigate();
   const [score, setScore] = useState<LocationScore | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -187,7 +189,12 @@ export function LocationPanel({
           <button className="btn secondary" disabled={!pincode} onClick={() => pincode && onToggleCompare(pincode)}>
             {inCompare ? "Remove from compare" : "Add to compare"}
           </button>
-          <button className="btn secondary" disabled title="Forecasting arrives in the next release">
+          <button
+            className="btn secondary"
+            disabled={!project}
+            title={project ? "Investment → revenue forecast for this project" : "Pick a project to forecast"}
+            onClick={() => project && navigate(`/forecast?project_id=${project.id}`)}
+          >
             Forecast
           </button>
         </div>

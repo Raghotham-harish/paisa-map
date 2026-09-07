@@ -45,23 +45,45 @@ Follow-ups (not blockers):
       *generation* is a separate piece (overlaps Phase 05B).
 - [ ] Salesforce connector — placeholder "coming soon" card only in the wizard.
 
-## P3 — Forecast & investment split (NOT started — needs a modelling workstream)
+## P3 — Forecast & investment split (BUILT on this branch, NOT deployed)
 
-The design canvas has the radar / hotspot-bubble / investment→reach curve /
-recommended-₹-split screens, and `ProjectWizard` already captures
-`total_investment` / `outcome_goal` / `time_horizon_months`. But the maths does
-not exist: today's engine (`blueprints/intelligence.py`, `blueprints/expansion.py`)
-does percentile scoring, benchmark means, Pearson revenue-vs-signal drivers, and
-a budget-constrained greedy portfolio — **no elasticity model, no payback, no
-reachable-spend curve**.
+Shipped on `feat/map-first-workspace`:
 
-- [ ] Design the reachable-household-spend-within-catchment × saturation/
-      diminishing-returns model (fit the curve on the customer's own store
-      revenue-ramp data from `customer_locations`).
-- [ ] `GET /api/forecast/*` endpoints returning the curve, recommended split,
-      payback, and market-capture forecast.
-- [ ] Build the Forecast page from the design artboard once the model returns
-      real numbers — do NOT ship the illustrative mockup values.
+- `paisamap-etl/etl/_forecast_model.py` — the model. Cross-sectional, NOT
+  ramp-fitted (no time series exists). Reachable household spend per pincode
+  (district census pop split by a night-lights/POI/fin-density proxy ÷ 4.6) ×
+  catchment aggregation with linear distance decay → capture rate **calibrated
+  on the customer's own stores** (pure-Python OLS on PPI-pct + driver-fit, R²
+  gate → pooled median fallback, <3 stores → `sufficient_data:false`, no
+  charge). Diminishing returns from (a) greedy revenue-per-rupee ordering +
+  (b) circle-overlap cannibalisation. Quality floor: no candidate weaker than
+  0.8 × the customer's weakest store by PPI percentile.
+- `GET /api/forecast?project_id=&budget=` (`blueprints/forecast.py`) — one
+  endpoint, returns reach curve + recommended ₹ split by state + payback +
+  market-capture % + lever-fit radar + assumptions. Charged 8 credits, only on
+  a real forecast. Registered in `server.py`.
+- 2 new `projects` columns: `gross_margin_pct`, `revenue_period` (monthly/
+  annual) — `_MIGRATIONS` + `PROJECT_EDITABLE_FIELDS` + wizard step 4 fields +
+  `projects.py` `_wizard_fields` validation.
+- `workspace/src/pages/Forecast.tsx` (`/forecast` route + nav item), inline-SVG
+  reach curve + radar, no chart lib. `LocationPanel` Forecast button now
+  navigates to `/forecast?project_id=`. `api.ts` types + `getForecast`.
+
+Verified: standalone model test + full HTTP e2e (real Flask + sqlite, cookie
+mint, credit charge 100→92→84, 404/401, budget override, insufficient path
+free) + Playwright screenshots of all 3 states (forecast / insufficient /
+wizard step 4). `tsc --noEmit` + `vite build` clean.
+
+- [ ] Deploy: the 2 new `projects` columns need `migrate_schema()` on prod
+      Postgres (same SSH recipe as the other map-first columns above — fold
+      into that same migration run).
+- [ ] Add `forecast` to the pricing display if `/api/billing/pricing` is
+      surfaced anywhere the cost matters (it already flows through `CREDIT_COSTS`).
+- [ ] Real-account browser smoke once deployed: upload store data → `/forecast`
+      → Run → curve + split + radar render with real numbers.
+- [ ] Model is v1 — revisit `AVG_HOUSEHOLD_SIZE`/`DEFAULT_GROSS_MARGIN_PCT`/
+      `RAMP_MONTHS`/`CANNIBALISATION_SHARE` once a real customer's forecast can
+      be sanity-checked against their actual results.
 
 ## Phase 03 — Monetisation
 
