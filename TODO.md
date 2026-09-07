@@ -85,6 +85,126 @@ wizard step 4). `tsc --noEmit` + `vite build` clean.
       `RAMP_MONTHS`/`CANNIBALISATION_SHARE` once a real customer's forecast can
       be sanity-checked against their actual results.
 
+## Design canvas (5 artboards) — shipped vs pending
+
+Design canvas: https://claude.ai/code/artifact/840c310c-ad6b-41e3-b975-d41f9c1c173d
+Artboards: Workspace · Main (map intelligence) · Setup (wizard) · Forecast · Compare.
+P1 (`90b8592`) built the shells; P3 (`e34b589`) built the forecast model + page.
+Below is what each artboard shows that is NOT yet real.
+
+### 1 · Workspace (dashboard)
+- [ ] "Pick up where you left off" hero — show last-selected pincode, compare-basket
+      count, and "forecast ready at ₹X" with a **Resume forecast** button. Today's
+      hero card is generic (no session-resume state).
+- [ ] Recent-activity list embedded on the dashboard (exists as its own /activity page).
+
+### 2 · Main / map intelligence (the flagship — biggest gap set)
+- [ ] **Wire MapControls layer toggles through the bridge** (choropleth / hotspot
+      clusters / distance rings / my stores) — still display-only copy. Needs
+      one-line inbound handlers in `index.html`'s embed bridge. *(also listed above)*
+- [ ] **Competitor locations layer** — a whole new data layer in the design's map
+      controls; no competitor data anywhere in the app yet.
+- [ ] **Market tiers panel** (Core / Edge / Expansion counts for pincodes in view) —
+      classify visible pincodes into tiers; show counts in the left rail + a tier
+      badge on the location panel. The forecast model already has a PPI-percentile
+      quality floor that could seed the tier thresholds.
+- [ ] **Viewport-scoped KPI strip** — design shows Population in view / Signal
+      coverage / Avg opportunity / Priority zones / **Est. reachable buyers**.
+      "Population in view" and "reachable buyers" can now be powered by
+      `_forecast_model.estimate_households`. Today's KpiStrip only shows what the
+      bridge emits (pincodes in view, metric avg, median income, top-tier zones).
+- [ ] **Metric selector** ("Opportunity score" as a map metric, not just a raw
+      signal layer) — the filter bar has a Metric chip but switching it doesn't
+      drive an opportunity choropleth; the map only knows raw signal columns.
+- [ ] Location panel: "Top drivers of **your** revenue" (the design shows the
+      project's own Pearson drivers here) — currently shows "what drives the model"
+      (global feature importance). `/api/expansion/drivers` already computes the
+      real per-project version.
+
+### 3 · Setup (wizard)
+- [ ] Step 2 integration cards should reflect **real connection state** per project
+      (LINKED + account/property, CSV upload status + mapped columns) — currently
+      static "Connect"/"Upload" links.
+- [ ] Step 3 custom lever → **suggest matching govt/public datasets** to bind it to
+      (design: type "cold chain" → "Cold storage capacity (govt)" etc.). Today
+      custom signals are free-text only, never become columns. *(also above)*
+- [ ] Arbitrary CSV columns (e.g. **footfall**) — `CANONICAL_FIELDS` is
+      store_name/address/pincode/revenue/rent/capex only; extras land in
+      `extra_fields` and nothing reads them.
+- [ ] "Save draft" (wizard is create-on-finish; no partial save).
+- [ ] Salesforce connector — "coming soon" placeholder only. *(also above)*
+
+### 4 · Forecast (page shipped `e34b589`, these are the remaining artboard bits)
+- [ ] **"Sweet spot" callout** on the growth curve — mark the optimal investment
+      point distinct from the user's budget line (model returns
+      `diminishing_returns_from`; turn that into an explicit recommended number).
+- [ ] **The "Nudge"** — a concrete prose recommendation ("move ₹15 L from A to B →
+      +₹40 L reachable spend, payback 14→13 mo; A is near saturation"). This is a
+      marquee feature of the artboard; needs a marginal-reallocation pass over the
+      portfolio.
+- [ ] **Hotspot bubble chart** (x = market size, y = opportunity, bubble = reachable
+      buyers, Core/Edge/Expansion bands). Today the page shows a site list instead.
+- [ ] **Comparative radar** — design overlays the top 3 candidate locations on a
+      fixed 7-lever radar ("which candidate fits your levers best"). Today's radar
+      is a single polygon (project signals vs revenue).
+- [ ] **"Levers you're under-using"** explicit list (derived from the weak radar
+      spokes).
+- [ ] **Segment/category market capture** — design says "*segment* market capture
+      4.2% → 6.8%"; the model deliberately reports share of ALL household spend
+      (no category-share data). Revisit if a category-spend source appears.
+
+### 5 · Compare (modal shipped `90b8592`)
+- [ ] "Retail rent / sqft" row + "**Rent headroom vs nearby %**" row (modal has PPI
+      "vs nearby" only).
+- [ ] "**Strongest driver**" per location (modal shows "Top signals" — global, not
+      per-project).
+- [ ] "**Save all to project**" bulk action from the compare basket.
+- [ ] **Saved-locations shortlist panel** inside the compare view — status tags
+      (Approved/Reviewing/Shortlist/Rejected), notes, and ₹-allocated per location.
+- [ ] "**Generate expansion report — 5 credits**" CTA from the compare view.
+
+## Product roadmap — open threads not tracked in a phase above
+
+Workspace roadmap artifact: https://claude.ai/code/artifact/241ab985-f950-446c-a4cc-7d30210e4070
+(7/8 phases shipped; below are the deferred/unblocked items and the older
+B2B + Paisa Buzz growth plan, whose own artifact `511014c7…` is gone — see
+`project_growth_plan_two_tracks` in memory.)
+
+### Track 1 — PaisaMap B2B (from the growth plan; only cosmetic pieces shipped)
+- [ ] **Real API-key auth + tiered access backend** — still not started. Today's
+      Pro-gating is server-side for `/api/export` columns only; there's no API-key
+      issuance, no rate limiting, no per-key quota. This is the actual gate for
+      selling data access.
+- [ ] Developer portal (API docs, key management, usage).
+- [ ] Public pricing page for the data/API product (distinct from workspace plans).
+- [ ] Enterprise pilot outreach (12-week Gantt in the — now deleted — growth plan).
+- [ ] Re-run the 4 state-level signal fetchers (agriculture / education / industrial
+      / economic) — stale since the pincode set was ~275; now ~15k+. Mechanical
+      (state-level values are uniform per state), not a new data hunt.
+
+### Track 2 — Paisa Buzz (deliberately dormant)
+- [ ] Gated on a registered company entity existing first (user's explicit call).
+      Then: RBI Account Aggregator TSP selection (Setu/Finvu/OneMoney/CAMS),
+      DPDP Act data-fiduciary obligations, consent architecture. No app code
+      until the entity question is answered.
+
+### Workspace roadmap — deferred items now unblocked or still open
+- [ ] Anonymous search/comparison rate-limiting for signed-out map visitors —
+      was deferred "until Phase 02 ships"; Phase 02 shipped, so revisitable.
+      Still no rate-limiting infra anywhere in the app.
+- [ ] Historical Trend / time-series — permanently blocked until a pincode
+      snapshot table exists (everything is overwrite-on-refit today).
+- [ ] Phase 06+ (deferred until paying customers): watchlists + change-detection
+      alerts, team workspaces + RBAC (`organizations`/`org_members` still unused),
+      white-label reports, "find markets like my best stores" similarity search,
+      cannibalisation / white-space analysis, NL "Ask PaisaMap" copilot,
+      scenario/what-if simulator, standalone ROI modelling.
+
+### Secondary infra (bundle into a future push)
+- [ ] Remove the stray `paisamap.bak-20260806` from nginx `sites-enabled/`
+      ("conflicting server name" warning on every reload).
+- [ ] Apply the pending Lightsail kernel upgrade (deliberate reboot window).
+
 ## Phase 03 — Monetisation
 
 **Shipped and live as of 2026-09-06** — credits spend/purchase, Razorpay
