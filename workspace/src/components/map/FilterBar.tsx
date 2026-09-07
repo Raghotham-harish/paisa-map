@@ -30,7 +30,7 @@ export function FilterBar({
   return (
     <div className="filter-bar">
       <Link className="brand" to="/">
-        <img src="/assets/logo-horizontal.svg" alt="PaisaMap" height="20" />
+        <img src="/assets/logo-horizontal.svg" alt="PaisaMaps" height="20" />
       </Link>
       <span className="fb-divider" />
 

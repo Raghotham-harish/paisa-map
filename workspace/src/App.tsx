@@ -42,7 +42,7 @@ export default function App() {
     <div className="shell">
       <aside className="sidenav">
         <a className="brand" href="/">
-          <img src="/assets/logo-horizontal.svg" alt="PaisaMap" height="24" />
+          <img src="/assets/logo-horizontal.svg" alt="PaisaMaps" height="24" />
         </a>
         <nav>
           {NAV.map((item) => (
