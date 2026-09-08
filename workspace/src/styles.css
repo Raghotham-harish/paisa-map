@@ -425,8 +425,11 @@ input[type="text"]:focus, textarea:focus, select:focus{ outline:2px solid var(--
   position:fixed; inset:0; background:rgba(26,28,26,.45); z-index:60;
   display:flex; align-items:center; justify-content:center; padding:24px;
 }
-.map-modal{ width:min(1040px,100%); max-height:88vh; overflow:auto; padding:20px 22px; }
-.map-modal-head{ display:flex; align-items:center; justify-content:space-between; }
+.map-modal{ width:min(1040px,100%); max-height:88vh; overflow:hidden; padding:0; display:flex; flex-direction:column; }
+.map-modal-head{ display:flex; align-items:center; justify-content:space-between; padding:18px 22px 12px; flex:none; }
+.cmp-modal-body{ flex:1 1 auto; overflow-y:auto; padding:0 22px 6px; }
+.cmp-footer{ flex:none; padding:12px 22px 14px; border-top:1px solid var(--border); background:var(--paper); }
+.cmp-disclaimer{ font-size:11.5px; color:var(--ink-soft); margin:8px 0 0; }
 .map-modal-head button{ background:none; border:0; color:var(--ink-soft); cursor:pointer; display:flex; }
 .map-signin-card{ padding:22px 24px; max-width:380px; }
 .map-signin-card .btn{ text-decoration:none; display:inline-block; }
@@ -479,7 +482,6 @@ input[type="text"]:focus, textarea:focus, select:focus{ outline:2px solid var(--
 
 .cmp-actions{
   display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
-  margin-top:16px; padding-top:14px; border-top:1px solid var(--border);
 }
 .cmp-shortlist{ margin-top:18px; padding-top:14px; border-top:1px solid var(--border); }
 

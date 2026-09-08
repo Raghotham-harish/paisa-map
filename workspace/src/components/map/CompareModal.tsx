@@ -234,6 +234,7 @@ export function CompareModal({
           </button>
         </div>
 
+        <div className="cmp-modal-body">
         {error && <p style={{ color: "var(--flame)", fontSize: 13 }}>{error}</p>}
         {!rows && !error && <p className="loading">Loading…</p>}
 
@@ -320,25 +321,6 @@ export function CompareModal({
               </div>
             )}
 
-            <div className="cmp-actions">
-              <div>
-                <button className="btn secondary" disabled={bulkSaving} onClick={onBulkSave}>
-                  {bulkSaving ? "Saving…" : "Save all to project"}
-                </button>
-                {bulkSaveMsg && <span className="wiz-hint" style={{ marginLeft: 10 }}>{bulkSaveMsg}</span>}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                {reportId != null ? (
-                  <a className="btn" href={api.reportDownloadUrl(reportId)}>Download report PDF</a>
-                ) : (
-                  <button className="btn" disabled={reportRunning || !project} title={project ? "" : "Pick a project first"} onClick={onGenerateReport}>
-                    {reportRunning ? "Generating…" : `Generate report${reportCost != null ? ` — ${reportCost} credits` : ""}`}
-                  </button>
-                )}
-              </div>
-            </div>
-            {reportError && <p style={{ color: "var(--flame)", fontSize: 12.5, marginTop: 6 }}>{reportError}</p>}
-
             {project && saved.length > 0 && (
               <div className="cmp-shortlist">
                 <div className="kicker" style={{ marginBottom: 8 }}>Saved-locations shortlist — {project.name}</div>
@@ -369,11 +351,32 @@ export function CompareModal({
                 </ul>
               </div>
             )}
-
-            <p style={{ fontSize: 11.5, color: "var(--ink-soft)", margin: "14px 0 0" }}>
-              Modelled estimates from PaisaMap's PPI ensemble — not real transaction records.
-            </p>
           </>
+        )}
+        </div>
+
+        {rows && (
+          <div className="cmp-footer">
+            <div className="cmp-actions">
+              <div>
+                <button className="btn secondary" disabled={bulkSaving} onClick={onBulkSave}>
+                  {bulkSaving ? "Saving…" : "Save all to project"}
+                </button>
+                {bulkSaveMsg && <span className="wiz-hint" style={{ marginLeft: 10 }}>{bulkSaveMsg}</span>}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {reportId != null ? (
+                  <a className="btn" href={api.reportDownloadUrl(reportId)}>Download report PDF</a>
+                ) : (
+                  <button className="btn" disabled={reportRunning || !project} title={project ? "" : "Pick a project first"} onClick={onGenerateReport}>
+                    {reportRunning ? "Generating…" : `Generate report${reportCost != null ? ` — ${reportCost} credits` : ""}`}
+                  </button>
+                )}
+              </div>
+            </div>
+            {reportError && <p style={{ color: "var(--flame)", fontSize: 12.5, margin: "6px 0 0" }}>{reportError}</p>}
+            <p className="cmp-disclaimer">Modelled estimates from PaisaMap's PPI ensemble — not real transaction records.</p>
+          </div>
         )}
       </div>
     </div>
