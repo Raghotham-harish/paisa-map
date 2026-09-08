@@ -3,13 +3,78 @@ import { ApiError, DriverAnalysis, LocationScore, LocationStatus, PricingConfig,
 
 type Ranked = LocationScore & { rank: number };
 
-function money(n: number | null | undefined) {
-  return n == null ? "—" : `₹${Math.round(n).toLocaleString("en-IN")}`;
+// One stable colour per location, used across every chart in the modal.
+const LOC_COLORS = ["var(--rupee)", "var(--amber)", "#2A81CB", "var(--flame)", "#7A54B0", "#0E9594", "#C2650C", "#555"];
+
+function money(n: number | null | undefined, compact = false) {
+  if (n == null) return "—";
+  if (compact) {
+    if (Math.abs(n) >= 1e7) return `₹${(n / 1e7).toFixed(2)}Cr`;
+    if (Math.abs(n) >= 1e5) return `₹${(n / 1e5).toFixed(1)}L`;
+    if (Math.abs(n) >= 1e3) return `₹${(n / 1e3).toFixed(0)}k`;
+  }
+  return `₹${Math.round(n).toLocaleString("en-IN")}`;
 }
 
 const STATUS_PILL: Record<LocationStatus, string> = {
   shortlist: "shortlist", reviewing: "reviewing", approved: "approved", rejected: "rejected",
 };
+const RISK_PILL: Record<string, string> = { Low: "delta-pos", Medium: "reviewing", High: "rejected", Unknown: "shortlist" };
+
+const opp = (l: Ranked) => l.opportunity?.opportunity_score ?? l.economic_score ?? null;
+
+/* ── metric comparison bars ─────────────────────────────────────────────────
+   One row per metric; every location a labelled bar scaled to the row's max,
+   the leader marked. Gives "who wins on what" at a glance + the real number. */
+function MetricBars({ rows }: { rows: Ranked[] }) {
+  const metrics: { label: string; get: (l: Ranked) => number | null; fmt: (v: number) => string; outOf?: number }[] = [
+    { label: "Opportunity", get: opp, fmt: (v) => `${Math.round(v)}`, outOf: 100 },
+    { label: "Economic score", get: (l) => l.economic_score, fmt: (v) => `${Math.round(v)}`, outOf: 100 },
+    { label: "Income /mo", get: (l) => l.income, fmt: (v) => money(v, true) },
+    { label: "Spend /mo", get: (l) => l.spend, fmt: (v) => money(v, true) },
+  ];
+  return (
+    <>
+    <div className="cmp-legend">
+      {rows.map((l, i) => (
+        <span className="cmp-legend-item" key={l.pincode}>
+          <i style={{ background: LOC_COLORS[i % LOC_COLORS.length] }} />
+          {l.name}
+        </span>
+      ))}
+    </div>
+    <div className="cmp-bars">
+      {metrics.map((m) => {
+        const vals = rows.map((l) => m.get(l));
+        const max = m.outOf ?? Math.max(1, ...vals.map((v) => v ?? 0));
+        const best = Math.max(...vals.map((v) => v ?? -Infinity));
+        return (
+          <div className="cmp-bar-row" key={m.label}>
+            <span className="cmp-bar-metric">{m.label}</span>
+            <div className="cmp-bar-set">
+              {rows.map((l, i) => {
+                const v = m.get(l);
+                const w = v == null ? 0 : Math.max(2, (v / max) * 100);
+                return (
+                  <div className="cmp-bar-line" key={l.pincode}>
+                    <span className="cmp-bar-track">
+                      <span
+                        className={`cmp-bar-fill ${v === best ? "lead" : ""}`}
+                        style={{ width: `${w}%`, background: LOC_COLORS[i % LOC_COLORS.length] }}
+                      />
+                    </span>
+                    <span className={`cmp-bar-val ${v === best ? "lead" : ""}`}>{v == null ? "—" : m.fmt(v)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+    </>
+  );
+}
 
 export function CompareModal({
   pincodes,
@@ -33,6 +98,7 @@ export function CompareModal({
   const [reportError, setReportError] = useState<string | null>(null);
   const [reportId, setReportId] = useState<number | null>(null);
   const [allocInput, setAllocInput] = useState<Record<number, string>>({});
+  const [showTable, setShowTable] = useState(false);
 
   useEffect(() => {
     api
@@ -49,8 +115,6 @@ export function CompareModal({
     api.getPricing().then(setPricing).catch(() => setPricing(null));
   }, []);
 
-  // Project-scoped drivers, for "strongest driver for you" below — same
-  // fetch LocationPanel makes, reused here rather than re-deriving.
   useEffect(() => {
     if (!project) {
       setDrivers(null);
@@ -118,9 +182,6 @@ export function CompareModal({
     setReportError(null);
     setReportId(null);
     try {
-      // A report is generated over a project's SAVED locations, not the
-      // compare selection directly — make sure everything being compared is
-      // actually saved first, same action as the button above.
       await onBulkSave();
       const { report } = await api.generateReport(project.id, `Compare — ${new Date().toLocaleDateString()}`);
       setReportId(report.id);
@@ -137,9 +198,17 @@ export function CompareModal({
     }
   };
 
-  const rowDef: { label: string; render: (l: Ranked) => React.ReactNode }[] = [
-    { label: "Economic score", render: (l) => <span className="cmp-score">{l.economic_score ?? "—"}<small> /100</small></span> },
-    { label: "Opportunity", render: (l) => l.opportunity?.opportunity_score ?? l.economic_score ?? "—" },
+  // Headline insight — who leads on the two metrics that matter most.
+  const leader = rows && rows.length
+    ? [...rows].sort((a, b) => (opp(b) ?? 0) - (opp(a) ?? 0))[0]
+    : null;
+  const richest = rows && rows.length
+    ? [...rows].sort((a, b) => (b.income ?? 0) - (a.income ?? 0))[0]
+    : null;
+
+  const tableRows: { label: string; render: (l: Ranked) => React.ReactNode }[] = [
+    { label: "Opportunity", render: (l) => (opp(l) != null ? Math.round(opp(l)!) : "—") },
+    { label: "Economic score", render: (l) => l.economic_score ?? "—" },
     { label: "Suitability", render: (l) => l.opportunity?.suitability ?? "—" },
     { label: "Risk", render: (l) => l.risk.level },
     { label: "Income /mo", render: (l) => money(l.income) },
@@ -153,51 +222,103 @@ export function CompareModal({
       },
     },
     { label: "Top signals", render: (l) => (l.top_signals ?? []).slice(0, 3).join(", ") || "—" },
-    { label: "Read", render: (l) => <span className="cmp-summary">{l.executive_summary}</span> },
   ];
 
   return (
     <div className="map-modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="card map-modal" role="dialog" aria-label="Compare locations">
         <div className="map-modal-head">
-          <h2 style={{ margin: 0, fontSize: 17 }}>Compare locations</h2>
+          <h2 style={{ margin: 0, fontSize: 17 }}>Compare {rows ? rows.length : pincodes.length} locations</h2>
           <button type="button" aria-label="Close" onClick={onClose}>
             <svg width="16" height="16" viewBox="0 0 16 16" stroke="currentColor" strokeWidth="1.7"><path d="M3 3l10 10M13 3L3 13" /></svg>
           </button>
         </div>
-        <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: "0 0 12px" }}>
-          Modelled estimates from PaisaMap's PPI ensemble — not real transaction records.
-        </p>
+
         {error && <p style={{ color: "var(--flame)", fontSize: 13 }}>{error}</p>}
         {!rows && !error && <p className="loading">Loading…</p>}
+
         {rows && (
           <>
-            <div className="cmp-scroll">
-              <table className="cmp-table">
-                <thead>
-                  <tr>
-                    <th />
-                    {rows.map((l) => (
-                      <th key={l.pincode}>
-                        <span className={`cmp-rank ${l.rank === 1 ? "r1" : ""}`}>{l.rank}</span>
-                        {l.name}
-                        <span className="cmp-pin">{l.pincode}</span>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rowDef.map((rd) => (
-                    <tr key={rd.label}>
-                      <th>{rd.label}</th>
+            {/* headline insight */}
+            {leader && (
+              <div className="cmp-insight">
+                <b>{leader.name}</b> leads on opportunity ({Math.round(opp(leader) ?? 0)}/100)
+                {richest && richest.pincode !== leader.pincode && (
+                  <> · <b>{richest.name}</b> has the highest income ({money(richest.income, true)}/mo)</>
+                )}
+                {richest && richest.pincode === leader.pincode && <> and income ({money(leader.income, true)}/mo)</>}.
+              </div>
+            )}
+
+            {/* scorecards */}
+            <div className="cmp-cards">
+              {rows.map((l, i) => (
+                <div className="cmp-card" key={l.pincode} style={{ borderTopColor: LOC_COLORS[i % LOC_COLORS.length] }}>
+                  <div className="cmp-card-head">
+                    <span className={`cmp-rank ${l.rank === 1 ? "r1" : ""}`}>{l.rank}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div className="cmp-card-name">{l.name}</div>
+                      <div className="cmp-pin">{l.pincode}</div>
+                    </div>
+                  </div>
+                  <div className="cmp-card-score">
+                    <span className="mono">{opp(l) != null ? Math.round(opp(l)!) : "—"}</span>
+                    <small>/100 opportunity</small>
+                  </div>
+                  <div className="cmp-card-pills">
+                    {l.opportunity && <span className="pill approved">{l.opportunity.suitability}</span>}
+                    <span className={`pill ${RISK_PILL[l.risk.level] ?? "shortlist"}`}>{l.risk.level} risk</span>
+                  </div>
+                  <div className="cmp-card-money">
+                    <span>Income <b>{money(l.income, true)}</b></span>
+                    <span>Spend <b>{money(l.spend, true)}</b></span>
+                    <span>
+                      vs nearby{" "}
+                      <b className={(l.benchmark.neighbours?.diff_pct ?? 0) >= 0 ? "pos" : "neg"}>
+                        {l.benchmark.neighbours?.diff_pct != null ? `${l.benchmark.neighbours.diff_pct > 0 ? "+" : ""}${l.benchmark.neighbours.diff_pct}%` : "—"}
+                      </b>
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* metric bars */}
+            <div className="cmp-section-label">How they stack up</div>
+            <MetricBars rows={rows} />
+
+            {/* detail table (collapsed) */}
+            <button className="cmp-table-toggle" type="button" onClick={() => setShowTable((s) => !s)}>
+              {showTable ? "Hide" : "Show"} full detail table
+            </button>
+            {showTable && (
+              <div className="cmp-scroll">
+                <table className="cmp-table">
+                  <thead>
+                    <tr>
+                      <th />
                       {rows.map((l) => (
-                        <td key={l.pincode}>{rd.render(l)}</td>
+                        <th key={l.pincode}>
+                          <span className={`cmp-rank ${l.rank === 1 ? "r1" : ""}`}>{l.rank}</span>
+                          {l.name}
+                          <span className="cmp-pin">{l.pincode}</span>
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {tableRows.map((rd) => (
+                      <tr key={rd.label}>
+                        <th>{rd.label}</th>
+                        {rows.map((l) => (
+                          <td key={l.pincode}>{rd.render(l)}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <div className="cmp-actions">
               <div>
@@ -248,6 +369,10 @@ export function CompareModal({
                 </ul>
               </div>
             )}
+
+            <p style={{ fontSize: 11.5, color: "var(--ink-soft)", margin: "14px 0 0" }}>
+              Modelled estimates from PaisaMap's PPI ensemble — not real transaction records.
+            </p>
           </>
         )}
       </div>

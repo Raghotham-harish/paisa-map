@@ -10,10 +10,23 @@ const RISK_CLASS: Record<string, string> = {
 };
 
 const TIER_LABEL: Record<"core" | "edge" | "expansion", string> = {
-  core: "Core market",
-  edge: "Edge market",
-  expansion: "Expansion market",
+  core: "Core",
+  edge: "Edge",
+  expansion: "Expansion",
 };
+
+// Turn a raw signal column into something readable: car_2w_ratio → "Car 2W ratio".
+const SIGNAL_WORD: Record<string, string> = {
+  "2w": "2W", ev: "EV", upi: "UPI", ppi: "PPI", msme: "MSME", nsdp: "NSDP",
+  rto: "RTO", itr: "ITR", sfb: "SFB", rrb: "RRB", poi: "POI", psu: "PSU",
+  hces: "HCES", mpce: "MPCE", lmv: "LMV",
+};
+function prettySignal(key: string) {
+  return key
+    .split("_")
+    .map((w, i) => SIGNAL_WORD[w] ?? (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
+    .join(" ");
+}
 
 function money(n: number | null | undefined) {
   return n == null ? "—" : `₹${Math.round(n).toLocaleString("en-IN")}`;
@@ -21,16 +34,12 @@ function money(n: number | null | undefined) {
 
 function Bench({ label, diff }: { label: string; diff: number | null | undefined }) {
   if (diff == null) return null;
-  const pct = Math.max(6, Math.min(100, 50 + diff * 0.45)); // visual only
+  const cls = diff > 0.05 ? "pos" : diff < -0.05 ? "neg" : "flat";
   return (
     <div className="lp-bench">
       <span className="lp-bench-label">{label}</span>
-      <span className="lp-bench-track">
-        <span className="lp-bench-fill" style={{ width: `${pct}%` }} />
-      </span>
-      <span className={`lp-bench-val ${diff >= 0 ? "pos" : "neg"}`}>
-        {diff >= 0 ? "+" : ""}
-        {diff}%
+      <span className={`lp-bench-val ${cls}`}>
+        {diff > 0.05 ? "+" : ""}{Math.abs(diff) < 0.05 ? "0" : diff}%
       </span>
     </div>
   );
@@ -110,7 +119,12 @@ export function LocationPanel({
   if (!selection || dismissedFor === pincode) return null;
 
   const headline = score?.opportunity?.opportunity_score ?? score?.economic_score ?? null;
-  const headlineLabel = score?.opportunity ? "opportunity" : "economic score";
+  const headlineLabel = score?.opportunity ? "opportunity" : "economic";
+
+  const useProjectDrivers = !!(projectDrivers?.sufficient_data && projectDrivers.drivers.length > 0);
+  const drivers: string[] = useProjectDrivers
+    ? projectDrivers!.drivers.map((d) => d.label)
+    : (score?.top_signals ?? []).slice(0, 4).map(prettySignal);
 
   return (
     <div className="card location-panel">
@@ -130,7 +144,7 @@ export function LocationPanel({
           {selection.tier && <span className={`pill mc-tier-${selection.tier}`}>{TIER_LABEL[selection.tier]}</span>}
         </div>
 
-        {loading && <p className="loading" style={{ padding: "24px 0" }}>Loading…</p>}
+        {loading && <p className="loading" style={{ padding: "20px 0" }}>Loading…</p>}
         {error && <p style={{ color: "var(--flame)", fontSize: 12.5 }}>{error}</p>}
 
         {score && !loading && (
@@ -139,55 +153,30 @@ export function LocationPanel({
               <span className="mono lp-score-num">{headline != null ? Math.round(headline) : "—"}</span>
               <span className="lp-score-unit">/100 {headlineLabel}</span>
             </div>
-            <div className="lp-sub">
-              {score.benchmark.india?.n
-                ? `Ranked against ${score.benchmark.india.n.toLocaleString("en-IN")} pincodes nationally`
-                : "Modelled estimate"}
-            </div>
-
-            <div className="lp-benches">
-              <Bench label={`vs ${score.benchmark.district?.label ?? "district"}`} diff={score.benchmark.district?.diff_pct} />
-              <Bench label={`vs ${score.benchmark.state?.label ?? "state"}`} diff={score.benchmark.state?.diff_pct} />
-              <Bench label="vs nearby" diff={score.benchmark.neighbours?.diff_pct} />
-            </div>
 
             <div className="lp-pills">
               {score.opportunity && <span className="pill approved">{score.opportunity.suitability}</span>}
               <span className={`pill ${RISK_CLASS[score.risk.level] ?? "shortlist"}`}>{score.risk.level} risk</span>
             </div>
 
-            {projectDrivers?.sufficient_data && projectDrivers.drivers.length > 0 ? (
-              <>
-                <div className="kicker" style={{ marginTop: 14 }}>Top drivers of your revenue</div>
-                <div className="lp-drivers">
-                  {projectDrivers.drivers.map((d) => (
-                    <span className={`lp-driver ${d.direction === "positive" ? "pos" : "neg"}`} key={d.signal}>
-                      {d.label}
-                    </span>
-                  ))}
-                </div>
-              </>
-            ) : (
-              score.top_signals?.length > 0 && (
-                <>
-                  <div className="kicker" style={{ marginTop: 14 }}>What drives the model</div>
-                  <div className="lp-drivers">
-                    {score.top_signals.map((s) => (
-                      <span className="lp-driver" key={s}>
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                </>
-              )
-            )}
-
-            <div className="lp-money">
-              <span>Income {money(score.income)}/mo</span>
-              <span>Spend {money(score.spend)}/mo</span>
+            <div className="lp-benches">
+              <Bench label="vs district" diff={score.benchmark.district?.diff_pct} />
+              <Bench label="vs state" diff={score.benchmark.state?.diff_pct} />
+              <Bench label="vs nearby" diff={score.benchmark.neighbours?.diff_pct} />
             </div>
 
-            <p className="lp-summary">{score.executive_summary}</p>
+            <div className="lp-money">
+              <span>Income <b>{money(score.income)}</b>/mo</span>
+              <span>Spend <b>{money(score.spend)}</b>/mo</span>
+            </div>
+
+            {drivers.length > 0 && (
+              <div className="lp-drivers">
+                {drivers.map((d) => (
+                  <span className="lp-driver" key={d}>{d}</span>
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>
