@@ -1139,7 +1139,7 @@
 <main>
   <div id="map" role="application" aria-label="Purchasing power heat map"></div>
   <div class="denom" aria-hidden="true">
-    <div class="field-label"><span id="denomLabel">PPI index</span><span style="font-size:9px;color:var(--ink-soft)">low → high</span></div>
+    <div class="field-label"><span id="denomLabel">PPI index</span><span id="denomSub" style="font-size:9px;color:var(--ink-soft)">low → high</span></div>
     <div class="strip" id="denomStrip">
       <i style="background:#922B21"></i><i style="background:#E74C3C"></i>
       <i style="background:#E67E22"></i><i style="background:#F1C40F"></i>
@@ -1448,6 +1448,66 @@ const CATEGORY_ICONS = {
 
 // pincode → joined raw-signal row, loaded once from /api/export (json, all columns)
 let signalMap = {};
+
+// ── Suitability (project-fit) layer ──────────────────────────────────────────
+// Driven by the /workspace/map shell (setSuitability bridge message). `metric ===
+// "__suitability__"` colours every pincode 0-100 on how well it fits the active
+// project. Two sources: an instant client-side preview computed here from the
+// project's chosen signals, then the authoritative /api/expansion/surface scores
+// (same combined_score used by Expansion Recs / Compare) once they arrive.
+let suitabilityMap = {};        // pincode -> score 0..100
+let suitabilityLabel = "";      // project name, for the legend
+let suitabilitySource = "preview";
+let suitabilityPreviewCfg = null;   // {signals, avgTicket} — kept so the preview can
+                                    // be recomputed once signalMap finishes loading
+
+// Recompute the client-side preview from the stored cfg — called both when the
+// shell sends new cfg and when signalMap loads in after an early cfg arrived.
+function refreshSuitabilityPreview(){
+  if(!suitabilityPreviewCfg || suitabilitySource !== "preview") return;
+  suitabilityMap = computeSuitabilityPreview(suitabilityPreviewCfg);
+  if(metric === "__suitability__") render();
+}
+
+// One transparent composite, kept in a single function so the drift surface vs.
+// the backend model is reviewable in one place. z-score each project signal
+// across signalMap, average, squash to 0-100, then blend the avg_ticket /
+// spend affordability term exactly as intelligence.opportunity_assessment does.
+function computeSuitabilityPreview(cfg){
+  const cols = ["ppi_ml"].concat((cfg.signals || []).filter(c => c && c !== "ppi_ml" && c !== "__suitability__"));
+  const stats = {};
+  cols.forEach(col => {
+    const vals = [];
+    for(const pc in signalMap){ const v = +signalMap[pc][col]; if(Number.isFinite(v)) vals.push(v); }
+    if(vals.length < 2) return;
+    const mean = vals.reduce((s,x)=>s+x,0) / vals.length;
+    const sd = Math.sqrt(vals.reduce((s,x)=>s+(x-mean)*(x-mean),0) / vals.length) || 1;
+    stats[col] = {mean, sd};
+  });
+  const out = {};
+  const avgTicket = +cfg.avgTicket;
+  for(const pc in signalMap){
+    const row = signalMap[pc];
+    const zs = [];
+    cols.forEach(col => {
+      const st = stats[col]; if(!st) return;
+      const v = +row[col]; if(!Number.isFinite(v)) return;
+      zs.push((v - st.mean) / st.sd);
+    });
+    if(!zs.length) continue;
+    const zAvg = zs.reduce((s,x)=>s+x,0) / zs.length;
+    const econFit = 100 / (1 + Math.exp(-zAvg));     // logistic squash, ~0..100
+    let score = econFit;
+    const spend = +row["est_monthly_spend_hh"];
+    if(Number.isFinite(avgTicket) && avgTicket > 0 && Number.isFinite(spend) && spend > 0){
+      const pct = avgTicket / spend * 100;           // ticket as % of monthly spend
+      const aff = pct <= 2 ? 100 : pct >= 20 ? 0 : 100 * (1 - (pct - 2) / 18);
+      score = econFit * 0.7 + aff * 0.3;
+    }
+    out[pc] = Math.round(score * 10) / 10;
+  }
+  return out;
+}
 async function loadSignalData(){
   if(!IS_SERVER) return;
   try{
@@ -2371,44 +2431,70 @@ nearbyBtn.addEventListener("click", async ()=>{
   }
 });
 
+// One palette per metric family (low → high, 6 steps) — a distinct hue per
+// metric so switching what the map is coloured by is unmistakable, and so
+// income (greens) and spend (blues) never read as the same picture. The legend
+// strip is painted from the SAME arrays (updateLegend) so legend == map.
+const PALETTES = {
+  ppi:         ["#922B21","#E74C3C","#E67E22","#F1C40F","#27AE60","#1A7A4A"], // diverging: index vs 100
+  income:      ["#CDE8C4","#9BD187","#6BB84F","#3F962C","#256F17","#14520C"], // sequential greens
+  spend:       ["#D6E8F5","#A5CDE8","#6BA9D6","#3E82BE","#245F97","#123F6B"], // sequential blues
+  signal:      ["#E4DCF0","#C4B0E0","#9E7FCB","#7A54B0","#582F8C","#3C1D63"], // sequential violet
+  suitability: ["#F5E6C8","#E8C98A","#D8A54E","#BE7F26","#96600F","#6B4308"], // sequential amber (= "opportunity")
+};
 // PPI — relative (computePPI normalises to mean=100) with absolute breakpoints
 function ppiColor(ppi){
-  if(ppi >= 145) return "#1A7A4A";
-  if(ppi >= 120) return "#27AE60";
-  if(ppi >= 100) return "#F1C40F";
-  if(ppi >= 80)  return "#E67E22";
-  if(ppi >= 60)  return "#E74C3C";
-  return                "#922B21";
+  const p = PALETTES.ppi;
+  if(ppi >= 145) return p[5];
+  if(ppi >= 120) return p[4];
+  if(ppi >= 100) return p[3];
+  if(ppi >= 80)  return p[2];
+  if(ppi >= 60)  return p[1];
+  return                p[0];
 }
 // Income — absolute INR thresholds so switching metric changes colours
 function incomeColor(v){
-  if(v >= 120000) return "#1A7A4A";
-  if(v >= 75000)  return "#27AE60";
-  if(v >= 50000)  return "#F1C40F";
-  if(v >= 35000)  return "#E67E22";
-  if(v >= 20000)  return "#E74C3C";
-  return                 "#922B21";
+  const p = PALETTES.income;
+  if(v >= 120000) return p[5];
+  if(v >= 75000)  return p[4];
+  if(v >= 50000)  return p[3];
+  if(v >= 35000)  return p[2];
+  if(v >= 20000)  return p[1];
+  return                 p[0];
 }
 // Spend — absolute INR thresholds
 function spendColor(v){
-  if(v >= 90000) return "#1A7A4A";
-  if(v >= 60000) return "#27AE60";
-  if(v >= 40000) return "#F1C40F";
-  if(v >= 28000) return "#E67E22";
-  if(v >= 17000) return "#E74C3C";
-  return                "#922B21";
+  const p = PALETTES.spend;
+  if(v >= 90000) return p[5];
+  if(v >= 60000) return p[4];
+  if(v >= 40000) return p[3];
+  if(v >= 28000) return p[2];
+  if(v >= 17000) return p[1];
+  return                p[0];
 }
 // Any of the extra raw signals — bucketed by this render's min/max (metricMin/metricMax),
 // since their ranges vary far too widely (e.g. NSDP vs. UPI txn value) for fixed thresholds.
 function bucketColor(t){
-  if(t >= 1)   return "#1A7A4A";
-  if(t >= 0.8) return "#27AE60";
-  if(t >= 0.6) return "#F1C40F";
-  if(t >= 0.4) return "#E67E22";
-  if(t >= 0.2) return "#E74C3C";
-  return              "#922B21";
+  const p = PALETTES.signal;
+  if(t >= 1)   return p[5];
+  if(t >= 0.8) return p[4];
+  if(t >= 0.6) return p[3];
+  if(t >= 0.4) return p[2];
+  if(t >= 0.2) return p[1];
+  return              p[0];
+}
+// Suitability / project-fit score — a fixed 0-100 domain (never per-view normalised).
+function suitabilityColor(v){
+  const p = PALETTES.suitability;
+  if(v >= 80) return p[5];
+  if(v >= 65) return p[4];
+  if(v >= 50) return p[3];
+  if(v >= 35) return p[2];
+  if(v >= 20) return p[1];
+  return             p[0];
 }
 function zoneColor(d){
+  if(metric === "__suitability__") return suitabilityColor(metricValue(d));
   if(metric === "income") return incomeColor(d.income);
   if(metric === "spend")  return spendColor(d.spend);
   if(metric === "ppi")    return ppiColor(d.ppi);
@@ -2416,17 +2502,35 @@ function zoneColor(d){
   return bucketColor(t);
 }
 
-// Fixed ticks per metric for the legend
+// Legend tick labels — placed at the START of each of the 6 colour buckets, so
+// the numbers line up with where the colour actually changes on the map.
 const LEGEND_TICKS = {
-  ppi:    ["50","70","85","100","120","145+"],
-  income: ["₹20k","₹35k","₹50k","₹75k","₹1.2L","₹1.5L+"],
-  spend:  ["₹17k","₹28k","₹40k","₹60k","₹90k","₹1L+"],
+  ppi:         ["<60","60","80","100","120","145+"],
+  income:      ["<20k","₹20k","₹35k","₹50k","₹75k","₹1.2L+"],
+  spend:       ["<17k","₹17k","₹28k","₹40k","₹60k","₹90k+"],
+  suitability: ["0","20","35","50","65","80+"],
 };
 function updateLegend(){
   const labels = {ppi:"PPI index", income:"Avg income / mo", spend:"Avg spend / mo"};
+  const strip = document.getElementById("denomStrip");
+  const paint = arr => { strip.innerHTML = arr.map(c=>`<i style="background:${c}"></i>`).join(""); };
+  const sub = txt => { const el = document.getElementById("denomSub"); if(el) el.textContent = txt; };
+
+  if(metric === "__suitability__"){
+    document.getElementById("denomLabel").textContent =
+      "Suitability" + (suitabilityLabel ? " · " + suitabilityLabel : "");
+    paint(PALETTES.suitability);
+    document.getElementById("denomTicks").innerHTML =
+      LEGEND_TICKS.suitability.map(t=>`<span>${t}</span>`).join("");
+    sub(suitabilitySource === "preview" ? "estimated — refining…" : "project fit · 0–100");
+    return;
+  }
+
   const sig = SIGNAL_DEFS[metric];
   document.getElementById("denomLabel").textContent = sig ? sig.label : labels[metric];
+  sub("fades with distance from your pin");
   if(sig){
+    paint(PALETTES.signal);
     const ticks = [];
     for(let i=0;i<6;i++){
       const v = metricMin + (metricMax-metricMin)*(i/5);
@@ -2434,6 +2538,7 @@ function updateLegend(){
     }
     document.getElementById("denomTicks").innerHTML = ticks.map(t=>`<span>${t}</span>`).join("");
   } else {
+    paint(PALETTES[metric] || PALETTES.signal);
     document.getElementById("denomTicks").innerHTML =
       LEGEND_TICKS[metric].map(t=>`<span>${t}</span>`).join("");
   }
@@ -2540,6 +2645,7 @@ function computePPI(rows){
 // metric" convenience wrapper; the advanced filter builder needs to read an
 // arbitrary signal id regardless of what's currently selected for colouring.
 function signalValue(d, sigId){
+  if(sigId === "__suitability__"){ const s = suitabilityMap[d.pincode]; return Number.isFinite(s) ? s : NaN; }
   if(sigId === "income") return d.income;
   if(sigId === "spend")  return d.spend;
   if(sigId === "ppi")    return d.ppi;
@@ -2550,6 +2656,19 @@ function signalValue(d, sigId){
 function metricValue(d){
   const v = signalValue(d, metric);
   return Number.isFinite(v) ? v : 0;
+}
+
+// 0..1 size factor for proportional-symbol mode. Core metrics use an ABSOLUTE
+// anchor (not this render's min/max) so switching income↔spend actually changes
+// bubble sizes even though the two are highly correlated; raw signals stay
+// per-view normalised because their ranges are unbounded and vary wildly.
+function symbolNorm(d){
+  const clamp01 = x => Math.max(0, Math.min(1, x));
+  if(metric === "__suitability__") return clamp01(metricValue(d) / 100);
+  if(metric === "ppi")    return clamp01((d.ppi - 50) / 110);       // ~50..160
+  if(metric === "income") return clamp01(d.income / 150000);
+  if(metric === "spend")  return clamp01(d.spend / 110000);
+  return metricMax > metricMin ? (metricValue(d) - metricMin) / (metricMax - metricMin) : 0.5;
 }
 
 // Advanced filter builder conditions — [{sig, op, val}], AND-combined.
@@ -2604,6 +2723,7 @@ function nearestNeighborKmMap(rows){
 function render(){
   const gen = ++renderGen;
   const isExtraSignal = !!SIGNAL_DEFS[metric];
+  const isSuitability = metric === "__suitability__";
   let rows = computePPI(withinRadius());
   if(isExtraSignal){
     // Only pincodes with a real value for this signal — fabricating e.g. an
@@ -2613,6 +2733,8 @@ function render(){
       const row = d.pincode && signalMap[d.pincode];
       return row && row[metric] !== null && row[metric] !== undefined && row[metric] !== "";
     });
+  } else if(isSuitability){
+    rows = rows.filter(d => d.pincode && Number.isFinite(suitabilityMap[d.pincode]));
   }
   const beforeFilterCount = rows.length;
   if(signalFilters.length) rows = rows.filter(passesFilters);
@@ -2623,13 +2745,15 @@ function render(){
   // No real data within selected radius → show synthetic demo clusters around pin
   // (never for a filter-caused zero — that's a real "no matches", not "no data")
   let usingEstimated = false;
-  if(rows.length === 0 && !isExtraSignal && !signalFilters.length){
+  if(rows.length === 0 && !isExtraSignal && !isSuitability && !signalFilters.length){
     const synth = syntheticAround(center[0], center[1]).map(buildRecord);
     rows = computePPI(synth.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm))
              .sort((a,b)=>metricValue(b)-metricValue(a));
     usingEstimated = true;
   } else if(rows.length === 0 && isExtraSignal){
     toast(`No ${SIGNAL_DEFS[metric].label} data within ${radiusKm} km`, 3500);
+  } else if(rows.length === 0 && isSuitability){
+    toast(`No suitability scores in view — widen the radius or check the project has signals`, 3500);
   } else if(rows.length === 0 && signalFilters.length){
     toast(`No localities match your active filter${signalFilters.length>1?"s":""}`, 3500);
   }
@@ -2651,10 +2775,11 @@ function render(){
     const nnKm = nearestNeighborKmMap(rows);
     rows.forEach(d=>{
       const fill = zoneColor(d);
-      // fade opacity by distance from pin: 0.15 at 30km, 0.70 at 0km
+      // fade slightly by distance from pin, but keep a high floor so a polygon's
+      // hue still reads as the same colour as the legend swatch far from the pin
       const distFromPin = haversine(center[0],center[1],d.lat,d.lng);
       const pinProx = Math.exp(-distFromPin / 12);
-      const fillOpacity = 0.15 + 0.55 * pinProx;
+      const fillOpacity = 0.5 + 0.32 * pinProx;
       const baseStyle = {color:fill,weight:1.5,fillColor:fill,fillOpacity,interactive:false};
       const nn = nnKm.get(d.id) ?? 5;
       // Estimated/synthetic clusters use a fixed small radius so they don't look like real coverage.
@@ -2707,10 +2832,12 @@ function render(){
     // here IS the data, so no boundary-polygon lookup — a real admin shape would misrepresent it.
     rows.forEach(d=>{
       const fill = zoneColor(d);
-      const norm = metricMax > metricMin ? (metricValue(d) - metricMin) / (metricMax - metricMin) : 0.5;
+      const norm = symbolNorm(d);
       const distFromPin = haversine(center[0],center[1],d.lat,d.lng);
       const pinProx = Math.exp(-distFromPin / 12);
-      const fillOpacity = 0.35 + 0.5 * pinProx;
+      // lower than choropleth's floor — proportional circles overlap, and stacked
+      // high-opacity fills turn a busy view into an unreadable muddy blob
+      const fillOpacity = 0.32 + 0.3 * pinProx;
       // Size always tracks the value, even for synthetic estimates — a fixed radius here
       // (like choropleth's honest "not a real boundary" cue) would make Symbols mode
       // collapse into a copy of Choropleth whenever no real data is in view.
@@ -2731,7 +2858,7 @@ function render(){
       const distFromPin = haversine(center[0],center[1],d.lat,d.lng);
       const pinProx = Math.exp(-distFromPin / 12);
       const fillOpacity = 0.35 + 0.55 * pinProx;
-      const baseStyle = {pane:"heatPoly", stroke:false, fillColor:fill, fillOpacity, interactive:false};
+      const baseStyle = {pane:"heatPoly", stroke:false, fillColor:fill, fillOpacity, interactive:false};   // heatmap: soft by design
       const nn = nnKm.get(d.id) ?? 5;
       const normVal = (metricMax > metricMin)
         ? 50 + 150 * (metricValue(d) - metricMin) / (metricMax - metricMin)
@@ -2760,14 +2887,17 @@ function render(){
       if(!buckets.has(key)) buckets.set(key, []);
       buckets.get(key).push(d);
     });
-    const fmtFn = SIGNAL_DEFS[metric] ? SIGNAL_DEFS[metric].fmt : (metric==="ppi" ? (v=>Math.round(v)) : fmtShort);
+    const fmtFn = SIGNAL_DEFS[metric] ? SIGNAL_DEFS[metric].fmt
+                : metric==="__suitability__" ? (v=>Math.round(v))
+                : metric==="ppi" ? (v=>Math.round(v)) : fmtShort;
     buckets.forEach(members=>{
       const n = members.length;
       const avgLat = members.reduce((s,d)=>s+d.lat,0) / n;
       const avgLng = members.reduce((s,d)=>s+d.lng,0) / n;
       const avgVal = members.reduce((s,d)=>s+metricValue(d),0) / n;
       const t = metricMax > metricMin ? (avgVal - metricMin) / (metricMax - metricMin) : 0.5;
-      const fill = metric==="income" ? incomeColor(avgVal)
+      const fill = metric==="__suitability__" ? suitabilityColor(avgVal)
+                 : metric==="income" ? incomeColor(avgVal)
                  : metric==="spend"  ? spendColor(avgVal)
                  : metric==="ppi"    ? ppiColor(avgVal)
                  : bucketColor(t);
@@ -2788,7 +2918,7 @@ function render(){
       const fill = zoneColor(d);
       const distFromPin = haversine(center[0],center[1],d.lat,d.lng);
       const pinProx = Math.exp(-distFromPin / 12);
-      const fillOpacity = 0.15 + 0.55 * pinProx;
+      const fillOpacity = 0.5 + 0.32 * pinProx;
       const sv = signalValue(d, secId);
       const st = Number.isFinite(sv) && secMax > secMin ? (sv - secMin) / (secMax - secMin) : 0;
       const weight = 1 + Math.round(st * 6);
@@ -2850,6 +2980,11 @@ function render(){
     document.getElementById("hlValue").textContent     = rows.length ? fmtShort(avgSpend) : "—";
     document.getElementById("hlDenominator").textContent = "/mo";
     document.getElementById("hlBaseLine").textContent  = "avg";
+  } else if(metric === "__suitability__"){
+    const avgSuit = rows.length ? avg(rows.map(metricValue)) : 0;
+    document.getElementById("hlValue").textContent     = rows.length ? Math.round(avgSuit) : "—";
+    document.getElementById("hlDenominator").textContent = " / 100";
+    document.getElementById("hlBaseLine").textContent  = suitabilitySource === "preview" ? "avg fit · est" : "avg fit";
   } else if(sigDef){
     const avgSig = rows.length ? avg(rows.map(metricValue)) : 0;
     document.getElementById("hlValue").textContent     = rows.length ? sigDef.fmt(avgSig) : "—";
@@ -2877,13 +3012,16 @@ function render(){
   // ledger list
   const colLabels = {ppi:"PPI", income:"Income/mo", spend:"Spend/mo"};
   document.getElementById("colLabel").textContent =
-    sigDef ? sigDef.label : (colLabels[metric]==="PPI" ? "Income/mo" : colLabels[metric]);
+    metric === "__suitability__" ? "Fit /100"
+    : sigDef ? sigDef.label
+    : (colLabels[metric]==="PPI" ? "Income/mo" : colLabels[metric]);
   const list = document.getElementById("locList");
   list.innerHTML = "";
   rows.forEach((d,i)=>{
     const b = document.createElement("button");
     b.className = "loc-row" + (d.id===activeId ? " active":"");
-    const valText = sigDef ? sigDef.fmt(metricValue(d))
+    const valText = metric==="__suitability__" ? String(Math.round(metricValue(d)))
+                  : sigDef ? sigDef.fmt(metricValue(d))
                   : metric==="spend" ? fmtShort(d.spend) : fmtShort(d.income);
     // Micro-insight: real relative rank of this row within the visible set for
     // the currently selected metric — reuses metricMin/metricMax, already
@@ -4252,7 +4390,8 @@ document.getElementById('spiderBtn').addEventListener('click', ()=>{
 render();
 dataPromise = loadPPIData();
 loadBoundaries();   // async — choropleth upgrades from blur to real polygons when ready
-loadSignalData().then(loadBroadCoverage).then(loadHouseholdEstimates);   // each merges into signalMap — load in sequence
+loadSignalData().then(loadBroadCoverage).then(loadHouseholdEstimates)   // each merges into signalMap — load in sequence
+  .then(refreshSuitabilityPreview);   // preview cfg may have arrived before signalMap was ready
 
 // On load: instantly restore last saved location, then refresh from GPS
 (async ()=>{
@@ -4360,8 +4499,33 @@ if (document.documentElement.classList.contains("pm-embed")) (function(){
       switch (d.type) {
         case "setSignal": {
           var col = METRIC_ALIAS[d.col] || d.col;
+          if (col === "__suitability__") {
+            metric = "__suitability__";
+            document.getElementById("hlLabel").textContent =
+              "Suitability" + (suitabilityLabel ? " · " + suitabilityLabel : "") + " — project fit";
+            document.querySelectorAll("#metricSeg button").forEach(function(x){ x.setAttribute("aria-pressed","false"); });
+            render();
+            break;
+          }
           var def = SIGNAL_DEFS[col];
           selectSignalMetric(col, def ? def.label : col);
+          break;
+        }
+        case "setSuitability": {
+          if (d.mode === "scored") {
+            suitabilityMap = d.scores || {};
+            suitabilitySource = "scored";
+            suitabilityPreviewCfg = null;
+          } else {
+            if (d.label) suitabilityLabel = d.label;
+            suitabilityPreviewCfg = {
+              signals: Array.isArray(d.signals) ? d.signals : [],
+              avgTicket: d.avgTicket,
+            };
+            suitabilitySource = "preview";
+            suitabilityMap = computeSuitabilityPreview(suitabilityPreviewCfg);
+          }
+          if (metric === "__suitability__") render();
           break;
         }
         case "flyTo": {

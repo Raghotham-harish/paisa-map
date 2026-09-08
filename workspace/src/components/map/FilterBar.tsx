@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Project, SignalCatalogItem } from "../../lib/api";
+import { SUITABILITY_KEY } from "../../lib/mapBridge";
 import { MultiSelect, Option } from "../MultiSelect";
 
 export function FilterBar({
@@ -11,6 +12,7 @@ export function FilterBar({
   onSignalsChange,
   primarySignal,
   onPrimaryChange,
+  suitabilityAvailable,
 }: {
   projects: Project[];
   project: Project | null;
@@ -20,6 +22,7 @@ export function FilterBar({
   onSignalsChange: (next: string[]) => void;
   primarySignal: string;
   onPrimaryChange: (key: string) => void;
+  suitabilityAvailable: boolean;
 }) {
   const options: Option[] = catalog.map((c) => ({
     value: c.key,
@@ -69,10 +72,11 @@ export function FilterBar({
         />
       </div>
 
-      {signals.length > 1 && (
+      {(suitabilityAvailable || signals.length > 1) && (
         <label className="fb-chip">
           <span className="k">Colour by</span>
           <select value={primarySignal} onChange={(e) => onPrimaryChange(e.target.value)}>
+            {suitabilityAvailable && <option value={SUITABILITY_KEY}>Suitability (project fit)</option>}
             {signals.map((s) => {
               const c = catalog.find((x) => x.key === s);
               return (

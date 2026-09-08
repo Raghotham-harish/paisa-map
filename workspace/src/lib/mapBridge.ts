@@ -6,6 +6,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+// Synthetic "signal" id for the project-fit Suitability layer — not a real
+// catalog column; index.html computes/holds its own per-pincode score map.
+export const SUITABILITY_KEY = "__suitability__";
+
 const MAP_ORIGIN = import.meta.env.DEV ? "http://localhost:8080" : window.location.origin;
 export const MAP_SRC = `${import.meta.env.DEV ? "http://localhost:8080" : ""}/?embed=1`;
 
@@ -55,7 +59,27 @@ type Outbound =
   | { type: "requestViewport" }
   | { type: "setRepresentation"; repr: MapStyle }
   | { type: "setRings"; on: boolean; radiusKm?: number }
-  | { type: "setMyStores"; stores: MyStorePoint[] };
+  | { type: "setMyStores"; stores: MyStorePoint[] }
+  // Drives the "Suitability (project fit)" signal layer. Two shapes (note: the
+  // discriminant is `mode`, not `source` — `source` is the bridge envelope key
+  // and spreading a second `source` here would silently break delivery):
+  //  - mode "preview": the map computes a fast client-side composite itself
+  //    from `signals` (+ optional `avgTicket`) — used on project select and
+  //    live while the user toggles signals, no round-trip.
+  //  - mode "scored": authoritative per-pincode scores from
+  //    /api/expansion/surface, replacing the preview once they arrive.
+  | {
+      type: "setSuitability";
+      mode: "preview";
+      label: string;
+      signals: string[];
+      avgTicket?: number | null;
+    }
+  | {
+      type: "setSuitability";
+      mode: "scored";
+      scores: Record<string, number>;
+    };
 
 export function useMapBridge(iframeRef: React.RefObject<HTMLIFrameElement>) {
   const [ready, setReady] = useState(false);

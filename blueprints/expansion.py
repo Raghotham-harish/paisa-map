@@ -139,23 +139,17 @@ def drivers(user_id):
     return jsonify(result)
 
 
-@expansion_bp.route("/recommend", methods=["GET"])
-@require_login
-def recommend(user_id):
-    project_id = request.args.get("project_id", type=int)
-    budget = request.args.get("budget", type=float)
-    project = _auth_db.get_project(project_id, user_id) if project_id is not None else None
-    if project is None:
-        return jsonify({"error": "project not_found"}), 404
-    if budget is None or budget <= 0:
-        return jsonify({"error": "budget must be a positive number"}), 400
+def score_project_candidates(project, user_id, *, apply_quality_gate=True, estimate_capex=True):
+    """Score every nationwide pincode for how well it fits this project — the
+    shared core of /recommend (budget-constrained, quality-gated, charged) and
+    /surface (all scores, ungated, free). O(1) per pincode; see the module
+    docstring on why this deliberately avoids intelligence._score_payload.
 
-    cost = _pricing.credit_cost("expansion_recommend")
-    balance = _auth_db.get_credit_balance(user_id)
-    if balance < cost:
-        return jsonify({"error": "insufficient_credits", "balance": balance, "required": cost}), 402
-
-    locations = _auth_db.list_customer_locations(user_id, project_id)
+    Returns a dict with `candidates` (list, sorted best-first by combined_score)
+    plus the metadata both callers echo back (driver_weighted, capex_available,
+    assumed_sqft, rows_considered).
+    """
+    locations = _auth_db.list_customer_locations(user_id, project["id"])
     owned_pincodes = {loc["pincode"] for loc in locations if loc.get("pincode")}
     rows_by_pincode, _source = _signals_data.load_ppi_signals_rows()
 
@@ -174,10 +168,10 @@ def recommend(user_id):
         for d in top_drivers
     }
 
-    assumed_sqft = _estimate_store_sqft(locations, rows_by_pincode)
+    assumed_sqft = _estimate_store_sqft(locations, rows_by_pincode) if estimate_capex else None
     capex_available = assumed_sqft is not None
     business = _business_profile(project)
-    diagnostics = _signals_data.load_diagnostics()
+    diagnostics = _signals_data.load_diagnostics() if estimate_capex else None
 
     sorted_ppis = sorted(v for v in (_num(r.get("ppi_ml")) for r in rows_by_pincode.values())
                           if v is not None)
@@ -194,7 +188,9 @@ def recommend(user_id):
         payload = {"economic_score": economic_score, "spend": _num(row.get("est_monthly_spend_hh"))}
         opportunity_score = (opportunity_assessment(payload, business)["opportunity_score"]
                               if business else economic_score)
-        if opportunity_score is None or opportunity_score < QUALITY_GATE_OPPORTUNITY:
+        if opportunity_score is None:
+            continue
+        if apply_quality_gate and opportunity_score < QUALITY_GATE_OPPORTUNITY:
             continue
 
         driver_fit_score = None
@@ -214,22 +210,88 @@ def recommend(user_id):
         combined_score = (round(opportunity_score * 0.5 + driver_fit_score * 0.5, 1)
                            if driver_fit_score is not None else opportunity_score)
 
-        estimated_capex = None
-        if capex_available:
-            rate = _num(row.get("rate_per_sqft"))
-            if rate:
-                estimated_capex = round(rate * assumed_sqft, 0)
-
-        candidates.append({
+        entry = {
             "pincode": pincode,
             "name": row.get("name") or pincode,
             "economic_score": economic_score,
             "opportunity_score": opportunity_score,
             "driver_fit_score": driver_fit_score,
             "combined_score": combined_score,
-            "estimated_capex": estimated_capex,
-            "risk": risk_assessment(pincode, diagnostics),
-        })
+        }
+        if estimate_capex:
+            estimated_capex = None
+            if capex_available:
+                rate = _num(row.get("rate_per_sqft"))
+                if rate:
+                    estimated_capex = round(rate * assumed_sqft, 0)
+            entry["estimated_capex"] = estimated_capex
+            entry["risk"] = risk_assessment(pincode, diagnostics)
+        candidates.append(entry)
+
+    candidates.sort(key=lambda c: c["combined_score"], reverse=True)
+    return {
+        "candidates": candidates,
+        "driver_weighted": driver_weighted,
+        "capex_available": capex_available,
+        "assumed_sqft": assumed_sqft,
+        "rows_considered": len(rows_by_pincode),
+    }
+
+
+@expansion_bp.route("/surface", methods=["GET"])
+@require_login
+def surface(user_id):
+    """All-pincode fit scores for the map's Suitability layer. No budget, no
+    quality gate, no credit charge — the authoritative counterpart to
+    index.html's instant client-side preview composite."""
+    project_id = request.args.get("project_id", type=int)
+    project = _auth_db.get_project(project_id, user_id) if project_id is not None else None
+    if project is None:
+        return jsonify({"error": "project not_found"}), 404
+    min_score = request.args.get("min_score", default=1.0, type=float)
+
+    scored = score_project_candidates(project, user_id,
+                                       apply_quality_gate=False, estimate_capex=False)
+    scores = [
+        {
+            "pincode": c["pincode"],
+            "combined_score": c["combined_score"],
+            "opportunity_score": c["opportunity_score"],
+            "driver_fit_score": c["driver_fit_score"],
+        }
+        for c in scored["candidates"]
+        if c["combined_score"] is not None and c["combined_score"] >= min_score
+    ]
+    return jsonify({
+        "project_id": project["id"],
+        "driver_weighted": scored["driver_weighted"],
+        "candidates_considered": scored["rows_considered"],
+        "scores": scores,
+    })
+
+
+@expansion_bp.route("/recommend", methods=["GET"])
+@require_login
+def recommend(user_id):
+    project_id = request.args.get("project_id", type=int)
+    budget = request.args.get("budget", type=float)
+    project = _auth_db.get_project(project_id, user_id) if project_id is not None else None
+    if project is None:
+        return jsonify({"error": "project not_found"}), 404
+    if budget is None or budget <= 0:
+        return jsonify({"error": "budget must be a positive number"}), 400
+
+    cost = _pricing.credit_cost("expansion_recommend")
+    balance = _auth_db.get_credit_balance(user_id)
+    if balance < cost:
+        return jsonify({"error": "insufficient_credits", "balance": balance, "required": cost}), 402
+
+    scored = score_project_candidates(project, user_id,
+                                       apply_quality_gate=True, estimate_capex=True)
+    candidates = scored["candidates"]
+    driver_weighted = scored["driver_weighted"]
+    capex_available = scored["capex_available"]
+    assumed_sqft = scored["assumed_sqft"]
 
     portfolio = []
     total_capex = 0.0
@@ -260,7 +322,7 @@ def recommend(user_id):
         "quality_gate": f"opportunity_score >= {QUALITY_GATE_OPPORTUNITY}",
         "portfolio": portfolio,
         "total_estimated_capex": round(total_capex, 0) if capex_available else None,
-        "candidates_considered": len(rows_by_pincode),
+        "candidates_considered": scored["rows_considered"],
         "detail": None if capex_available else (
             "We can't estimate CapEx per site without rent data for at least one "
             "of your existing stores — showing the top opportunities instead, "

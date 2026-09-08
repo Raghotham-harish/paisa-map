@@ -300,6 +300,20 @@ export interface ExpansionRecommendation {
   detail: string | null;
 }
 
+export interface ExpansionSurfaceScore {
+  pincode: string;
+  combined_score: number;
+  opportunity_score: number | null;
+  driver_fit_score: number | null;
+}
+
+export interface ExpansionSurface {
+  project_id: number;
+  driver_weighted: boolean;
+  candidates_considered: number;
+  scores: ExpansionSurfaceScore[];
+}
+
 export interface ForecastInsufficient {
   sufficient_data: false;
   reason: string;
@@ -630,6 +644,8 @@ export const api = {
     request(`/api/expansion/drivers?project_id=${projectId}`) as Promise<DriverAnalysis>,
   getExpansionRecommendation: (projectId: number, budget: number) =>
     request(`/api/expansion/recommend?project_id=${projectId}&budget=${budget}`) as Promise<ExpansionRecommendation>,
+  getExpansionSurface: (projectId: number) =>
+    request(`/api/expansion/surface?project_id=${projectId}`) as Promise<ExpansionSurface>,
   getForecast: (projectId: number, budget?: number) =>
     request(`/api/forecast?project_id=${projectId}${budget ? `&budget=${budget}` : ""}`) as Promise<ForecastResponse>,
 

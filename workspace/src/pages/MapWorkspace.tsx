@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, Project, SignalCatalogItem } from "../lib/api";
-import { MapStyle, MAP_SRC, MyStorePoint, useMapBridge } from "../lib/mapBridge";
+import { MapStyle, MAP_SRC, MyStorePoint, SUITABILITY_KEY, useMapBridge } from "../lib/mapBridge";
 import { useAuth } from "../lib/auth";
 import { saveMapSession } from "../lib/mapSession";
 import { FilterBar } from "../components/map/FilterBar";
@@ -61,7 +61,12 @@ export default function MapWorkspace() {
     const known = new Set(catalog.map((c) => c.key));
     const seeded = (p?.signals ?? []).filter((s) => known.has(s));
     setSignals(seeded.length ? seeded : ["ppi_ml"]);
-    setPrimarySignal(seeded[0] ?? "ppi_ml");
+    // Default to the project-fit layer whenever the project carries enough
+    // context to compute it (chosen signals and/or an average ticket) — that's
+    // the whole point of picking a project on the map. Otherwise fall back to
+    // the first raw signal.
+    const canScoreFit = seeded.length > 0 || p?.avg_ticket != null;
+    setPrimarySignal(canScoreFit ? SUITABILITY_KEY : seeded[0] ?? "ppi_ml");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, projects, catalog]);
 
@@ -69,6 +74,38 @@ export default function MapWorkspace() {
   useEffect(() => {
     if (bridge.ready) bridge.send({ type: "setSignal", col: primarySignal });
   }, [bridge.ready, primarySignal, bridge]);
+
+  // Suitability layer — instant client-side preview, recomputed on every
+  // project / signal change (no round-trip), then reconciled to the
+  // authoritative /api/expansion/surface scores when they land. `bridge.send`
+  // is a stable useCallback ref, so it (not the whole `bridge` object, which is
+  // a fresh literal every render) is what these effects depend on — otherwise
+  // the async fetch below gets cancelled and re-fired on every viewport tick.
+  const sendToMap = bridge.send;
+  useEffect(() => {
+    if (!bridge.ready || primarySignal !== SUITABILITY_KEY || !project) return;
+    sendToMap({
+      type: "setSuitability",
+      mode: "preview",
+      label: project.name,
+      signals: signals.filter((s) => s !== SUITABILITY_KEY),
+      avgTicket: project.avg_ticket ?? null,
+    });
+  }, [bridge.ready, primarySignal, project, signals, sendToMap]);
+
+  useEffect(() => {
+    if (primarySignal !== SUITABILITY_KEY || projectId == null || !bridge.ready) return;
+    let cancelled = false;
+    api.getExpansionSurface(projectId)
+      .then((d) => {
+        if (cancelled) return;
+        const scores: Record<string, number> = {};
+        for (const s of d.scores) scores[s.pincode] = s.combined_score;
+        sendToMap({ type: "setSuitability", mode: "scored", scores });
+      })
+      .catch(() => {/* preview stands; a failed scoring pass shouldn't blank the layer */});
+    return () => { cancelled = true; };
+  }, [primarySignal, projectId, bridge.ready, sendToMap]);
 
   // Deep-link from the dashboard's "Resume on the map" — fly to the
   // last-selected pincode once, then drop the param so it doesn't re-fire on
@@ -151,11 +188,16 @@ export default function MapWorkspace() {
         signals={signals}
         onSignalsChange={(next) => {
           setSignals(next);
-          if (next.length && !next.includes(primarySignal)) setPrimarySignal(next[0]);
-          if (!next.length) setPrimarySignal("ppi_ml");
+          // In Suitability mode the signal list feeds the fit score — stay on it.
+          if (primarySignal === SUITABILITY_KEY) return;
+          if (!next.length) { setPrimarySignal("ppi_ml"); return; }
+          const added = next.find((s) => !signals.includes(s));
+          if (added) setPrimarySignal(added);
+          else if (!next.includes(primarySignal)) setPrimarySignal(next[0]);
         }}
         primarySignal={primarySignal}
         onPrimaryChange={setPrimarySignal}
+        suitabilityAvailable={project != null}
       />
 
       <div className="map-body">
@@ -172,8 +214,9 @@ export default function MapWorkspace() {
           primarySignal={primarySignal}
           onPrimaryChange={(v) => {
             setPrimarySignal(v);
-            if (!signals.includes(v)) setSignals([v, ...signals]);
+            if (v !== SUITABILITY_KEY && !signals.includes(v)) setSignals([v, ...signals]);
           }}
+          suitabilityAvailable={project != null}
           mapStyle={mapStyle}
           onMapStyleChange={setMapStyle}
           ringsOn={ringsOn}
