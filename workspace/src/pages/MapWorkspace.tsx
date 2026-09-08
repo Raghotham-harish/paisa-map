@@ -7,6 +7,7 @@ import { saveMapSession } from "../lib/mapSession";
 import { FilterBar } from "../components/map/FilterBar";
 import { MapControls } from "../components/map/MapControls";
 import { LocationPanel } from "../components/map/LocationPanel";
+import { MapActionBar } from "../components/map/MapActionBar";
 import { KpiStrip } from "../components/map/KpiStrip";
 import { CompareModal } from "../components/map/CompareModal";
 
@@ -228,6 +229,14 @@ export default function MapWorkspace() {
           kpis={bridge.kpis}
         />
 
+        <MapActionBar
+          selection={bridge.selected}
+          project={project}
+          inCompare={bridge.selected?.pincode ? bridge.compare.includes(bridge.selected.pincode) : false}
+          onToggleCompare={(pincode) => bridge.send({ type: "toggleCompare", pincode })}
+          onSaved={() => {/* toast handled inside the map */}}
+        />
+
         <LocationPanel
           selection={bridge.selected}
           project={project}
@@ -250,7 +259,7 @@ export default function MapWorkspace() {
               ))}
             </div>
             <button className="btn" disabled={bridge.compare.length < 2} onClick={() => setCompareOpen(true)}>
-              Compare ({bridge.compare.length})
+              {bridge.compare.length < 2 ? "Add one more to compare" : `Compare (${bridge.compare.length})`}
             </button>
           </div>
         )}

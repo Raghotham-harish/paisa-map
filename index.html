@@ -6,7 +6,7 @@
 <title>PaisaMap — Purchasing Power Index, Near You</title>
 <meta property="og:title" content="PaisaMap — Purchasing Power Index, Near You" />
 <meta property="og:description" content="A purchasing-power heat map of India, pincode by pincode." />
-<meta property="og:image" content="https://paisamaps.com/assets/logo-box.png" />
+<meta property="og:image" content="https://paisamaps.com/assets/logo-box-v2.png" />
 <meta property="og:url" content="https://paisamaps.com/" />
 <link rel="canonical" href="https://paisamaps.com/" />
 <meta name="twitter:card" content="summary" />
@@ -933,7 +933,7 @@
   <div class="brand">
     <div class="eyebrow"><span>Purchasing-power atlas</span><span>v3.7 · Live</span></div>
     <div class="brand-row">
-      <img class="brand-logo" src="assets/logo-horizontal.svg" alt="PaisaMaps" height="36">
+      <img class="brand-logo" src="assets/logo-horizontal-v2.svg" alt="PaisaMaps" height="36">
       <div class="brand-actions">
         <span class="pro-badge plan-pill" id="planPill" title="Current plan">PRO</span>
 
@@ -1897,6 +1897,9 @@ async function relocateYou(lat, lng){
   autoEnrichIfNew(center[0], center[1]);
   bulkEnrichNearby(center[0], center[1]);
   prefetchHexNeighbors(center[0], center[1]);
+  // Embed shell: keep the location panel / action bar pinned to wherever the
+  // YOU-ARE-HERE pin now sits, without needing a marker click.
+  if (window.__pmEmbed && window.__pmSelectNearestToCenter) window.__pmSelectNearestToCenter();
 }
 
 youMarker.on("dragend", async e=>{
@@ -2431,16 +2434,18 @@ nearbyBtn.addEventListener("click", async ()=>{
   }
 });
 
-// One palette per metric family (low → high, 6 steps) — a distinct hue per
-// metric so switching what the map is coloured by is unmistakable, and so
-// income (greens) and spend (blues) never read as the same picture. The legend
-// strip is painted from the SAME arrays (updateLegend) so legend == map.
+// One palette per metric family (low → high, 6 steps). Every ramp is now a
+// TWO-HUE DIVERGING scale (ColorBrewer) rather than a single-hue tint ladder —
+// a monochromatic ramp compresses most of the visible contrast into the top
+// two steps, so switching metric barely changed the picture. A distinct hue
+// pair per metric means the map re-reads instantly on every selection. The
+// legend strip is painted from the SAME arrays (updateLegend) so legend == map.
 const PALETTES = {
-  ppi:         ["#922B21","#E74C3C","#E67E22","#F1C40F","#27AE60","#1A7A4A"], // diverging: index vs 100
-  income:      ["#CDE8C4","#9BD187","#6BB84F","#3F962C","#256F17","#14520C"], // sequential greens
-  spend:       ["#D6E8F5","#A5CDE8","#6BA9D6","#3E82BE","#245F97","#123F6B"], // sequential blues
-  signal:      ["#E4DCF0","#C4B0E0","#9E7FCB","#7A54B0","#582F8C","#3C1D63"], // sequential violet
-  suitability: ["#F5E6C8","#E8C98A","#D8A54E","#BE7F26","#96600F","#6B4308"], // sequential amber (= "opportunity")
+  ppi:         ["#D73027","#FC8D59","#FEE08B","#D9EF8B","#91CF60","#1A9850"], // RdYlGn — index vs 100
+  income:      ["#762A83","#AF8DC3","#E7D4E8","#D9F0D3","#7FBF7B","#1B7837"], // PRGn — purple ↔ green
+  spend:       ["#8C510A","#D8B365","#F6E8C3","#C7EAE5","#5AB4AC","#01665E"], // BrBG — brown ↔ teal
+  signal:      ["#B2182B","#EF8A62","#FDDBC7","#D1E5F0","#67A9CF","#2166AC"], // RdBu — red ↔ blue
+  suitability: ["#D53E4F","#FC8D59","#FEE08B","#E6F598","#99D594","#3288BD"], // Spectral — poor ↔ strong fit
 };
 // PPI — relative (computePPI normalises to mean=100) with absolute breakpoints
 function ppiColor(ppi){
@@ -4482,9 +4487,26 @@ if (document.documentElement.classList.contains("pm-embed")) (function(){
   var vpTimer = null;
   map.on("moveend zoomend", function(){ clearTimeout(vpTimer); vpTimer = setTimeout(emitViewport, 250); });
 
+  // Auto-select the dataset record nearest the YOU-ARE-HERE pin, so the shell's
+  // location-intelligence panel + action bar open on the current location with
+  // no click. Called on first data load and after every relocateYou().
+  window.__pmSelectNearestToCenter = function(){
+    try {
+      if (!dataset || !dataset.length) return;
+      var best = null, bestD = Infinity;
+      for (var i = 0; i < dataset.length; i++){
+        var d = dataset[i];
+        if (!d || !isFinite(d.lat) || !isFinite(d.lng)) continue;
+        var dd = haversine(center[0], center[1], d.lat, d.lng);
+        if (dd < bestD){ bestD = dd; best = d; }
+      }
+      if (best) { window.__pmAutoSelect = true; setActive(best.id); window.__pmAutoSelect = false; }
+    } catch (e) { window.__pmAutoSelect = false; }
+  };
+
   window.__pmEmbed = {
     post: post,
-    emitSelect:   function(d){ post({ type: "select", pincode: d.pincode || null, name: d.name || null, lat: d.lat, lng: d.lng, tier: ppiTier(d.pincode) }); },
+    emitSelect:   function(d){ post({ type: "select", pincode: d.pincode || null, name: d.name || null, lat: d.lat, lng: d.lng, tier: ppiTier(d.pincode), auto: !!window.__pmAutoSelect }); },
     emitCompare:  function(list){ post({ type: "compare", pincodes: list }); },
     emitSaved:    function(pc){ post({ type: "saved", pincode: pc }); },
     emitAuth:     function(u){ post({ type: "auth", user: u }); },
@@ -4569,7 +4591,10 @@ if (document.documentElement.classList.contains("pm-embed")) (function(){
   });
 
   post({ type: "ready" });
-  if (dataPromise && dataPromise.then) dataPromise.then(emitViewport).catch(function(){});
+  if (dataPromise && dataPromise.then) dataPromise.then(function(){
+    emitViewport();
+    window.__pmSelectNearestToCenter();
+  }).catch(function(){});
 })();
 </script>
 </body>

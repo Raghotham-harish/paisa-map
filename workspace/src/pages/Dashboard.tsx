@@ -88,8 +88,10 @@ export default function Dashboard() {
             <Link className="btn" to={hasRecentSelection ? `/map?project_id=${activeProject?.id ?? ""}&pincode=${session?.pincode}` : "/map"}>
               {hasRecentSelection ? "Resume on the map →" : "Open map workspace →"}
             </Link>
-            {activeProject && forecastReady && (
-              <Link className="btn secondary" to={`/forecast?project_id=${activeProject.id}`}>Resume forecast</Link>
+            {activeProject && (
+              <Link className="btn secondary" to={`/forecast?project_id=${activeProject.id}`}>
+                {forecastReady ? "Resume forecast" : "Preview forecast"}
+              </Link>
             )}
             {!activeProject && <Link className="btn secondary" to="/projects/new">New project</Link>}
           </div>

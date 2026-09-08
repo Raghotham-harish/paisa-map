@@ -10,27 +10,28 @@ const STYLE_OPTIONS: { value: MapStyle; label: string }[] = [
 ];
 
 // Mirrors index.html's PALETTES / LEGEND_TICKS (low → high) so the shell legend
-// shows the same colours and bucket boundaries the map actually paints.
+// shows the same colours and bucket boundaries the map actually paints. These
+// are now two-hue DIVERGING ramps — see the note on PALETTES in index.html.
 const LEGEND: Record<string, { palette: string[]; ticks: string[] }> = {
   [SUITABILITY_KEY]: {
-    palette: ["#F5E6C8", "#E8C98A", "#D8A54E", "#BE7F26", "#96600F", "#6B4308"],
+    palette: ["#D53E4F", "#FC8D59", "#FEE08B", "#E6F598", "#99D594", "#3288BD"],
     ticks: ["0", "20", "35", "50", "65", "80+"],
   },
   est_monthly_income_hh: {
-    palette: ["#CDE8C4", "#9BD187", "#6BB84F", "#3F962C", "#256F17", "#14520C"],
+    palette: ["#762A83", "#AF8DC3", "#E7D4E8", "#D9F0D3", "#7FBF7B", "#1B7837"],
     ticks: ["<20k", "₹20k", "₹35k", "₹50k", "₹75k", "₹1.2L+"],
   },
   est_monthly_spend_hh: {
-    palette: ["#D6E8F5", "#A5CDE8", "#6BA9D6", "#3E82BE", "#245F97", "#123F6B"],
+    palette: ["#8C510A", "#D8B365", "#F6E8C3", "#C7EAE5", "#5AB4AC", "#01665E"],
     ticks: ["<17k", "₹17k", "₹28k", "₹40k", "₹60k", "₹90k+"],
   },
   ppi_ml: {
-    palette: ["#922B21", "#E74C3C", "#E67E22", "#F1C40F", "#27AE60", "#1A7A4A"],
+    palette: ["#D73027", "#FC8D59", "#FEE08B", "#D9EF8B", "#91CF60", "#1A9850"],
     ticks: ["<60", "60", "80", "100", "120", "145+"],
   },
 };
 const SIGNAL_LEGEND = {
-  palette: ["#E4DCF0", "#C4B0E0", "#9E7FCB", "#7A54B0", "#582F8C", "#3C1D63"],
+  palette: ["#B2182B", "#EF8A62", "#FDDBC7", "#D1E5F0", "#67A9CF", "#2166AC"],
   ticks: ["low", "", "", "", "", "high"],
 };
 
