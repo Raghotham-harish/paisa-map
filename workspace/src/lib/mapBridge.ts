@@ -27,6 +27,8 @@ export interface MapSelection {
   lat: number;
   lng: number;
   tier: MarketTier;
+  /** true when the map auto-picked this (YOU-ARE-HERE nearest), not a click. */
+  auto?: boolean;
 }
 
 export interface MapKpis {
@@ -111,7 +113,7 @@ export function useMapBridge(iframeRef: React.RefObject<HTMLIFrameElement>) {
           setReady(true);
           break;
         case "select":
-          setSelected({ pincode: d.pincode ?? null, name: d.name ?? null, lat: d.lat, lng: d.lng, tier: d.tier ?? null });
+          setSelected({ pincode: d.pincode ?? null, name: d.name ?? null, lat: d.lat, lng: d.lng, tier: d.tier ?? null, auto: !!d.auto });
           break;
         case "compare":
           setCompare(Array.isArray(d.pincodes) ? d.pincodes : []);

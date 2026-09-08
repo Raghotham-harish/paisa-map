@@ -583,11 +583,18 @@ export const api = {
 
   signalCatalog: () => request("/api/signals/catalog") as Promise<{ signals: SignalCatalogItem[] }>,
 
-  getLocationScore: (pincode: string, business?: { avg_ticket?: number | null; target_segment?: string | null; business_type?: string | null }) => {
+  getLocationScore: (
+    pincode: string,
+    business?: { avg_ticket?: number | null; target_segment?: string | null; business_type?: string | null },
+    opts?: { auto?: boolean },
+  ) => {
     const q = new URLSearchParams({ pincode });
     if (business?.avg_ticket != null) q.set("avg_ticket", String(business.avg_ticket));
     if (business?.target_segment) q.set("target_segment", business.target_segment);
     if (business?.business_type) q.set("business_type", business.business_type);
+    // Suppress activity logging for the map's automatic YOU-ARE-HERE selection —
+    // otherwise every map open spams the feed with a location_score entry.
+    if (opts?.auto) q.set("auto", "1");
     return request(`/api/intelligence/score?${q.toString()}`) as Promise<LocationScore>;
   },
   compareLocations: (pincodes: string[], business?: { avg_ticket?: number | null; target_segment?: string | null; business_type?: string | null }) => {

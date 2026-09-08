@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, Forecast as ForecastResult, ForecastResponse, PricingConfig, Project, api } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
+import { ForecastPreview } from "../components/ForecastPreview";
 
 function money(n: number | null | undefined, compact = false) {
   if (n == null) return "—";
@@ -270,9 +271,8 @@ export default function Forecast() {
             {error && <p style={{ color: "var(--flame)", fontSize: 13, marginTop: 10 }}>{error}</p>}
           </div>
 
-          {result && !result.sufficient_data && (
-            <EmptyState icon="🧮" title="Not enough to forecast yet" description={result.detail}
-              primaryAction={{ label: "Upload store data", to: "/customer-data" }} bare />
+          {!f && (
+            <ForecastPreview detail={result && !result.sufficient_data ? result.detail : null} />
           )}
 
           {f && (

@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { ApiError, api, DriverAnalysis, LocationScore, Project } from "../../lib/api";
 import { MapSelection } from "../../lib/mapBridge";
 
@@ -37,25 +36,23 @@ function Bench({ label, diff }: { label: string; diff: number | null | undefined
   );
 }
 
+// The three primary actions (save / compare / forecast) live in the always-on
+// MapActionBar now, not here — this panel is purely the (dismissible) reading
+// surface for a location's intelligence.
 export function LocationPanel({
   selection,
   project,
-  inCompare,
-  onToggleCompare,
-  onSaved,
 }: {
   selection: MapSelection | null;
   project: Project | null;
-  inCompare: boolean;
-  onToggleCompare: (pincode: string) => void;
-  onSaved: () => void;
+  inCompare?: boolean;
+  onToggleCompare?: (pincode: string) => void;
+  onSaved?: () => void;
 }) {
-  const navigate = useNavigate();
   const [score, setScore] = useState<LocationScore | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dismissedFor, setDismissedFor] = useState<string | null>(null);
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "exists" | "error">("idle");
   const [projectDrivers, setProjectDrivers] = useState<DriverAnalysis | null>(null);
 
   const pincode = selection?.pincode ?? null;
@@ -79,7 +76,6 @@ export function LocationPanel({
   }, [project]);
 
   useEffect(() => {
-    setSaveState("idle");
     if (!pincode) {
       setScore(null);
       return;
@@ -92,7 +88,7 @@ export function LocationPanel({
         avg_ticket: project?.avg_ticket ?? null,
         target_segment: project?.target_segment ?? null,
         business_type: project?.business_type ?? project?.industry ?? null,
-      })
+      }, { auto: selection?.auto })
       .then((s) => {
         if (!cancelled) setScore(s);
       })
@@ -115,24 +111,6 @@ export function LocationPanel({
 
   const headline = score?.opportunity?.opportunity_score ?? score?.economic_score ?? null;
   const headlineLabel = score?.opportunity ? "opportunity" : "economic score";
-
-  const onSave = async () => {
-    if (!pincode) return;
-    setSaveState("saving");
-    try {
-      const res = await api.createLocation({
-        pincode,
-        name: selection.name,
-        lat: selection.lat,
-        lng: selection.lng,
-        project_id: project?.id,
-      });
-      setSaveState(res.created ? "saved" : "exists");
-      onSaved();
-    } catch (e) {
-      setSaveState(e instanceof ApiError && e.status === 401 ? "error" : "error");
-    }
-  };
 
   return (
     <div className="card location-panel">
@@ -211,36 +189,6 @@ export function LocationPanel({
 
             <p className="lp-summary">{score.executive_summary}</p>
           </>
-        )}
-      </div>
-
-      <div className="lp-actions">
-        <button className="btn" onClick={onSave} disabled={!pincode || saveState === "saving"}>
-          {saveState === "saving"
-            ? "Saving…"
-            : saveState === "saved"
-              ? "Saved ✓"
-              : saveState === "exists"
-                ? "Already saved"
-                : "Save location"}
-        </button>
-        <div className="lp-actions-row">
-          <button className="btn secondary" disabled={!pincode} onClick={() => pincode && onToggleCompare(pincode)}>
-            {inCompare ? "Remove from compare" : "Add to compare"}
-          </button>
-          <button
-            className="btn secondary"
-            disabled={!project}
-            title={project ? "Investment → revenue forecast for this project" : "Pick a project to forecast"}
-            onClick={() => project && navigate(`/forecast?project_id=${project.id}`)}
-          >
-            Forecast
-          </button>
-        </div>
-        {saveState === "error" && (
-          <p style={{ color: "var(--flame)", fontSize: 12, margin: "6px 0 0" }}>
-            Couldn't save — <a href="/workspace/">sign in</a> and try again.
-          </p>
         )}
       </div>
     </div>

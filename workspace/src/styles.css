@@ -249,6 +249,20 @@ input[type="text"]:focus, textarea:focus, select:focus{ outline:2px solid var(--
   margin-top:10px; padding:10px 12px; background:#FCF0D6; border:1px solid #F0DBA0;
   border-radius:var(--radius); font-size:12.5px; line-height:1.5; color:#5C3D00;
 }
+.forecast-cta{ display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+.forecast-cta .btn{ white-space:nowrap; text-decoration:none; }
+.preview-wrap{ position:relative; }
+.preview-wrap::after{
+  content:""; position:absolute; inset:0; border:1px dashed var(--border); border-radius:var(--radius-lg);
+  pointer-events:none;
+}
+.preview-wrap > *{ opacity:.72; }
+.preview-badge{
+  position:absolute; top:-9px; left:16px; z-index:2; background:var(--amber); color:var(--ink);
+  font-size:10px; font-weight:800; letter-spacing:.08em; text-transform:uppercase;
+  padding:3px 8px; border-radius:999px;
+}
+
 .radar-legend{ display:flex; flex-wrap:wrap; gap:12px; margin-top:8px; }
 .radar-legend-item{ display:flex; align-items:center; gap:5px; font-size:11px; color:var(--ink-soft); }
 .radar-legend-item i{ width:9px; height:9px; border-radius:50%; display:inline-block; }
@@ -304,11 +318,11 @@ input[type="text"]:focus, textarea:focus, select:focus{ outline:2px solid var(--
 .map-shell{ position:fixed; inset:0 0 0 220px; display:flex; flex-direction:column; background:var(--paper-3); }
 
 .filter-bar{
-  display:flex; align-items:center; gap:8px; row-gap:6px; padding:8px 14px; flex-wrap:wrap;
+  display:flex; flex-direction:column; align-items:stretch; gap:6px; padding:8px 14px;
   background:rgba(249,250,245,.96); border-bottom:1px solid var(--border); z-index:20;
 }
-.filter-bar .brand{ line-height:0; }
-.fb-divider{ width:1px; height:22px; background:var(--border); margin:0 4px; }
+.fb-row{ display:flex; align-items:center; gap:8px; row-gap:6px; flex-wrap:wrap; }
+.fb-row-signals{ padding-top:6px; border-top:1px solid var(--border); }
 .fb-chip{
   display:flex; align-items:center; gap:6px; background:#fff; border:1px solid var(--border);
   border-radius:8px; padding:5px 9px; font-size:12.5px; text-decoration:none; color:var(--ink);
@@ -316,9 +330,9 @@ input[type="text"]:focus, textarea:focus, select:focus{ outline:2px solid var(--
 .fb-chip .k{ color:var(--ink-soft); }
 .fb-chip select{ border:0; background:transparent; font-size:12.5px; font-weight:600; padding:2px 4px; width:auto; }
 .fb-chip-link:hover{ background:var(--paper-2); }
-.fb-signals{ display:flex; align-items:center; gap:6px; flex:1 1 260px; max-width:400px; }
+.fb-signals{ display:flex; align-items:center; gap:6px; flex:1 1 100%; max-width:640px; }
 .fb-signals .k{ color:var(--ink-soft); font-size:12.5px; white-space:nowrap; }
-.fb-signals .ms-control{ min-height:34px; }
+.fb-signals .ms-control{ min-height:34px; width:100%; }
 .fb-signals .ms-menu{ min-width:240px; }
 
 .map-body{ position:relative; flex:1; }
@@ -382,6 +396,23 @@ input[type="text"]:focus, textarea:focus, select:focus{ outline:2px solid var(--
 .lp-actions .btn{ width:100%; }
 .lp-actions-row{ display:flex; gap:8px; margin-top:8px; }
 .lp-actions-row .btn{ flex:1; font-size:12.5px; padding:9px 0; }
+
+.map-action-bar{
+  position:absolute; left:50%; transform:translateX(-50%); top:16px; z-index:16;
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap; justify-content:center;
+  background:#fff; border:1px solid var(--border); border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-1); padding:8px 14px; max-width:calc(100% - 640px);
+}
+.mab-loc{ display:flex; flex-direction:column; line-height:1.25; min-width:0; }
+.mab-kicker{ font-size:10px; font-weight:700; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-soft); }
+.mab-name{ font-size:14px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:200px; }
+.mab-pin{ font-size:10.5px; color:var(--ink-soft); }
+.mab-actions{ display:flex; gap:8px; flex-wrap:wrap; }
+.mab-actions .btn{ font-size:12px; padding:7px 12px; }
+.mab-err{ font-size:11.5px; color:var(--flame); flex-basis:100%; text-align:center; }
+@media (max-width: 1280px){
+  .map-action-bar{ max-width:calc(100% - 320px); }
+}
 
 .compare-basket{
   position:absolute; left:50%; transform:translateX(-50%); bottom:16px;

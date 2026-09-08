@@ -328,7 +328,10 @@ def score():
 
     payload = _score_payload(pincode, rows_by_pincode, sorted_ppis, geography, diagnostics,
                               business=_business_from_request())
-    _log_if_signed_in("location_score", pincode)
+    # ?auto=1 marks the map shell's automatic YOU-ARE-HERE selection — a real
+    # score is still returned, it just doesn't clutter the activity feed.
+    if request.args.get("auto") != "1":
+        _log_if_signed_in("location_score", pincode)
     return jsonify(payload)
 
 
