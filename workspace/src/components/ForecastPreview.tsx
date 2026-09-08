@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { illustrations } from "../lib/illustrations";
-import { HotspotBubbles, KpiStrip, LeverBars, ReachCurve, SplitBars } from "./forecastCharts";
+import { HotspotBubbles, KpiStrip, LeverLines, ReachCurve, SplitBars } from "./forecastCharts";
 
 /**
  * Rich empty state for the Forecast page — the real dashboard, populated with
@@ -73,7 +73,7 @@ export function ForecastPreview({ detail }: { detail?: string | null }) {
 
         <div className="card fc-chart-card">
           <div className="kicker">Does each signal actually move revenue?</div>
-          <LeverBars levers={SAMPLE_LEVERS} candidates={SAMPLE_CANDIDATES} />
+          <LeverLines levers={SAMPLE_LEVERS} candidates={SAMPLE_CANDIDATES} />
         </div>
 
         <div className="card fc-chart-card">

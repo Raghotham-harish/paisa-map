@@ -88,24 +88,34 @@ export function ReachCurve({
   );
 }
 
-/* ── lever fit — grouped horizontal bars (your stores + up to 3 sites) ──── */
-export function LeverBars({
+/* ── lever fit — profile lines across signals (your stores + up to 3 sites) ─ */
+export function LeverLines({
   levers,
   candidates = [],
 }: {
   levers: { label: string; fit: number | null }[];
   candidates?: { label: string; values: (number | null)[] }[];
 }) {
+  const n = levers.length;
+  if (n < 2) return null;
   const series = [
-    { label: "Your stores", color: RUPEE_DEEP, get: (li: number) => levers[li].fit },
+    { label: "Your stores", color: RUPEE_DEEP, w: 3, primary: true, values: levers.map((l) => l.fit) },
     ...candidates.map((c, ci) => ({
       label: c.label,
       color: SITE_COLORS[ci % SITE_COLORS.length],
-      get: (li: number) => c.values[li] ?? null,
+      w: 2,
+      primary: false,
+      values: levers.map((_, li) => c.values[li] ?? null),
     })),
   ];
+  const W = 900, H = 340, L = 46, R = 26, T = 22, B = 62;
+  const x = (i: number) => L + (n <= 1 ? 0.5 : i / (n - 1)) * (W - L - R);
+  const y = (v: number) => H - B - (Math.max(0, Math.min(100, v)) / 100) * (H - B - T);
+  const short = (s: string) => (s.length > 24 ? s.slice(0, 23) + "…" : s);
+  const anchorFor = (i: number) => (i === 0 ? "start" : i === n - 1 ? "end" : "middle");
+
   return (
-    <div className="fc-levers">
+    <>
       <div className="fc-chart-legend">
         {series.map((s) => (
           <span className="fc-chart-legend-item" key={s.label}>
@@ -113,29 +123,51 @@ export function LeverBars({
           </span>
         ))}
       </div>
-      {levers.map((lv, li) => (
-        <div className="fc-lever-row" key={lv.label}>
-          <span className="fc-lever-name">{lv.label}</span>
-          <div className="fc-lever-bars">
-            {series.map((s) => {
-              const v = s.get(li);
-              return (
-                <div className="fc-lever-bar" key={s.label}>
-                  <span className="fc-lever-track">
-                    <span style={{ width: `${Math.max(1.5, Math.min(100, v ?? 0))}%`, background: s.color }} />
-                  </span>
-                  <span className="fc-lever-val">{v == null ? "—" : Math.round(v)}</span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      ))}
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block", maxWidth: "100%", overflow: "visible" }}>
+        {[0, 25, 50, 75, 100].map((g) => (
+          <g key={g}>
+            <line x1={L} x2={W - R} y1={y(g)} y2={y(g)} stroke={GRID} strokeWidth={1} />
+            <text x={L - 8} y={y(g) + 4} fontSize={12} textAnchor="end" fill={SOFT}>{g}</text>
+          </g>
+        ))}
+        {levers.map((lv, i) => (
+          <g key={lv.label}>
+            <line x1={x(i)} x2={x(i)} y1={T} y2={H - B} stroke={GRID} strokeWidth={1} strokeDasharray="2 4" />
+            <text x={x(i)} y={H - B + 20} fontSize={12} textAnchor={anchorFor(i)} fill={INK}>{short(lv.label)}</text>
+          </g>
+        ))}
+        {series.map((s) => {
+          const pts = s.values.map((v, i) => (v == null ? null : [x(i), y(v)] as [number, number]));
+          // split into contiguous segments so a missing value breaks the line
+          const segs: [number, number][][] = [];
+          let cur: [number, number][] = [];
+          for (const p of pts) { if (p) cur.push(p); else if (cur.length) { segs.push(cur); cur = []; } }
+          if (cur.length) segs.push(cur);
+          return (
+            <g key={s.label}>
+              {segs.map((seg, si) => (
+                <polyline key={si} points={seg.map((p) => p.join(",")).join(" ")} fill="none"
+                  stroke={s.color} strokeWidth={s.w} strokeLinejoin="round" />
+              ))}
+              {s.values.map((v, i) => v == null ? null : (
+                <circle key={i} cx={x(i)} cy={y(v)} r={s.primary ? 4.5 : 3.5} fill={s.color}>
+                  <title>{`${s.label} · ${levers[i].label}: ${Math.round(v)}`}</title>
+                </circle>
+              ))}
+              {s.primary && s.values.map((v, i) => v == null ? null : (
+                <text key={i} x={x(i)} y={y(v) - 9} fontSize={12} fontWeight={700} textAnchor="middle" fill={s.color}>
+                  {Math.round(v)}
+                </text>
+              ))}
+            </g>
+          );
+        })}
+      </svg>
       <p className="fc-chart-note">
-        Each bar is 0–100: your stores’ historical correlation with revenue, then each recommended site’s own percentile
-        on that signal. Short “your stores” bars = a signal that doesn’t predict your sales.
+        Each line is a 0–100 profile across your signals: your stores’ historical correlation with revenue, then each
+        recommended site’s own percentile. A low “your stores” point = a signal that doesn’t predict your sales.
       </p>
-    </div>
+    </>
   );
 }
 

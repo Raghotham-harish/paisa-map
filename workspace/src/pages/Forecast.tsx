@@ -4,7 +4,7 @@ import { ApiError, Forecast as ForecastResult, ForecastResponse, PricingConfig, 
 import { EmptyState } from "../components/EmptyState";
 import { ForecastPreview } from "../components/ForecastPreview";
 import { illustrations } from "../lib/illustrations";
-import { HotspotBubbles, KpiStrip, LeverBars, money, ReachCurve, SplitBars } from "../components/forecastCharts";
+import { HotspotBubbles, KpiStrip, LeverLines, money, ReachCurve, SplitBars } from "../components/forecastCharts";
 
 const CONF_CLASS: Record<string, string> = { high: "delta-pos", medium: "reviewing", low: "rejected" };
 
@@ -170,7 +170,7 @@ export default function Forecast() {
 
               <div className="card fc-chart-card">
                 <div className="kicker">Does each signal actually move revenue?</div>
-                <LeverBars
+                <LeverLines
                   levers={f.lever_fit_radar.map((l) => ({ label: l.label, fit: l.lever_fit }))}
                   candidates={f.recommended_portfolio.sites
                     .filter((s) => s.lever_percentiles)
