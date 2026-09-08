@@ -34,6 +34,16 @@ const SIGNAL_LEGEND = {
   palette: ["#B2182B", "#EF8A62", "#FDDBC7", "#D1E5F0", "#67A9CF", "#2166AC"],
   ticks: ["low", "", "", "", "", "high"],
 };
+// Per-category ramps — mirrors index.html's SIGNAL_GROUP_PALETTES so two
+// different Pro signals never look like the same map. Keyed by catalog group.
+const GROUP_PALETTE: Record<string, string[]> = {
+  "Property": ["#C51B7D", "#E9A3C9", "#FDE0EF", "#E6F5D0", "#A1D76A", "#4D9221"],
+  "Banking & UPI": ["#B2182B", "#EF8A62", "#FDDBC7", "#D1E5F0", "#67A9CF", "#2166AC"],
+  "Tax & economy": ["#B35806", "#F1A340", "#FEE0B6", "#D8DAEB", "#998EC3", "#542788"],
+  "Infrastructure": ["#D73027", "#FC8D59", "#FEE090", "#E0F3F8", "#91BFDB", "#4575B4"],
+  "Vehicles": ["#00695C", "#4DB6AC", "#B2DFDB", "#F5C6CB", "#E57373", "#C62828"],
+  "Nationwide coverage": ["#334155", "#64748B", "#CBD5E1", "#FDE68A", "#F59E0B", "#B45309"],
+};
 
 export function MapControls({
   catalog,
@@ -96,7 +106,12 @@ export function MapControls({
 
       <div className="mc-section">
         {(() => {
-          const l = LEGEND[primarySignal] ?? SIGNAL_LEGEND;
+          const group = catalog.find((c) => c.key === primarySignal)?.group;
+          const l =
+            LEGEND[primarySignal] ??
+            (group && GROUP_PALETTE[group]
+              ? { palette: GROUP_PALETTE[group], ticks: SIGNAL_LEGEND.ticks }
+              : SIGNAL_LEGEND);
           return (
             <>
               <div className="mc-legend-bar">

@@ -2444,9 +2444,26 @@ const PALETTES = {
   ppi:         ["#D73027","#FC8D59","#FEE08B","#D9EF8B","#91CF60","#1A9850"], // RdYlGn — index vs 100
   income:      ["#762A83","#AF8DC3","#E7D4E8","#D9F0D3","#7FBF7B","#1B7837"], // PRGn — purple ↔ green
   spend:       ["#8C510A","#D8B365","#F6E8C3","#C7EAE5","#5AB4AC","#01665E"], // BrBG — brown ↔ teal
-  signal:      ["#B2182B","#EF8A62","#FDDBC7","#D1E5F0","#67A9CF","#2166AC"], // RdBu — red ↔ blue
+  signal:      ["#B2182B","#EF8A62","#FDDBC7","#D1E5F0","#67A9CF","#2166AC"], // RdBu — fallback for any unknown group
   suitability: ["#D53E4F","#FC8D59","#FEE08B","#E6F598","#99D594","#3288BD"], // Spectral — poor ↔ strong fit
 };
+// Every non-core signal used to share PALETTES.signal, so switching between,
+// say, "Bank branches /lakh" and "Factories /lakh" looked identical. Each
+// SIGNAL_GROUPS category now gets its own two-hue diverging ramp, all mutually
+// distinct and distinct from the core four above. Keyed by the group's label.
+const SIGNAL_GROUP_PALETTES = {
+  "Property":            ["#C51B7D","#E9A3C9","#FDE0EF","#E6F5D0","#A1D76A","#4D9221"], // PiYG — magenta ↔ green
+  "Banking & UPI":       ["#B2182B","#EF8A62","#FDDBC7","#D1E5F0","#67A9CF","#2166AC"], // RdBu — red ↔ blue
+  "Tax & economy":       ["#B35806","#F1A340","#FEE0B6","#D8DAEB","#998EC3","#542788"], // PuOr — orange ↔ purple
+  "Infrastructure":      ["#D73027","#FC8D59","#FEE090","#E0F3F8","#91BFDB","#4575B4"], // RdYlBu — red ↔ blue via yellow
+  "Vehicles":            ["#00695C","#4DB6AC","#B2DFDB","#F5C6CB","#E57373","#C62828"], // teal ↔ crimson
+  "Nationwide coverage": ["#334155","#64748B","#CBD5E1","#FDE68A","#F59E0B","#B45309"], // slate ↔ gold
+};
+// The active extra-signal's ramp (falls back to PALETTES.signal).
+function signalPalette(){
+  const g = SIGNAL_DEFS[metric] && SIGNAL_DEFS[metric].group;
+  return SIGNAL_GROUP_PALETTES[g] || PALETTES.signal;
+}
 // PPI — relative (computePPI normalises to mean=100) with absolute breakpoints
 function ppiColor(ppi){
   const p = PALETTES.ppi;
@@ -2480,7 +2497,7 @@ function spendColor(v){
 // Any of the extra raw signals — bucketed by this render's min/max (metricMin/metricMax),
 // since their ranges vary far too widely (e.g. NSDP vs. UPI txn value) for fixed thresholds.
 function bucketColor(t){
-  const p = PALETTES.signal;
+  const p = signalPalette();
   if(t >= 1)   return p[5];
   if(t >= 0.8) return p[4];
   if(t >= 0.6) return p[3];
@@ -2535,7 +2552,7 @@ function updateLegend(){
   document.getElementById("denomLabel").textContent = sig ? sig.label : labels[metric];
   sub("fades with distance from your pin");
   if(sig){
-    paint(PALETTES.signal);
+    paint(signalPalette());
     const ticks = [];
     for(let i=0;i<6;i++){
       const v = metricMin + (metricMax-metricMin)*(i/5);
