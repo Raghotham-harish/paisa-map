@@ -1,79 +1,34 @@
 import { useEffect, useState } from "react";
 import { ApiError, DriverAnalysis, LocationScore, LocationStatus, PricingConfig, Project, SavedLocation, api } from "../../lib/api";
+import { prettySignal } from "../../lib/signalLabel";
 
 type Ranked = LocationScore & { rank: number };
 
-// One stable colour per location, used across every chart in the modal.
-const LOC_COLORS = ["var(--rupee)", "var(--amber)", "#2A81CB", "var(--flame)", "#7A54B0", "#0E9594", "#C2650C", "#555"];
-
-function money(n: number | null | undefined, compact = false) {
+function money(n: number | null | undefined) {
   if (n == null) return "—";
-  if (compact) {
-    if (Math.abs(n) >= 1e7) return `₹${(n / 1e7).toFixed(2)}Cr`;
-    if (Math.abs(n) >= 1e5) return `₹${(n / 1e5).toFixed(1)}L`;
-    if (Math.abs(n) >= 1e3) return `₹${(n / 1e3).toFixed(0)}k`;
-  }
+  if (Math.abs(n) >= 1e7) return `₹${(n / 1e7).toFixed(2)} Cr`;
+  if (Math.abs(n) >= 1e5) return `₹${(n / 1e5).toFixed(2)} L`;
+  if (Math.abs(n) >= 1e3) return `₹${(n / 1e3).toFixed(0)} k`;
   return `₹${Math.round(n).toLocaleString("en-IN")}`;
 }
 
 const STATUS_PILL: Record<LocationStatus, string> = {
   shortlist: "shortlist", reviewing: "reviewing", approved: "approved", rejected: "rejected",
 };
-const RISK_PILL: Record<string, string> = { Low: "delta-pos", Medium: "reviewing", High: "rejected", Unknown: "shortlist" };
+const SUIT_PILL: Record<string, string> = {
+  "Highly Suitable": "approved", Suitable: "reviewing", Marginal: "shortlist", "Not Suitable": "rejected",
+};
+const RISK_PILL: Record<string, string> = { Low: "approved", Medium: "reviewing", High: "rejected", Unknown: "shortlist" };
 
 const opp = (l: Ranked) => l.opportunity?.opportunity_score ?? l.economic_score ?? null;
 
-/* ── metric comparison bars ─────────────────────────────────────────────────
-   One row per metric; every location a labelled bar scaled to the row's max,
-   the leader marked. Gives "who wins on what" at a glance + the real number. */
-function MetricBars({ rows }: { rows: Ranked[] }) {
-  const metrics: { label: string; get: (l: Ranked) => number | null; fmt: (v: number) => string; outOf?: number }[] = [
-    { label: "Opportunity", get: opp, fmt: (v) => `${Math.round(v)}`, outOf: 100 },
-    { label: "Economic score", get: (l) => l.economic_score, fmt: (v) => `${Math.round(v)}`, outOf: 100 },
-    { label: "Income /mo", get: (l) => l.income, fmt: (v) => money(v, true) },
-    { label: "Spend /mo", get: (l) => l.spend, fmt: (v) => money(v, true) },
-  ];
-  return (
-    <>
-    <div className="cmp-legend">
-      {rows.map((l, i) => (
-        <span className="cmp-legend-item" key={l.pincode}>
-          <i style={{ background: LOC_COLORS[i % LOC_COLORS.length] }} />
-          {l.name}
-        </span>
-      ))}
-    </div>
-    <div className="cmp-bars">
-      {metrics.map((m) => {
-        const vals = rows.map((l) => m.get(l));
-        const max = m.outOf ?? Math.max(1, ...vals.map((v) => v ?? 0));
-        const best = Math.max(...vals.map((v) => v ?? -Infinity));
-        return (
-          <div className="cmp-bar-row" key={m.label}>
-            <span className="cmp-bar-metric">{m.label}</span>
-            <div className="cmp-bar-set">
-              {rows.map((l, i) => {
-                const v = m.get(l);
-                const w = v == null ? 0 : Math.max(2, (v / max) * 100);
-                return (
-                  <div className="cmp-bar-line" key={l.pincode}>
-                    <span className="cmp-bar-track">
-                      <span
-                        className={`cmp-bar-fill ${v === best ? "lead" : ""}`}
-                        style={{ width: `${w}%`, background: LOC_COLORS[i % LOC_COLORS.length] }}
-                      />
-                    </span>
-                    <span className={`cmp-bar-val ${v === best ? "lead" : ""}`}>{v == null ? "—" : m.fmt(v)}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-    </>
-  );
+// The exec summary is a full paragraph; the compare "Read" cell wants a glance.
+function firstSentences(text: string, n: number) {
+  if (!text) return "—";
+  const parts = text.split(/(?<=\.)\s+/).filter(Boolean);
+  const out = parts.slice(0, n).join(" ");
+  // drop the boilerplate "Modelled estimate…" tail if it slipped in
+  return out.replace(/\s*Modelled estimate.*$/i, "").trim() || parts[0];
 }
 
 export function CompareModal({
@@ -97,8 +52,6 @@ export function CompareModal({
   const [reportRunning, setReportRunning] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [reportId, setReportId] = useState<number | null>(null);
-  const [allocInput, setAllocInput] = useState<Record<number, string>>({});
-  const [showTable, setShowTable] = useState(false);
 
   useEffect(() => {
     api
@@ -116,18 +69,12 @@ export function CompareModal({
   }, []);
 
   useEffect(() => {
-    if (!project) {
-      setDrivers(null);
-      return;
-    }
+    if (!project) { setDrivers(null); return; }
     api.getDriverAnalysis(project.id).then(setDrivers).catch(() => setDrivers(null));
   }, [project]);
 
   const loadSaved = () => {
-    if (!project) {
-      setSaved([]);
-      return;
-    }
+    if (!project) { setSaved([]); return; }
     api.listLocations(project.id).then((d) => setSaved(d.locations)).catch(() => setSaved([]));
   };
   useEffect(loadSaved, [project]);
@@ -151,27 +98,17 @@ export function CompareModal({
       try {
         await api.createLocation({ pincode: l.pincode, name: l.name, lat: l.lat, lng: l.lng, project_id: project?.id });
         created++;
-      } catch {
-        // one failure shouldn't stop the rest — the summary below reports what actually landed
-      }
+      } catch { /* keep going; summary reports what landed */ }
     }
     setBulkSaving(false);
     const skipped = rows.length - created;
     setBulkSaveMsg(
       created === 0
-        ? "All of these are already saved."
-        : `Saved ${created} location${created === 1 ? "" : "s"}${skipped > 0 ? ` (${skipped} already saved)` : ""}.`,
+        ? "All already saved."
+        : `Saved ${created}${skipped > 0 ? ` (${skipped} already saved)` : ""}.`,
     );
     loadSaved();
     onSaved?.();
-  };
-
-  const onAllocate = async (loc: SavedLocation) => {
-    const raw = allocInput[loc.id];
-    const n = Number(raw);
-    if (!raw || !isFinite(n) || n < 0) return;
-    const { location } = await api.updateLocation(loc.id, { allocated_investment: n });
-    setSaved((prev) => prev.map((s) => (s.id === location.id ? location : s)));
   };
 
   const reportCost = pricing?.credit_costs?.report_generate;
@@ -188,7 +125,7 @@ export function CompareModal({
     } catch (e) {
       setReportError(
         e instanceof ApiError && e.body?.error === "insufficient_credits"
-          ? `Not enough credits — this report costs ${e.body.required}, you have ${e.body.balance}.`
+          ? `Not enough credits — needs ${e.body.required}, you have ${e.body.balance}.`
           : e instanceof ApiError && e.body?.error === "no_locations"
             ? "Nothing to report on yet."
             : "Couldn't generate the report — try again.",
@@ -198,35 +135,42 @@ export function CompareModal({
     }
   };
 
-  // Headline insight — who leads on the two metrics that matter most.
-  const leader = rows && rows.length
-    ? [...rows].sort((a, b) => (opp(b) ?? 0) - (opp(a) ?? 0))[0]
-    : null;
-  const richest = rows && rows.length
-    ? [...rows].sort((a, b) => (b.income ?? 0) - (a.income ?? 0))[0]
-    : null;
+  const strongestDriver = (l: Ranked) => {
+    const match = (l.top_signals ?? []).find((s) => topDriverSignals.has(s)) ?? (l.top_signals ?? [])[0];
+    return match ? prettySignal(match) : "—";
+  };
 
-  const tableRows: { label: string; render: (l: Ranked) => React.ReactNode }[] = [
-    { label: "Opportunity", render: (l) => (opp(l) != null ? Math.round(opp(l)!) : "—") },
-    { label: "Economic score", render: (l) => l.economic_score ?? "—" },
-    { label: "Suitability", render: (l) => l.opportunity?.suitability ?? "—" },
-    { label: "Risk", render: (l) => l.risk.level },
-    { label: "Income /mo", render: (l) => money(l.income) },
-    { label: "Spend /mo", render: (l) => money(l.spend) },
-    { label: "vs nearby", render: (l) => (l.benchmark.neighbours?.diff_pct != null ? `${l.benchmark.neighbours.diff_pct}%` : "—") },
+  const gridCols = rows ? `148px repeat(${rows.length}, minmax(0,1fr))` : "148px";
+
+  type Row = { lab: string; cell: (l: Ranked) => React.ReactNode; head?: boolean };
+  const tableRows: Row[] = [
     {
-      label: "Strongest driver for you",
-      render: (l) => {
-        const match = (l.top_signals ?? []).find((s) => topDriverSignals.has(s));
-        return match ? <span className="pill delta-pos">{match}</span> : <span style={{ color: "var(--ink-soft)" }}>—</span>;
+      lab: "Economic score", head: true,
+      cell: (l) => <><span className="mono cmp-big">{l.economic_score ?? "—"}</span><span className="cmp-outof"> /100</span></>,
+    },
+    { lab: "Opportunity (weighted)", cell: (l) => <span className="mono">{opp(l) != null ? Math.round(opp(l)!) : "—"}</span> },
+    {
+      lab: "Suitability",
+      cell: (l) => l.opportunity ? <span className={`pill ${SUIT_PILL[l.opportunity.suitability] ?? "shortlist"}`}>{l.opportunity.suitability}</span> : "—",
+    },
+    { lab: "Risk", cell: (l) => <span className={`pill ${RISK_PILL[l.risk.level] ?? "shortlist"}`}>{l.risk.level}</span> },
+    { lab: "Monthly income / hh", cell: (l) => <span className="mono">{money(l.income)}</span> },
+    { lab: "Monthly spend / hh", cell: (l) => <span className="mono">{money(l.spend)}</span> },
+    { lab: "Strongest driver", cell: (l) => strongestDriver(l) },
+    {
+      lab: "vs nearby areas",
+      cell: (l) => {
+        const d = l.benchmark.neighbours?.diff_pct;
+        if (d == null) return <span className="mono">—</span>;
+        return <span className={`mono ${d >= 0 ? "cmp-pos" : "cmp-neg"}`}>{d > 0 ? "+" : ""}{d}%</span>;
       },
     },
-    { label: "Top signals", render: (l) => (l.top_signals ?? []).slice(0, 3).join(", ") || "—" },
+    { lab: "Read", cell: (l) => <span className="cmp-read">{firstSentences(l.executive_summary, 2)}</span> },
   ];
 
   return (
     <div className="map-modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="card map-modal" role="dialog" aria-label="Compare locations">
+      <div className="card map-modal cmp-modal" role="dialog" aria-label="Compare locations">
         <div className="map-modal-head">
           <h2 style={{ margin: 0, fontSize: 17 }}>Compare {rows ? rows.length : pincodes.length} locations</h2>
           <button type="button" aria-label="Close" onClick={onClose}>
@@ -234,150 +178,94 @@ export function CompareModal({
           </button>
         </div>
 
-        <div className="cmp-modal-body">
-        {error && <p style={{ color: "var(--flame)", fontSize: 13 }}>{error}</p>}
-        {!rows && !error && <p className="loading">Loading…</p>}
+        {error && <p style={{ color: "var(--flame)", fontSize: 13, padding: "0 22px" }}>{error}</p>}
+        {!rows && !error && <p className="loading" style={{ padding: "0 22px" }}>Loading…</p>}
 
         {rows && (
-          <>
-            {/* headline insight */}
-            {leader && (
-              <div className="cmp-insight">
-                <b>{leader.name}</b> leads on opportunity ({Math.round(opp(leader) ?? 0)}/100)
-                {richest && richest.pincode !== leader.pincode && (
-                  <> · <b>{richest.name}</b> has the highest income ({money(richest.income, true)}/mo)</>
-                )}
-                {richest && richest.pincode === leader.pincode && <> and income ({money(leader.income, true)}/mo)</>}.
-              </div>
-            )}
-
-            {/* scorecards */}
-            <div className="cmp-cards">
-              {rows.map((l, i) => (
-                <div className="cmp-card" key={l.pincode} style={{ borderTopColor: LOC_COLORS[i % LOC_COLORS.length] }}>
-                  <div className="cmp-card-head">
-                    <span className={`cmp-rank ${l.rank === 1 ? "r1" : ""}`}>{l.rank}</span>
-                    <div style={{ minWidth: 0 }}>
-                      <div className="cmp-card-name">{l.name}</div>
-                      <div className="cmp-pin">{l.pincode}</div>
-                    </div>
+          <div className="cmp-layout">
+            {/* LEFT */}
+            <div className="cmp-left">
+              <div className="card cmp-basket">
+                <span className="kicker">Compare basket</span>
+                <div className="cmp-basket-row">
+                  <div className="cmp-basket-chips">
+                    {rows.map((l) => (
+                      <span className="cmp-chip" key={l.pincode}>{l.name}</span>
+                    ))}
                   </div>
-                  <div className="cmp-card-score">
-                    <span className="mono">{opp(l) != null ? Math.round(opp(l)!) : "—"}</span>
-                    <small>/100 opportunity</small>
-                  </div>
-                  <div className="cmp-card-pills">
-                    {l.opportunity && <span className="pill approved">{l.opportunity.suitability}</span>}
-                    <span className={`pill ${RISK_PILL[l.risk.level] ?? "shortlist"}`}>{l.risk.level} risk</span>
-                  </div>
-                  <div className="cmp-card-money">
-                    <span>Income <b>{money(l.income, true)}</b></span>
-                    <span>Spend <b>{money(l.spend, true)}</b></span>
-                    <span>
-                      vs nearby{" "}
-                      <b className={(l.benchmark.neighbours?.diff_pct ?? 0) >= 0 ? "pos" : "neg"}>
-                        {l.benchmark.neighbours?.diff_pct != null ? `${l.benchmark.neighbours.diff_pct > 0 ? "+" : ""}${l.benchmark.neighbours.diff_pct}%` : "—"}
-                      </b>
-                    </span>
-                  </div>
+                  <button className="btn secondary" disabled={bulkSaving} onClick={onBulkSave}>
+                    {bulkSaving ? "Saving…" : "Save all to project"}
+                  </button>
                 </div>
-              ))}
+                {bulkSaveMsg && <span className="wiz-hint">{bulkSaveMsg}</span>}
+              </div>
+
+              <div className="card cmp-grid-card">
+                <div className="cmp-grid-head" style={{ gridTemplateColumns: gridCols }}>
+                  <span className="kicker">Metric</span>
+                  {rows.map((l) => (
+                    <span className="cmp-col-head" key={l.pincode}>
+                      <span className={`cmp-rank ${l.rank === 1 ? "r1" : ""}`}>{l.rank}</span>
+                      <b>{l.name}</b>
+                      <span className="cmp-col-pin">{l.pincode}</span>
+                    </span>
+                  ))}
+                </div>
+                {tableRows.map((r) => (
+                  <div className={`cmp-grid-row ${r.head ? "head" : ""}`} key={r.lab} style={{ gridTemplateColumns: gridCols }}>
+                    <span className="cmp-grid-lab">{r.lab}</span>
+                    {rows.map((l) => (
+                      <span className="cmp-grid-cell" key={l.pincode}>{r.cell(l)}</span>
+                    ))}
+                  </div>
+                ))}
+              </div>
             </div>
 
-            {/* metric bars */}
-            <div className="cmp-section-label">How they stack up</div>
-            <MetricBars rows={rows} />
-
-            {/* detail table (collapsed) */}
-            <button className="cmp-table-toggle" type="button" onClick={() => setShowTable((s) => !s)}>
-              {showTable ? "Hide" : "Show"} full detail table
-            </button>
-            {showTable && (
-              <div className="cmp-scroll">
-                <table className="cmp-table">
-                  <thead>
-                    <tr>
-                      <th />
-                      {rows.map((l) => (
-                        <th key={l.pincode}>
-                          <span className={`cmp-rank ${l.rank === 1 ? "r1" : ""}`}>{l.rank}</span>
-                          {l.name}
-                          <span className="cmp-pin">{l.pincode}</span>
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tableRows.map((rd) => (
-                      <tr key={rd.label}>
-                        <th>{rd.label}</th>
-                        {rows.map((l) => (
-                          <td key={l.pincode}>{rd.render(l)}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {/* RIGHT — saved locations rail */}
+            <div className="card cmp-rail">
+              <div className="cmp-rail-head">
+                <span className="kicker">Saved locations</span>
+                <span className="cmp-rail-sub">{saved.length}{project ? ` · ${project.name}` : ""}</span>
               </div>
-            )}
-
-            {project && saved.length > 0 && (
-              <div className="cmp-shortlist">
-                <div className="kicker" style={{ marginBottom: 8 }}>Saved-locations shortlist — {project.name}</div>
-                <ul className="list">
-                  {saved.map((l) => (
-                    <li key={l.id}>
-                      <div>
-                        <div className="primary">{l.name || l.pincode}</div>
-                        <div className="secondary">
-                          {l.pincode}
-                          {l.notes ? ` · ${l.notes}` : ""}
-                          {l.allocated_investment != null ? ` · ${money(l.allocated_investment)} allocated` : ""}
-                        </div>
-                      </div>
-                      <div className="row-actions">
-                        <span className={`pill ${STATUS_PILL[l.status]}`}>{l.status}</span>
-                        <input
-                          type="number"
-                          placeholder="₹ allocate"
-                          style={{ width: 100, fontSize: 12 }}
-                          value={allocInput[l.id] ?? ""}
-                          onChange={(e) => setAllocInput((prev) => ({ ...prev, [l.id]: e.target.value }))}
-                          onBlur={() => onAllocate(l)}
-                        />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+              <div className="cmp-rail-list">
+                {saved.length === 0 && (
+                  <p className="wiz-hint" style={{ padding: "14px 16px" }}>
+                    Nothing saved yet. Use “Save all to project” to start a shortlist.
+                  </p>
+                )}
+                {saved.map((l) => (
+                  <div className="cmp-rail-item" key={l.id}>
+                    <div className="cmp-rail-item-top">
+                      <b>{l.name || l.pincode}</b>
+                      <span className={`pill ${STATUS_PILL[l.status]}`}>{l.status}</span>
+                    </div>
+                    <div className="cmp-rail-item-meta">
+                      {l.pincode}
+                      {l.allocated_investment != null ? <> · <span className="mono">{money(l.allocated_investment)} allocated</span></> : null}
+                    </div>
+                    {l.notes && <div className="cmp-rail-item-note">{l.notes}</div>}
+                  </div>
+                ))}
               </div>
-            )}
-          </>
-        )}
-        </div>
-
-        {rows && (
-          <div className="cmp-footer">
-            <div className="cmp-actions">
-              <div>
-                <button className="btn secondary" disabled={bulkSaving} onClick={onBulkSave}>
-                  {bulkSaving ? "Saving…" : "Save all to project"}
-                </button>
-                {bulkSaveMsg && <span className="wiz-hint" style={{ marginLeft: 10 }}>{bulkSaveMsg}</span>}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div className="cmp-rail-foot">
                 {reportId != null ? (
-                  <a className="btn" href={api.reportDownloadUrl(reportId)}>Download report PDF</a>
+                  <a className="btn" style={{ width: "100%", textAlign: "center" }} href={api.reportDownloadUrl(reportId)}>Download report PDF</a>
                 ) : (
-                  <button className="btn" disabled={reportRunning || !project} title={project ? "" : "Pick a project first"} onClick={onGenerateReport}>
-                    {reportRunning ? "Generating…" : `Generate report${reportCost != null ? ` — ${reportCost} credits` : ""}`}
+                  <button className="btn secondary" style={{ width: "100%" }} disabled={reportRunning || !project}
+                    title={project ? "" : "Pick a project first"} onClick={onGenerateReport}>
+                    {reportRunning ? "Generating…" : `Generate expansion report${reportCost != null ? ` — ${reportCost} credits` : ""}`}
                   </button>
                 )}
+                {reportError && <p style={{ color: "var(--flame)", fontSize: 12, margin: "8px 0 0" }}>{reportError}</p>}
               </div>
             </div>
-            {reportError && <p style={{ color: "var(--flame)", fontSize: 12.5, margin: "6px 0 0" }}>{reportError}</p>}
-            <p className="cmp-disclaimer">Modelled estimates from PaisaMap's PPI ensemble — not real transaction records.</p>
           </div>
         )}
+
+        <p className="cmp-disclaimer" style={{ padding: "10px 22px 0" }}>
+          Modelled estimates from PaisaMap's PPI ensemble — not real transaction records.
+        </p>
       </div>
     </div>
   );

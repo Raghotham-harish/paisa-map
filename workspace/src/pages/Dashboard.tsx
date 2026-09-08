@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../lib/auth";
 import { api, ActivityEntry, CustomerLocation, Project, SavedLocation } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
+import { illustrations } from "../lib/illustrations";
 import { MapSessionState, readMapSession } from "../lib/mapSession";
 
 // Mirrors _forecast_model.py's MIN_STORES — a client-side proxy so the
@@ -16,6 +17,10 @@ const ACTION_LABELS: Record<string, string> = {
   login: "Signed in",
   project_create: "Created project",
   location_save: "Saved a location",
+  location_score: "Scored a location",
+  location_compare: "Compared locations",
+  forecast_run: "Ran a forecast",
+  report_generate: "Generated a report",
 };
 
 function describe(entry: ActivityEntry): string {
@@ -146,7 +151,7 @@ export default function Dashboard() {
         ) : activity.length === 0 ? (
           <EmptyState
             bare
-            icon="🚀"
+            illustration={illustrations.noData}
             title="Let's get you started"
             description="Save a location from the map or create a project — either one puts you on the board here."
             primaryAction={{ label: "Open the map", href: "/" }}

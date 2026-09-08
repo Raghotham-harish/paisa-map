@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api, LocationScore, Project, Report } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
+import { illustrations } from "../lib/illustrations";
 import { useAuth } from "../lib/auth";
 import { openCheckout } from "../lib/razorpay";
 
@@ -148,7 +149,7 @@ export default function Reports() {
         <div className="loading">Loading…</div>
       ) : projects.length === 0 ? (
         <EmptyState
-          icon="📄"
+          illustration={illustrations.dataTrends}
           title="Reports need a project first"
           description="Reports are generated for a project's saved locations — economic score, opportunity, suitability, and risk for each one, as a downloadable PDF."
           dependency="You don't have a project yet — create one to unlock report generation."

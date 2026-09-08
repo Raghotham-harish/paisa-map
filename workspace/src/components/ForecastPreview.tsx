@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { illustrations } from "../lib/illustrations";
 
 /**
  * Rich empty state for the Forecast page. The real radar / reach-curve /
@@ -139,50 +140,111 @@ export function ForecastPreview({ detail }: { detail?: string | null }) {
   return (
     <>
       <div className="card forecast-cta" style={{ marginBottom: 20 }}>
-        <div>
+        <img className="forecast-cta-art" src={illustrations.folderFiles} alt="" aria-hidden="true" />
+        <div className="forecast-cta-body">
           <div className="kicker">Forecast needs your store data</div>
-          <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: "6px 0 0", maxWidth: 620 }}>
+          <p style={{ fontSize: 13.5, lineHeight: 1.6, margin: "6px 0 12px", maxWidth: 560 }}>
             {detail ||
               "Upload at least 3 of your existing stores (with monthly revenue). PaisaMap calibrates the model on how your own locations actually perform, then projects where the next stores should go. The charts below are illustrative samples."}
           </p>
+          <Link className="btn" to="/customer-data">Upload store data</Link>
         </div>
-        <Link className="btn" to="/customer-data">Upload store data</Link>
       </div>
 
       <div className="preview-wrap">
         <span className="preview-badge">Sample</span>
 
-        <div className="stat-row">
-          <div className="stat-tile"><div className="label">Recommended stores</div><div className="value">4</div></div>
-          <div className="stat-tile"><div className="label">Investment used</div><div className="value">₹2.00 Cr</div></div>
-          <div className="stat-tile"><div className="label">Added revenue /mo</div><div className="value">₹8.0 L</div></div>
-          <div className="stat-tile"><div className="label">Payback</div><div className="value">14 mo</div></div>
-        </div>
+        <div className="fc-grid">
+          <div className="fc-main">
+            <div className="fc-row2">
+              <div className="card">
+                <div className="kicker">Location fit by lever — top 3 candidates</div>
+                <SampleRadar />
+                <p className="wiz-hint">
+                  Each spoke = how strongly that signal correlates with your stores' revenue. Weak spokes = a signal
+                  that doesn't predict your sales.
+                </p>
+              </div>
+              <div className="card">
+                <div className="kicker">Hotspots — market size vs opportunity</div>
+                <SampleBubbles />
+                <p className="wiz-hint">
+                  Bubble = est. CapEx · <span style={{ color: "var(--rupee-deep)" }}>●</span> core ·{" "}
+                  <span style={{ color: "#8A5A00" }}>●</span> edge · <span style={{ color: "var(--ink-soft)" }}>○</span> expansion
+                </p>
+              </div>
+            </div>
 
-        <div className="card" style={{ margin: "18px 0 20px" }}>
-          <div className="kicker">Investment → added monthly revenue</div>
-          <SampleCurve />
-          <div className="callout-sweetspot">
-            <b>Sweet spot: ₹2.00 Cr.</b> Beyond this, each additional rupee buys materially less revenue.
-          </div>
-        </div>
+            <div className="card">
+              <div className="fc-card-head">
+                <span className="kicker">Investment → projected reachable revenue</span>
+                <span className="wiz-hint">diminishing returns past the sweet spot</span>
+              </div>
+              <SampleCurve />
+              <div className="callout-sweetspot">
+                <b>Sweet spot ≈ ₹2.0 Cr.</b> Beyond this, each extra rupee buys materially less revenue.
+              </div>
+            </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 20, marginBottom: 20 }}>
-          <div className="card">
-            <div className="kicker">Do your chosen signals move revenue?</div>
-            <SampleRadar />
-            <p className="wiz-hint">
-              Each spoke = how strongly that signal correlates with your stores' revenue. Weak spokes mean you're
-              tracking a signal that doesn't predict your sales.
-            </p>
+            <div className="card">
+              <div className="kicker">Recommended investment split</div>
+              <div className="fc-split">
+                {[
+                  { name: "Whitefield", pct: 100, cr: "₹82 L", note: "+₹2.4 Cr reach" },
+                  { name: "Indiranagar", pct: 78, cr: "₹64 L", note: "+₹1.9 Cr reach" },
+                  { name: "HSR Layout", pct: 66, cr: "₹54 L", note: "+₹1.5 Cr reach" },
+                ].map((s) => (
+                  <div className="fc-split-row" key={s.name}>
+                    <span className="fc-split-name">{s.name}</span>
+                    <span className="fc-split-track"><span style={{ width: `${s.pct}%` }} /></span>
+                    <span className="mono fc-split-val">{s.cr}</span>
+                    <span className="fc-split-note">{s.note}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="fc-nudge">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#7A5B12" strokeWidth="1.5" style={{ flex: "none", marginTop: 1 }}>
+                  <path d="M8 1l2 4 4 .6-3 3 .7 4L8 14.6 4.3 16.6 5 12.6 2 9.6l4-.6z" />
+                </svg>
+                <div><b>Nudge:</b> move ₹15 L from Indiranagar to Whitefield → <b>+₹40 L/mo</b>, payback 14 → 13 mo.</div>
+              </div>
+            </div>
           </div>
-          <div className="card">
-            <div className="kicker">Hotspots — market size vs. opportunity</div>
-            <SampleBubbles />
-            <p className="wiz-hint">
-              Bubble size = estimated CapEx. <span style={{ color: "var(--rupee-deep)" }}>●</span> core ·{" "}
-              <span style={{ color: "#8A5A00" }}>●</span> edge · <span style={{ color: "var(--ink-soft)" }}>●</span> expansion.
-            </p>
+
+          <div className="fc-rail">
+            <div className="card">
+              <div className="kicker">At ₹2.0 Cr</div>
+              <div className="fc-rail-stats">
+                <div><div className="fc-rail-lab">Added revenue / mo</div><div className="mono fc-rail-val">₹8.0 L</div></div>
+                <div><div className="fc-rail-lab">Segment market capture</div><div className="mono fc-rail-val">4.2% → 6.8%</div></div>
+                <div><div className="fc-rail-lab">New stores</div><div className="mono fc-rail-val">4</div></div>
+                <div><div className="fc-rail-lab">Blended payback</div><div className="mono fc-rail-val">14 mo</div></div>
+              </div>
+            </div>
+            <div className="card">
+              <div className="kicker">Forecast confidence</div>
+              <span className="pill reviewing" style={{ marginTop: 8, display: "inline-block" }}>medium</span>
+              <ul className="fc-rail-bullets">
+                <li>Fitted regression · R² 0.58</li>
+                <li>±18% confidence band</li>
+                <li>Reach is modelled household spend, not booked sales</li>
+              </ul>
+            </div>
+            <div className="card">
+              <div className="kicker">Levers you're under-using</div>
+              <div className="fc-lever-list">
+                {SAMPLE_LEVERS.map((l) => {
+                  const word = l.fit < 40 ? "weak" : l.fit < 60 ? "partial" : "strong";
+                  const tone = l.fit < 40 ? "rejected" : l.fit < 60 ? "reviewing" : "delta-pos";
+                  return (
+                    <div className="fc-lever" key={l.label}>
+                      <span>{l.label}</span>
+                      <span className={`pill ${tone}`}>{word}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -4,6 +4,7 @@ import {
   DriverAnalysis, ExpansionRecommendation, LocationTagsResponse, Project,
 } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
+import { illustrations } from "../lib/illustrations";
 
 const DRIVER_MIN_SAMPLES = 5;
 
@@ -199,7 +200,7 @@ export default function CustomerData() {
         <div className="loading">Loading…</div>
       ) : projects.length === 0 ? (
         <EmptyState
-          icon="📊"
+          illustration={illustrations.folderFiles}
           title="Store data needs a project first"
           description="Upload your stores' address and revenue data into a project to see it enriched with location intelligence."
           dependency="You don't have a project yet — create one to unlock uploads."
@@ -319,7 +320,7 @@ export default function CustomerData() {
           {locations === null ? (
             <div className="loading">Loading…</div>
           ) : locations.length === 0 ? (
-            <EmptyState icon="🏬" title="No store data yet" description="Upload a CSV or Excel file above to get started." bare />
+            <EmptyState illustration={illustrations.folderFiles} title="No store data yet" description="Upload a CSV or Excel file above to get started." bare />
           ) : (
             <ul className="list">
               {locations.map((loc) => (

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, api, DriverAnalysis, LocationScore, Project } from "../../lib/api";
 import { MapSelection } from "../../lib/mapBridge";
+import { prettySignal } from "../../lib/signalLabel";
 
 const RISK_CLASS: Record<string, string> = {
   Low: "delta-pos",
@@ -14,19 +15,6 @@ const TIER_LABEL: Record<"core" | "edge" | "expansion", string> = {
   edge: "Edge",
   expansion: "Expansion",
 };
-
-// Turn a raw signal column into something readable: car_2w_ratio → "Car 2W ratio".
-const SIGNAL_WORD: Record<string, string> = {
-  "2w": "2W", ev: "EV", upi: "UPI", ppi: "PPI", msme: "MSME", nsdp: "NSDP",
-  rto: "RTO", itr: "ITR", sfb: "SFB", rrb: "RRB", poi: "POI", psu: "PSU",
-  hces: "HCES", mpce: "MPCE", lmv: "LMV",
-};
-function prettySignal(key: string) {
-  return key
-    .split("_")
-    .map((w, i) => SIGNAL_WORD[w] ?? (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : w))
-    .join(" ");
-}
 
 function money(n: number | null | undefined) {
   return n == null ? "—" : `₹${Math.round(n).toLocaleString("en-IN")}`;

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, LocationStatus, SavedLocation } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
+import { illustrations } from "../lib/illustrations";
 import { SearchInput } from "../components/SearchInput";
 
 const STATUS_OPTIONS: LocationStatus[] = ["shortlist", "reviewing", "approved", "rejected"];
@@ -61,7 +62,7 @@ export default function SavedLocations() {
         <div className="loading">Loading…</div>
       ) : locations.length === 0 ? (
         <EmptyState
-          icon="📍"
+          illustration={illustrations.locationSearch}
           title="No saved locations yet"
           description="Save a pincode from the map to start building your shortlist — you'll be able to tag, note, and score each one here."
           primaryAction={{ label: "Open the map", href: "/" }}
