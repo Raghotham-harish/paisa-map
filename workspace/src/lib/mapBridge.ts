@@ -11,7 +11,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export const SUITABILITY_KEY = "__suitability__";
 
 const MAP_ORIGIN = import.meta.env.DEV ? "http://localhost:8080" : window.location.origin;
-export const MAP_SRC = `${import.meta.env.DEV ? "http://localhost:8080" : ""}/?embed=1`;
+// __MAP_BUILD__ is injected by vite.config.ts (a per-build token) so the
+// iframe reloads the public index.html after every deploy instead of serving
+// a cached copy with an outdated palette / bridge.
+declare const __MAP_BUILD__: string;
+export const MAP_SRC = `${import.meta.env.DEV ? "http://localhost:8080" : ""}/?embed=1&v=${__MAP_BUILD__}`;
 
 export type MarketTier = "core" | "edge" | "expansion" | null;
 

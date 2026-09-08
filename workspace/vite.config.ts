@@ -8,6 +8,10 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   base: "/workspace/",
+  // Bust the iframe's cache of the (non-fingerprinted) public index.html on
+  // every deploy — otherwise a shell change ships but the embedded map keeps
+  // running a stale HTML/palette from the browser cache.
+  define: { __MAP_BUILD__: JSON.stringify(Date.now().toString(36)) },
   server: {
     proxy: {
       "/api": "http://localhost:8080",
