@@ -44,32 +44,29 @@ const TIER_FILL: Record<string, string> = {
 
 function SampleRadar() {
   const n = SAMPLE_LEVERS.length;
-  const C = 130;
-  const R = 96;
+  const C = 140;
+  const R = 104;
   const ang = (i: number) => -Math.PI / 2 + (i / n) * 2 * Math.PI;
   const pt = (i: number, r: number) => [C + Math.cos(ang(i)) * r, C + Math.sin(ang(i)) * r];
   const poly = SAMPLE_LEVERS.map((l, i) => pt(i, (l.fit / 100) * R).join(",")).join(" ");
   return (
-    <svg viewBox={`0 0 ${C * 2} ${C * 2}`} width="100%" style={{ maxWidth: 300 }}>
+    <svg viewBox={`-46 -22 ${C * 2 + 92} ${C * 2 + 44}`} width="100%" style={{ maxWidth: 340, display: "block", margin: "4px auto 0" }}>
       {[0.25, 0.5, 0.75, 1].map((t) => (
-        <polygon
-          key={t}
-          points={SAMPLE_LEVERS.map((_, i) => pt(i, R * t).join(",")).join(" ")}
-          fill="none"
-          stroke="var(--border)"
-          strokeWidth={1}
-        />
+        <polygon key={t} points={SAMPLE_LEVERS.map((_, i) => pt(i, R * t).join(",")).join(" ")}
+          fill={t === 1 ? "var(--paper-2)" : "none"} stroke="var(--border)" strokeWidth={1} />
       ))}
       {SAMPLE_LEVERS.map((_, i) => {
         const [ex, ey] = pt(i, R);
         return <line key={i} x1={C} y1={C} x2={ex} y2={ey} stroke="var(--border)" strokeWidth={1} />;
       })}
-      <polygon points={poly} fill="var(--rupee)" opacity={0.25} stroke="var(--rupee-deep)" strokeWidth={2} />
+      <polygon points={poly} fill="var(--rupee)" opacity={0.22} stroke="var(--rupee-deep)" strokeWidth={2} />
       {SAMPLE_LEVERS.map((l, i) => {
-        const [lx, ly] = pt(i, R + 16);
+        const [lx, ly] = pt(i, R + 15);
+        const cos = Math.cos(ang(i));
+        const anchor = cos > 0.25 ? "start" : cos < -0.25 ? "end" : "middle";
         return (
-          <text key={i} x={lx} y={ly} fontSize={9.5} textAnchor="middle" fill="var(--ink-soft)">
-            {l.label.length > 16 ? l.label.slice(0, 15) + "…" : l.label}
+          <text key={i} x={lx} y={ly + 3} fontSize={9} textAnchor={anchor} fill="var(--ink-soft)">
+            {l.label.length > 22 ? l.label.slice(0, 21) + "…" : l.label}
           </text>
         );
       })}
@@ -107,31 +104,33 @@ function SampleCurve() {
 }
 
 function SampleBubbles() {
-  const W = 480;
-  const H = 220;
-  const PAD = 40;
-  const x = (v: number) => PAD + v * (W - PAD - 14);
-  const y = (v: number) => H - PAD - v * (H - PAD - 14);
+  const W = 520;
+  const H = 250;
+  const PAD = 46;
+  const x = (v: number) => PAD + v * (W - PAD - 16);
+  const y = (v: number) => H - PAD - v * (H - PAD - 18);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, overflow: "visible" }}>
-      <line x1={PAD} x2={W - 12} y1={H - PAD} y2={H - PAD} stroke="var(--border)" strokeWidth={1} />
-      <line x1={PAD} x2={PAD} y1={22} y2={H - PAD} stroke="var(--border)" strokeWidth={1} />
-      {SAMPLE_SITES.map((s) => (
-        <circle
-          key={s.name}
-          cx={x(s.size)}
-          cy={y(s.opp)}
-          r={4 + s.capex * 10}
-          fill={TIER_FILL[s.tier]}
-          opacity={0.55}
-          stroke={TIER_FILL[s.tier]}
-          strokeWidth={1.2}
-        >
-          <title>{s.name}</title>
-        </circle>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, overflow: "visible", display: "block", marginTop: 4 }}>
+      {[0.25, 0.5, 0.75].map((t) => (
+        <line key={t} x1={PAD} x2={W - 16} y1={y(t)} y2={y(t)} stroke="var(--border)" strokeWidth={1} strokeDasharray="2 4" />
       ))}
-      <text x={PAD} y={H - 8} fontSize={10} fill="var(--ink-soft)">market size →</text>
-      <text x={PAD} y={14} fontSize={10} fill="var(--ink-soft)">↑ opportunity</text>
+      <line x1={PAD} x2={W - 16} y1={H - PAD} y2={H - PAD} stroke="var(--border)" strokeWidth={1.2} />
+      <line x1={PAD} x2={PAD} y1={16} y2={H - PAD} stroke="var(--border)" strokeWidth={1.2} />
+      {SAMPLE_SITES.map((s) => {
+        const c = TIER_FILL[s.tier];
+        return (
+          <g key={s.name}>
+            <circle cx={x(s.size)} cy={y(s.opp)} r={9 + s.capex * 20} fill={c} opacity={0.45} stroke={c} strokeWidth={1.4}>
+              <title>{s.name}</title>
+            </circle>
+            <text x={x(s.size)} y={y(s.opp) + 3} fontSize={9} fontWeight={600} textAnchor="middle" fill={c}>
+              {s.name.length > 12 ? s.name.slice(0, 11) + "…" : s.name}
+            </text>
+          </g>
+        );
+      })}
+      <text x={PAD} y={H - 12} fontSize={10} fill="var(--ink-soft)">market size →</text>
+      <text x={PAD - 6} y={12} fontSize={10} fill="var(--ink-soft)">↑ opportunity /mo</text>
     </svg>
   );
 }
@@ -152,7 +151,7 @@ export function ForecastPreview({ detail }: { detail?: string | null }) {
       </div>
 
       <div className="preview-wrap">
-        <span className="preview-badge">Sample</span>
+        <span className="preview-badge">Sample forecast — real numbers after you upload stores</span>
 
         <div className="fc-grid">
           <div className="fc-main">

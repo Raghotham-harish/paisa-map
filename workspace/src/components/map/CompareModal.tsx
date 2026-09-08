@@ -22,6 +22,48 @@ const RISK_PILL: Record<string, string> = { Low: "approved", Medium: "reviewing"
 
 const opp = (l: Ranked) => l.opportunity?.opportunity_score ?? l.economic_score ?? null;
 
+// One stable colour per location, used across every chart + the scorecards.
+const LOC_COLORS = ["var(--rupee)", "var(--amber)", "#2A81CB", "var(--flame)", "#7A54B0", "#0E9594", "#C2650C", "#555"];
+
+/* Grouped horizontal bars — who leads on each metric, at a glance + the number. */
+function MetricBars({ rows }: { rows: Ranked[] }) {
+  const metrics: { label: string; get: (l: Ranked) => number | null; fmt: (v: number) => string; outOf?: number }[] = [
+    { label: "Opportunity", get: opp, fmt: (v) => `${Math.round(v)}`, outOf: 100 },
+    { label: "Economic", get: (l) => l.economic_score, fmt: (v) => `${Math.round(v)}`, outOf: 100 },
+    { label: "Income /mo", get: (l) => l.income, fmt: (v) => money(v) },
+    { label: "Spend /mo", get: (l) => l.spend, fmt: (v) => money(v) },
+  ];
+  return (
+    <div className="cmp-bars">
+      {metrics.map((m) => {
+        const vals = rows.map((l) => m.get(l));
+        const max = m.outOf ?? Math.max(1, ...vals.map((v) => v ?? 0));
+        const best = Math.max(...vals.map((v) => v ?? -Infinity));
+        return (
+          <div className="cmp-bar-row" key={m.label}>
+            <span className="cmp-bar-metric">{m.label}</span>
+            <div className="cmp-bar-set">
+              {rows.map((l, i) => {
+                const v = m.get(l);
+                const w = v == null ? 0 : Math.max(2, (v / max) * 100);
+                return (
+                  <div className="cmp-bar-line" key={l.pincode}>
+                    <span className="cmp-bar-track">
+                      <span className={`cmp-bar-fill ${v === best ? "lead" : ""}`}
+                        style={{ width: `${w}%`, background: LOC_COLORS[i % LOC_COLORS.length] }} />
+                    </span>
+                    <span className={`cmp-bar-val ${v === best ? "lead" : ""}`}>{v == null ? "—" : m.fmt(v)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // The exec summary is a full paragraph; the compare "Read" cell wants a glance.
 function firstSentences(text: string, n: number) {
   if (!text) return "—";
@@ -141,6 +183,8 @@ export function CompareModal({
   };
 
   const gridCols = rows ? `148px repeat(${rows.length}, minmax(0,1fr))` : "148px";
+  const leader = rows && rows.length ? [...rows].sort((a, b) => (opp(b) ?? 0) - (opp(a) ?? 0))[0] : null;
+  const richest = rows && rows.length ? [...rows].sort((a, b) => (b.income ?? 0) - (a.income ?? 0))[0] : null;
 
   type Row = { lab: string; cell: (l: Ranked) => React.ReactNode; head?: boolean };
   const tableRows: Row[] = [
@@ -198,6 +242,50 @@ export function CompareModal({
                   </button>
                 </div>
                 {bulkSaveMsg && <span className="wiz-hint">{bulkSaveMsg}</span>}
+              </div>
+
+              {leader && (
+                <div className="cmp-insight">
+                  <b>{leader.name}</b> leads on opportunity ({Math.round(opp(leader) ?? 0)}/100)
+                  {richest && richest.pincode !== leader.pincode
+                    ? <> · <b>{richest.name}</b> has the highest income ({money(richest.income)}/mo)</>
+                    : richest && <> and income ({money(leader.income)}/mo)</>}.
+                </div>
+              )}
+
+              <div className="cmp-cards">
+                {rows.map((l, i) => (
+                  <div className="cmp-card" key={l.pincode} style={{ borderTopColor: LOC_COLORS[i % LOC_COLORS.length] }}>
+                    <div className="cmp-card-head">
+                      <span className={`cmp-rank ${l.rank === 1 ? "r1" : ""}`}>{l.rank}</span>
+                      <span className="cmp-card-name">{l.name}</span>
+                    </div>
+                    <div className="cmp-card-score">
+                      <span className="mono">{opp(l) != null ? Math.round(opp(l)!) : "—"}</span>
+                      <small>/100 opp</small>
+                    </div>
+                    <div className="cmp-card-pills">
+                      {l.opportunity && <span className={`pill ${SUIT_PILL[l.opportunity.suitability] ?? "shortlist"}`}>{l.opportunity.suitability}</span>}
+                      <span className={`pill ${RISK_PILL[l.risk.level] ?? "shortlist"}`}>{l.risk.level}</span>
+                    </div>
+                    <div className="cmp-card-money">
+                      <span>Income <b>{money(l.income)}</b></span>
+                      <span>Spend <b>{money(l.spend)}</b></span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="card" style={{ padding: "14px 16px" }}>
+                <div className="cmp-section-label">How they stack up</div>
+                <div className="cmp-legend">
+                  {rows.map((l, i) => (
+                    <span className="cmp-legend-item" key={l.pincode}>
+                      <i style={{ background: LOC_COLORS[i % LOC_COLORS.length] }} />{l.name}
+                    </span>
+                  ))}
+                </div>
+                <MetricBars rows={rows} />
               </div>
 
               <div className="card cmp-grid-card">

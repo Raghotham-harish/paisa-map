@@ -87,7 +87,7 @@ function Radar({
       </ul>
     );
   }
-  const C = 130, R = 96;
+  const C = 140, R = 104;
   const ang = (i: number) => -Math.PI / 2 + (i / n) * 2 * Math.PI;
   const pt = (i: number, r: number) => [C + Math.cos(ang(i)) * r, C + Math.sin(ang(i)) * r];
   const polyFor = (values: (number | null)[]) =>
@@ -95,25 +95,27 @@ function Radar({
   const poly = polyFor(levers.map((l) => l.lever_fit));
   return (
     <>
-      <svg viewBox={`0 0 ${C * 2} ${C * 2}`} width="100%" style={{ maxWidth: 300 }}>
+      <svg viewBox={`-46 -22 ${C * 2 + 92} ${C * 2 + 44}`} width="100%" style={{ maxWidth: 340, display: "block", margin: "4px auto 0" }}>
         {[0.25, 0.5, 0.75, 1].map((t) => (
           <polygon key={t} points={levers.map((_, i) => pt(i, R * t).join(",")).join(" ")}
-            fill="none" stroke="var(--border)" strokeWidth={1} />
+            fill={t === 1 ? "var(--paper-2)" : "none"} stroke="var(--border)" strokeWidth={1} />
         ))}
         {levers.map((_, i) => {
           const [ex, ey] = pt(i, R);
           return <line key={i} x1={C} y1={C} x2={ex} y2={ey} stroke="var(--border)" strokeWidth={1} />;
         })}
-        <polygon points={poly} fill="var(--rupee)" opacity={0.25} stroke="var(--rupee-deep)" strokeWidth={2} />
+        <polygon points={poly} fill="var(--rupee)" opacity={0.22} stroke="var(--rupee-deep)" strokeWidth={2} />
         {candidates.map((cand, ci) => (
           <polygon key={ci} points={polyFor(cand.values)} fill="none"
             stroke={CANDIDATE_COLORS[ci % CANDIDATE_COLORS.length]} strokeWidth={1.6} strokeDasharray="4 2" />
         ))}
         {levers.map((l, i) => {
-          const [lx, ly] = pt(i, R + 16);
+          const [lx, ly] = pt(i, R + 15);
+          const cos = Math.cos(ang(i));
+          const anchor = cos > 0.25 ? "start" : cos < -0.25 ? "end" : "middle";
           return (
-            <text key={i} x={lx} y={ly} fontSize={9.5} textAnchor="middle" fill="var(--ink-soft)">
-              {l.label.length > 16 ? l.label.slice(0, 15) + "…" : l.label}
+            <text key={i} x={lx} y={ly + 3} fontSize={9} textAnchor={anchor} fill="var(--ink-soft)">
+              {l.label.length > 22 ? l.label.slice(0, 21) + "…" : l.label}
             </text>
           );
         })}
@@ -146,27 +148,37 @@ const TIER_FILL: Record<string, string> = { core: "var(--rupee-deep)", edge: "#8
 function HotspotBubbles({ sites }: { sites: ForecastResult["recommended_portfolio"]["sites"] }) {
   const pts = sites.filter((s) => s.reach_gross > 0 && s.monthly_revenue > 0);
   if (pts.length < 2) return null;
-  const W = 480, H = 220, PAD = 40;
-  const maxX = Math.max(...pts.map((s) => s.reach_gross));
-  const maxY = Math.max(...pts.map((s) => s.monthly_revenue));
-  const x = (v: number) => PAD + (v / maxX) * (W - PAD - 14);
-  const y = (v: number) => H - PAD - (v / maxY) * (H - PAD - 14);
+  const W = 520, H = 250, PAD = 46;
+  const maxX = Math.max(...pts.map((s) => s.reach_gross)) * 1.1;
+  const maxY = Math.max(...pts.map((s) => s.monthly_revenue)) * 1.15;
+  const x = (v: number) => PAD + (v / maxX) * (W - PAD - 16);
+  const y = (v: number) => H - PAD - (v / maxY) * (H - PAD - 18);
   const capexes = pts.map((s) => s.capex).filter((c): c is number => c != null);
   const maxCapex = capexes.length ? Math.max(...capexes) : null;
-  const radius = (capex: number | null) => (maxCapex && capex ? 4 + (capex / maxCapex) * 10 : 6);
+  const radius = (capex: number | null) => (maxCapex && capex ? 9 + (capex / maxCapex) * 20 : 12);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, overflow: "visible" }}>
-      <line x1={PAD} x2={W - 12} y1={H - PAD} y2={H - PAD} stroke="var(--border)" strokeWidth={1} />
-      <line x1={PAD} x2={PAD} y1={22} y2={H - PAD} stroke="var(--border)" strokeWidth={1} />
-      {pts.map((s) => (
-        <circle key={s.pincode} cx={x(s.reach_gross)} cy={y(s.monthly_revenue)} r={radius(s.capex)}
-          fill={TIER_FILL[tierOf(s.ppi_percentile)]} opacity={0.55} stroke={TIER_FILL[tierOf(s.ppi_percentile)]} strokeWidth={1.2}>
-          <title>{`${s.name} (${s.pincode})\nMarket size ${money(s.reach_gross, true)}/mo\nOpportunity ${money(s.monthly_revenue, true)}/mo`}</title>
-        </circle>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, overflow: "visible", display: "block", marginTop: 4 }}>
+      {[0.25, 0.5, 0.75].map((t) => (
+        <line key={t} x1={PAD} x2={W - 16} y1={y(maxY * t)} y2={y(maxY * t)} stroke="var(--border)" strokeWidth={1} strokeDasharray="2 4" />
       ))}
-      <text x={PAD} y={H - 8} fontSize={10} fill="var(--ink-soft)">market size →</text>
-      <text x={PAD} y={14} fontSize={10} fill="var(--ink-soft)">↑ opportunity</text>
+      <line x1={PAD} x2={W - 16} y1={H - PAD} y2={H - PAD} stroke="var(--border)" strokeWidth={1.2} />
+      <line x1={PAD} x2={PAD} y1={16} y2={H - PAD} stroke="var(--border)" strokeWidth={1.2} />
+      {pts.map((s) => {
+        const c = TIER_FILL[tierOf(s.ppi_percentile)];
+        return (
+          <g key={s.pincode}>
+            <circle cx={x(s.reach_gross)} cy={y(s.monthly_revenue)} r={radius(s.capex)}
+              fill={c} opacity={0.45} stroke={c} strokeWidth={1.4}>
+              <title>{`${s.name} (${s.pincode})\nMarket size ${money(s.reach_gross, true)}/mo\nOpportunity ${money(s.monthly_revenue, true)}/mo`}</title>
+            </circle>
+            <text x={x(s.reach_gross)} y={y(s.monthly_revenue) + 3} fontSize={9} fontWeight={600}
+              textAnchor="middle" fill={c}>{s.name.length > 12 ? s.name.slice(0, 11) + "…" : s.name}</text>
+          </g>
+        );
+      })}
+      <text x={PAD} y={H - 12} fontSize={10} fill="var(--ink-soft)">market size →</text>
+      <text x={PAD - 6} y={12} fontSize={10} fill="var(--ink-soft)">↑ opportunity /mo</text>
     </svg>
   );
 }
