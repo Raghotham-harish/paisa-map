@@ -192,6 +192,7 @@ export default function Forecast() {
   const [budget, setBudget] = useState("");
   const [pricing, setPricing] = useState<PricingConfig | null>(null);
   const [result, setResult] = useState<ForecastResponse | null>(null);
+  const [resultBudget, setResultBudget] = useState<number | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -215,6 +216,7 @@ export default function Forecast() {
   const onProject = (id: number) => {
     setProjectId(id);
     setResult(null);
+    setResultBudget(null);
     setError(null);
     const p = projects?.find((x) => x.id === id);
     setBudget(p?.total_investment != null ? String(p.total_investment) : "");
@@ -226,7 +228,9 @@ export default function Forecast() {
     setRunning(true);
     setError(null);
     try {
-      setResult(await api.getForecast(projectId, Number(budget) || undefined));
+      const b = Number(budget) || undefined;
+      setResult(await api.getForecast(projectId, b));
+      setResultBudget(b ?? null);
     } catch (e) {
       if (e instanceof ApiError && e.body?.error === "insufficient_credits") {
         setError(`Not enough credits — this forecast costs ${e.body.required}, you have ${e.body.balance}.`);
@@ -259,24 +263,32 @@ export default function Forecast() {
           primaryAction={{ label: "Create a project", to: "/projects/new" }} />
       ) : (
         <>
-          <div className="card" style={{ marginBottom: 24 }}>
-            <div style={{ display: "flex", gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
-              <label style={{ flex: "1 1 200px" }}>
+          <div className="card fc-controls" style={{ marginBottom: 24 }}>
+            <div className="fc-controls-row">
+              <label className="fc-control-project">
                 Project
                 <select value={projectId ?? ""} onChange={(e) => onProject(Number(e.target.value))}>
                   {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </label>
-              <label style={{ flex: "0 0 200px" }}>
+              <label className="fc-control-budget">
                 Budget (₹)
                 <input type="number" min="1" placeholder="e.g. 20000000" value={budget}
                   onChange={(e) => setBudget(e.target.value)} />
               </label>
               <button className="btn" disabled={running || !projectId} onClick={run}>
-                {running ? "Running…" : "Run forecast"}
+                {running ? "Running…" : result ? "Re-run forecast" : "Run forecast"}
               </button>
-              {cost != null && <span className="wiz-hint" style={{ paddingBottom: 8 }}>{cost} credits</span>}
+              {cost != null && <span className="wiz-hint fc-control-cost">{cost} credits</span>}
             </div>
+            {result && (Number(budget) || null) !== resultBudget && (
+              <p className="fc-stale">
+                Showing the {money(resultBudget ?? 0, true)} forecast.{" "}
+                <button type="button" className="fc-stale-link" onClick={run} disabled={running}>
+                  Re-run for {budget ? money(Number(budget), true) : "the new budget"}
+                </button>
+              </p>
+            )}
             {project && (project.gross_margin_pct == null || project.revenue_period == null) && (
               <p className="wiz-hint" style={{ marginTop: 10 }}>
                 Set this project's <Link to={`/projects/new?edit=${project.id}`}>gross margin & revenue period</Link> for
