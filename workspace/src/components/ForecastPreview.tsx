@@ -50,7 +50,7 @@ function SampleRadar() {
   const pt = (i: number, r: number) => [C + Math.cos(ang(i)) * r, C + Math.sin(ang(i)) * r];
   const poly = SAMPLE_LEVERS.map((l, i) => pt(i, (l.fit / 100) * R).join(",")).join(" ");
   return (
-    <svg viewBox={`-46 -22 ${C * 2 + 92} ${C * 2 + 44}`} width="100%" style={{ maxWidth: 340, display: "block", margin: "4px auto 0" }}>
+    <svg viewBox={`-46 -22 ${C * 2 + 92} ${C * 2 + 44}`} width="100%" style={{ display: "block", margin: "4px auto 0", width: "100%", maxWidth: 300 }}>
       {[0.25, 0.5, 0.75, 1].map((t) => (
         <polygon key={t} points={SAMPLE_LEVERS.map((_, i) => pt(i, R * t).join(",")).join(" ")}
           fill={t === 1 ? "var(--paper-2)" : "none"} stroke="var(--border)" strokeWidth={1} />
@@ -66,7 +66,7 @@ function SampleRadar() {
         const anchor = cos > 0.25 ? "start" : cos < -0.25 ? "end" : "middle";
         return (
           <text key={i} x={lx} y={ly + 3} fontSize={9} textAnchor={anchor} fill="var(--ink-soft)">
-            {l.label.length > 22 ? l.label.slice(0, 21) + "…" : l.label}
+            {l.label.length > 26 ? l.label.slice(0, 25) + "…" : l.label}
           </text>
         );
       })}
@@ -84,7 +84,7 @@ function SampleCurve() {
   const y = (v: number) => H - PAD - (v / maxY) * (H - PAD - 12);
   const line = SAMPLE_CURVE.map((p) => `${x(p.x)},${y(p.y)}`).join(" ");
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, overflow: "visible" }}>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ overflow: "visible", width: "100%" }}>
       <rect x={x(SAMPLE_DIM_FROM)} y={12} width={W - 12 - x(SAMPLE_DIM_FROM)} height={H - PAD - 12} fill="var(--amber)" opacity={0.12} />
       {[0, 0.25, 0.5, 0.75, 1].map((t) => (
         <line key={t} x1={PAD} x2={W - 12} y1={y(maxY * t)} y2={y(maxY * t)} stroke="var(--border)" strokeWidth={1} />
@@ -110,7 +110,7 @@ function SampleBubbles() {
   const x = (v: number) => PAD + v * (W - PAD - 16);
   const y = (v: number) => H - PAD - v * (H - PAD - 18);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, overflow: "visible", display: "block", marginTop: 4 }}>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ overflow: "visible", display: "block", marginTop: 4, width: "100%" }}>
       {[0.25, 0.5, 0.75].map((t) => (
         <line key={t} x1={PAD} x2={W - 16} y1={y(t)} y2={y(t)} stroke="var(--border)" strokeWidth={1} strokeDasharray="2 4" />
       ))}

@@ -23,7 +23,11 @@ const RISK_PILL: Record<string, string> = { Low: "approved", Medium: "reviewing"
 const opp = (l: Ranked) => l.opportunity?.opportunity_score ?? l.economic_score ?? null;
 
 // One stable colour per location, used across every chart + the scorecards.
-const LOC_COLORS = ["var(--rupee)", "var(--amber)", "#2A81CB", "var(--flame)", "#7A54B0", "#0E9594", "#C2650C", "#555"];
+// A validated categorical palette (dataviz skill) — deliberately NOT the map's
+// diverging index ramps, so "these are N distinct places" never reads as a
+// magnitude scale. Fixed order, never cycled. Relief for the low-contrast
+// slots = the value labels + legend + the table below.
+const LOC_COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"];
 
 /* Grouped horizontal bars — who leads on each metric, at a glance + the number. */
 function MetricBars({ rows }: { rows: Ranked[] }) {

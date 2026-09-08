@@ -31,7 +31,7 @@ function ReachCurve({ f }: { f: ForecastResult }) {
   const budgetX = f.budget <= maxX ? x(f.budget) : null;
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, overflow: "visible" }}>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ overflow: "visible", width: "100%" }}>
       {dim != null && dim <= maxX && (
         <rect x={x(dim)} y={12} width={W - 12 - x(dim)} height={H - PAD - 12}
           fill="var(--amber)" opacity={0.12} />
@@ -62,7 +62,9 @@ function ReachCurve({ f }: { f: ForecastResult }) {
 
 /* ── lever-fit radar — historical polygon (your stores) + up to 3 candidate
    overlays (each recommended site's own percentile on the same levers) ── */
-const CANDIDATE_COLORS = ["var(--flame)", "var(--amber)", "#2A81CB"];
+// Categorical (dataviz skill) — distinct from the green "your stores" polygon
+// and from the map's index ramps.
+const CANDIDATE_COLORS = ["#2a78d6", "#eb6834", "#4a3aa7"];
 
 function Radar({
   levers,
@@ -95,7 +97,7 @@ function Radar({
   const poly = polyFor(levers.map((l) => l.lever_fit));
   return (
     <>
-      <svg viewBox={`-46 -22 ${C * 2 + 92} ${C * 2 + 44}`} width="100%" style={{ maxWidth: 340, display: "block", margin: "4px auto 0" }}>
+      <svg viewBox={`-46 -22 ${C * 2 + 92} ${C * 2 + 44}`} width="100%" style={{ display: "block", margin: "4px auto 0", width: "100%", maxWidth: 300 }}>
         {[0.25, 0.5, 0.75, 1].map((t) => (
           <polygon key={t} points={levers.map((_, i) => pt(i, R * t).join(",")).join(" ")}
             fill={t === 1 ? "var(--paper-2)" : "none"} stroke="var(--border)" strokeWidth={1} />
@@ -115,7 +117,7 @@ function Radar({
           const anchor = cos > 0.25 ? "start" : cos < -0.25 ? "end" : "middle";
           return (
             <text key={i} x={lx} y={ly + 3} fontSize={9} textAnchor={anchor} fill="var(--ink-soft)">
-              {l.label.length > 22 ? l.label.slice(0, 21) + "…" : l.label}
+              {l.label.length > 26 ? l.label.slice(0, 25) + "…" : l.label}
             </text>
           );
         })}
@@ -158,7 +160,7 @@ function HotspotBubbles({ sites }: { sites: ForecastResult["recommended_portfoli
   const radius = (capex: number | null) => (maxCapex && capex ? 9 + (capex / maxCapex) * 20 : 12);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ maxWidth: W, overflow: "visible", display: "block", marginTop: 4 }}>
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ overflow: "visible", display: "block", marginTop: 4, width: "100%" }}>
       {[0.25, 0.5, 0.75].map((t) => (
         <line key={t} x1={PAD} x2={W - 16} y1={y(maxY * t)} y2={y(maxY * t)} stroke="var(--border)" strokeWidth={1} strokeDasharray="2 4" />
       ))}

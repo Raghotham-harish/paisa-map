@@ -34,6 +34,8 @@ export default function App() {
   const { user, loading, signOut } = useAuth();
   const location = useLocation();
   const bleed = location.pathname === "/map";
+  // The forecast + compare dashboards need more than the default 880px column.
+  const wide = location.pathname === "/forecast";
 
   if (loading) return <div className="loading">Loading…</div>;
   if (!user) return <SignIn />;
@@ -80,7 +82,7 @@ export default function App() {
           <i className="ti ti-logout" aria-hidden="true" /> Sign out
         </a>
       </aside>
-      <main className={bleed ? "content content-bleed" : "content"}>
+      <main className={bleed ? "content content-bleed" : wide ? "content content-wide" : "content"}>
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/map" element={<MapWorkspace />} />
