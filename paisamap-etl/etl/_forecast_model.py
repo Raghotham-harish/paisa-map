@@ -72,10 +72,26 @@ REGRESSION_MIN_STORES = 8   # below this: pooled-median capture, not a fit
 REGRESSION_MIN_R2 = 0.15    # a fit weaker than this is no better than the pooled median
 AVG_HOUSEHOLD_SIZE = 4.6    # Census of India 2011 national average household size
 DEFAULT_GROSS_MARGIN_PCT = 35.0   # blended retail gross margin, used only if the project has none
-DEFAULT_CAPTURE_RATE = 0.005      # 0.5% of catchment reachable spend — a conservative benchmark
-                                  # for an unestablished entrant, used only when there's no store
-                                  # revenue to calibrate on (< MIN_STORES). Nudged +/-40% by the
-                                  # location's own opportunity/affordability fit (see benchmark_capture_model).
+# Benchmark capture, when there's no store revenue to calibrate on (< MIN_STORES), is
+# built as an explicit, auditable chain rather than one opaque number:
+#   effective take = CATEGORY_WALLET_SHARE  x  ENTRANT_CAPTURE
+# i.e. "of all household spend in the catchment, this retail category commands ~5% of
+# the wallet, and a new entrant wins ~0.8% of that category spend against incumbents."
+# Net ~0.04% of total catchment spend — ~12x lower than the old flat 0.5%, which
+# implied a single dense-urban store doing >Rs 5cr/month (15-30x real single-store retail).
+CATEGORY_WALLET_SHARE = 0.05      # share of the total household wallet a mid-size retail category commands
+ENTRANT_CAPTURE = 0.010          # a new entrant's share of that category spend within the catchment
+DEFAULT_CAPTURE_RATE = CATEGORY_WALLET_SHARE * ENTRANT_CAPTURE   # ~= 0.0005; nudged +/-40% by PPI in benchmark_capture_model
+REVENUE_INCOME_CAP_MULT = 0.15   # hard ceiling: one store's modelled monthly revenue can't exceed this x the
+                                  # catchment's modelled monthly household INCOME — a backstop against a very
+                                  # dense catchment implying an implausible single-store figure.
+# The district-population -> pincode household split systematically over-credits
+# pincodes in districts with few pincodes (a Haridwar pincode can end up modelled
+# with ~all of the district's ~1.9M people). Cap the modelled catchment population
+# at a dense-metro ceiling derived from the catchment's own geometry, so reach
+# (and every figure downstream) stays physically plausible.
+MAX_CATCHMENT_DENSITY = 16000     # persons / km^2 — ceiling on modelled catchment population density
+CATCHMENT_DECAY_INTEGRAL = 1.0 / 3.0   # area-average of the linear distance-decay weight over the disc
 NATIONAL_SEED_TOP_N = 500         # candidate seed size when a project has neither stores nor target_pincodes
 RAMP_MONTHS = 12           # a new store is assumed to reach modelled steady-state revenue linearly over this many months
 CURVE_STEPS = 14
@@ -134,9 +150,21 @@ ASSUMPTIONS = {
         f"Fitted on your stores: capture = revenue / catchment reachable spend. "
         f">= {REGRESSION_MIN_STORES} stores -> regression on PPI percentile + driver fit; "
         f"{MIN_STORES}-{REGRESSION_MIN_STORES - 1} -> your stores' median capture; "
-        f"fewer than {MIN_STORES} -> a benchmark capture rate ({DEFAULT_CAPTURE_RATE * 100:.1f}% of "
-        f"reachable spend, nudged by each location's own purchasing-power percentile) since there's no "
-        f"store revenue yet to calibrate on — upload store data for a rate fitted on your own performance."
+        f"fewer than {MIN_STORES} -> a benchmark rate ({DEFAULT_CAPTURE_RATE * 100:.3f}% of catchment "
+        f"spend), nudged by each location's purchasing-power percentile — upload store data for a rate "
+        f"fitted on your own performance."
+    ),
+    "category_wallet_share": (
+        f"{CATEGORY_WALLET_SHARE * 100:.0f}% — the assumed share of total household wallet a mid-size "
+        f"retail category commands. One of the two factors behind the benchmark capture rate."
+    ),
+    "new_entrant_capture": (
+        f"{ENTRANT_CAPTURE * 100:.1f}% — the assumed share of that category spend a new entrant wins "
+        f"against incumbents in a competitive catchment. The second factor behind the benchmark rate."
+    ),
+    "revenue_ceiling": (
+        f"A single store's modelled monthly revenue is capped at {REVENUE_INCOME_CAP_MULT * 100:.0f}% "
+        f"of its catchment's modelled monthly household income — a backstop against dense catchments."
     ),
     "capex_estimate": (
         f"Your stores' median fit-out cost if available; else assumed store size x local property rate; "
@@ -294,8 +322,8 @@ def _cell(lat, lng):
 
 
 def build_spatial_index(rows_by_pincode, hh_by_pincode):
-    """cell -> list of (pincode, lat, lng, reachable_unit) where reachable_unit
-    is that pincode's own monthly household spend (households x spend_hh)."""
+    """cell -> list of (pincode, lat, lng, spend_unit, income_unit) where the units
+    are that pincode's own monthly household spend / income (households x per-hh)."""
     index = {}
     for pc, row in rows_by_pincode.items():
         lat, lng = _num(row.get("lat")), _num(row.get("lng"))
@@ -303,7 +331,9 @@ def build_spatial_index(rows_by_pincode, hh_by_pincode):
         spend = _num(row.get("est_monthly_spend_hh"))
         if lat is None or lng is None or hh is None or spend is None:
             continue
-        index.setdefault(_cell(lat, lng), []).append((pc, lat, lng, hh * spend))
+        income = _num(row.get("est_monthly_income_hh"))
+        index.setdefault(_cell(lat, lng), []).append(
+            (pc, lat, lng, hh * spend, hh * income if income is not None else hh * spend))
     return index
 
 
@@ -316,17 +346,27 @@ def _nearby(index, lat, lng, radius_km):
                 yield entry
 
 
-def catchment_reachable_spend(lat, lng, catchment_km, index):
-    """Sum of reachable_unit x linear distance-decay over pincodes within the
-    catchment. Returns (total_spend, [pincodes touched])."""
+def catchment_reachable_spend(lat, lng, catchment_km, index, spend_hh=None, income_hh=None):
+    """Sum of spend/income units x linear distance-decay over pincodes within the
+    catchment, capped at a geometric dense-metro ceiling when the centre pincode's
+    per-household spend/income is known. Returns (total_spend, total_income,
+    [pincodes touched])."""
     total = 0.0
+    total_income = 0.0
     touched = []
-    for pc, plat, plng, unit in _nearby(index, lat, lng, catchment_km):
+    for pc, plat, plng, unit, income_unit in _nearby(index, lat, lng, catchment_km):
         d = _signals_data.haversine_km(lat, lng, plat, plng)
         if d <= catchment_km:
-            total += unit * max(0.0, 1.0 - d / catchment_km)
+            w = max(0.0, 1.0 - d / catchment_km)
+            total += unit * w
+            total_income += income_unit * w
             touched.append(pc)
-    return total, touched
+    max_hh = (math.pi * catchment_km ** 2) * MAX_CATCHMENT_DENSITY / AVG_HOUSEHOLD_SIZE * CATCHMENT_DECAY_INTEGRAL
+    if spend_hh:
+        total = min(total, max_hh * spend_hh)
+    if income_hh:
+        total_income = min(total_income, max_hh * income_hh)
+    return total, total_income, touched
 
 
 # ── circle overlap (cannibalisation) ─────────────────────────────────────────
@@ -661,6 +701,49 @@ def location_swot(row, pct, opportunity_score, cannibalisation_discount, diagnos
             "opportunities": opportunities, "threats": threats}
 
 
+# ── per-location operating factors (for the factor table + comparison radar) ──
+# Each is a composite percentile (0-100) over real signal columns — NONE is a
+# literal survey (this codebase has no supply-chain / footfall / EoDB dataset);
+# every one carries a `basis` naming its underlying signals.
+FACTOR_DEFS = (
+    ("supply_chain", "Supply chain", ("factories_per_lakh", "msme_per_lakh"),
+     "Factories + MSME density percentile — a manufacturing / vendor-base proxy"),
+    ("distribution", "Distribution access", ("bank_branches_per_lakh", "fin_density_per_km2"),
+     "Bank-branch + financial-institution density percentile"),
+    ("transport", "Transport & logistics", ("cars_per_1000", "lmv_per_1000"),
+     "Car + light-commercial-vehicle density percentile"),
+    ("mobility", "Mobility & connectivity", ("cars_per_1000", "radiance_mean"),
+     "Vehicle-ownership + night-lights percentile — a road-mobility / built-up-corridor proxy"),
+    ("eodb", "Ease of doing business", ("msme_per_lakh", "bank_branches_per_lakh"),
+     "MSME formation + bank-branch (credit access) density percentile — a business-environment "
+     "proxy, not an official EoDB score"),
+    ("geo_infra", "Geo-infra / residential mix", ("premium_poi_per_km2", "luxury_share"),
+     "Commercial-POI density + luxury-spend share composite — a proxy for a dense, affluent "
+     "residential/retail mix (apartments, malls, schools) vs. a sparse one"),
+)
+
+
+def _factor_score(pct_fn, row, cols):
+    vals = [pct_fn(row, c) for c in cols]
+    vals = [v for v in vals if v is not None]
+    return round(sum(vals) / len(vals), 1) if vals else None
+
+
+def location_factors(pct_fn, row, store_means):
+    """List of the FACTOR_DEFS composites for one location, each with its delta
+    vs the national median (50) and, when we have store data, vs your stores' mean."""
+    out = []
+    for key, label, cols, basis in FACTOR_DEFS:
+        score = _factor_score(pct_fn, row, cols)
+        item = {"key": key, "label": label, "score": score, "basis": basis,
+                "delta_vs_median": round(score - 50, 1) if score is not None else None,
+                "delta_vs_your_stores": None}
+        if store_means and store_means.get(key) is not None and score is not None:
+            item["delta_vs_your_stores"] = round(score - store_means[key], 1)
+        out.append(item)
+    return out
+
+
 # ── main entry point ─────────────────────────────────────────────────────────
 def build_forecast(project, locations, budget, rows_by_pincode, geography, diagnostics,
                    district_pop, drivers):
@@ -705,7 +788,10 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
     # calibrate capture on the customer's stores
     observations = []
     for s in stores:
-        reach, _ = catchment_reachable_spend(s["lat"], s["lng"], catchment_km, index)
+        reach, _income, _ = catchment_reachable_spend(
+            s["lat"], s["lng"], catchment_km, index,
+            spend_hh=_num(s["row"].get("est_monthly_spend_hh")),
+            income_hh=_num(s["row"].get("est_monthly_income_hh")))
         s["reach"] = reach
         observations.append({
             "capture": (s["monthly_revenue"] / reach) if reach > 0 else None,
@@ -739,7 +825,7 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
     if anchors:
         cand_pcs = set()
         for lat, lng in anchors:
-            for pc, _plat, _plng, _u in _nearby(index, lat, lng, catchment_km + EXPANSION_MARGIN_KM):
+            for pc, _plat, _plng, _u, _iu in _nearby(index, lat, lng, catchment_km + EXPANSION_MARGIN_KM):
                 cand_pcs.add(pc)
     else:
         # no stores and no target_pincodes — nothing to anchor a "nearby" walk on.
@@ -781,18 +867,26 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
         if (ppi_pct(row) or 0) < ppi_floor:
             continue
         lat, lng = _num(row.get("lat")), _num(row.get("lng"))
-        reach, _ = catchment_reachable_spend(lat, lng, catchment_km, index)
+        reach, catch_income, _ = catchment_reachable_spend(
+            lat, lng, catchment_km, index,
+            spend_hh=_num(row.get("est_monthly_spend_hh")),
+            income_hh=_num(row.get("est_monthly_income_hh")))
         if reach <= 0:
             continue
         cap = model.predict(ppi_pct(row) or 0.5, fit_scorer(row) if fit_scorer else None)
         capex = capex_for(row)
+        rev_raw = cap * reach
+        rev_ceiling = REVENUE_INCOME_CAP_MULT * catch_income if catch_income > 0 else rev_raw
+        rev_gross = min(rev_raw, rev_ceiling)
         candidates.append({
             "pincode": pc, "name": row.get("name") or pc,
             "lat": lat, "lng": lng,
             "state": (geography.get(pc) or {}).get("state_name"),
             "reach_gross": reach,
+            "catchment_income": catch_income,
             "capture_rate": cap,
-            "revenue_gross": cap * reach,
+            "revenue_gross": rev_gross,
+            "revenue_clamped": rev_gross < rev_raw - 1,
             "capex": capex,
             "ppi_percentile": round((ppi_pct(row) or 0) * 100, 1),
         })
@@ -818,7 +912,16 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
     candidates.sort(key=lambda c: (c["revenue_gross"] / c["capex"]) if priced else c["revenue_gross"],
                     reverse=True)
 
-    # greedy walk with cannibalisation — build the full curve, then slice at budget
+    # The reach curve is drawn only over a budget-anchored window, not across every
+    # candidate — a tiny budget used to produce a curve spanning ~Rs 6cr of CapEx
+    # (14 arbitrary sites) with the budget line pinned at the far left and a
+    # headline figure nobody could act on. Window = a bit past whichever is larger:
+    # the budget, or the cost of the three cheapest sites (so even a sub-one-store
+    # budget still shows the first few steps).
+    three_cheapest = sorted(c["capex"] for c in candidates[:60] if c["capex"])[:3] if priced else []
+    curve_ceiling = max(budget, sum(three_cheapest) if three_cheapest else budget) * 1.6
+
+    # greedy walk with cannibalisation — build the curve over the window, then slice at budget
     selected_coords = list(owned_coords)
     cum_capex = 0.0
     cum_revenue = 0.0
@@ -833,13 +936,33 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
         cum_revenue += rev_eff
         if priced:
             cum_capex += c["capex"]
-            curve.append({"investment": round(cum_capex), "monthly_revenue": round(cum_revenue),
-                          "stores": len(ranked)})
-        # cap the curve length
-        if priced and cum_capex > max(budget * 3, budget + 1) and len(curve) > CURVE_STEPS:
+            if cum_capex <= curve_ceiling or len(curve) <= 4:
+                curve.append({"investment": round(cum_capex), "monthly_revenue": round(cum_revenue),
+                              "stores": len(ranked)})
+        # stop once we have enough for the site list (25) AND the curve window is covered
+        if len(ranked) >= 25 and (not priced or cum_capex > curve_ceiling):
+            break
+        if len(ranked) >= 60 or len(curve) > CURVE_STEPS + 3:
             break
         if not priced and len(ranked) >= min(len(candidates), 40):
             break
+
+    # Pin an exact point at the budget x-position so the dashed budget line meets
+    # the curve (linear interpolation between the bracketing steps).
+    if priced and 0 < budget < curve[-1]["investment"]:
+        for i in range(1, len(curve)):
+            if curve[i - 1]["investment"] <= budget <= curve[i]["investment"]:
+                lo, hi = curve[i - 1], curve[i]
+                span = hi["investment"] - lo["investment"] or 1
+                frac = (budget - lo["investment"]) / span
+                if 0.02 < frac < 0.98:
+                    curve.insert(i, {
+                        "investment": round(budget),
+                        "monthly_revenue": round(lo["monthly_revenue"]
+                                                 + frac * (hi["monthly_revenue"] - lo["monthly_revenue"])),
+                        "stores": lo["stores"], "at_budget": True,
+                    })
+                break
 
     # recommended portfolio = ranked prefix that fits the budget
     portfolio = []
@@ -881,8 +1004,11 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
     # market capture — denominator is total monthly household spend across the
     # addressable market (each pincode counted once, no catchment double-count).
     market_pcs = set(cand_pcs) | owned_pincodes
-    market_spend = sum((hh_by_pincode.get(pc) or 0) * (_num(rows_by_pincode[pc].get("est_monthly_spend_hh")) or 0)
-                       for pc in market_pcs if pc in rows_by_pincode)
+    total_market_spend = sum((hh_by_pincode.get(pc) or 0) * (_num(rows_by_pincode[pc].get("est_monthly_spend_hh")) or 0)
+                             for pc in market_pcs if pc in rows_by_pincode)
+    # capture is measured against the CATEGORY's slice of that spend, not the whole
+    # wallet — so "segment market capture" is a number a category operator recognises.
+    market_spend = total_market_spend * CATEGORY_WALLET_SHARE
     current_revenue = sum(s["monthly_revenue"] for s in stores)
 
     # recommended rupee split by state
@@ -905,18 +1031,35 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
     # the radar has a real value on every spoke.
     top_driver_signals = {d["signal"] for d in drivers.get("drivers", [])} if drivers.get("sufficient_data") else set()
     store_revs = [s["monthly_revenue"] for s in stores]
+    radar_focus_pcs = [e["pincode"] for e in (portfolio or ranked[:5])]
     radar = []
     for sig in (project.get("signals") or ["ppi_ml"]):
         pairs = [(_num(s["row"].get(sig)), rev) for s, rev in zip(stores, store_revs)]
         pairs = [(x, y) for x, y in pairs if x is not None]
         r = _pearson([x for x, _ in pairs], [y for _, y in pairs]) if len(pairs) >= 3 else None
+        fit = round(abs(r) * 100, 1) if r is not None else None
+        # site-avg national percentile for this signal across the top sites — so
+        # the "does each signal move revenue?" card is never empty (benchmark tier
+        # has no Pearson fit, but every site still has a percentile on every signal).
+        svals = sorted(v for v in (_num(x.get(sig)) for x in rows_by_pincode.values()) if v is not None)
+        sap = None
+        if svals:
+            ps = [bisect.bisect_right(svals, _num(rows_by_pincode[pc].get(sig))) / len(svals) * 100
+                  for pc in radar_focus_pcs
+                  if pc in rows_by_pincode and _num(rows_by_pincode[pc].get(sig)) is not None]
+            sap = round(sum(ps) / len(ps), 1) if ps else None
+        verdict = ("moves revenue" if (fit is not None and fit >= 50)
+                   else "weak link" if fit is not None
+                   else "unproven — upload stores")
         radar.append({
             "signal": sig,
             "label": _signals_data.SIGNAL_LABELS.get(sig, sig),
-            "lever_fit": round(abs(r) * 100, 1) if r is not None else None,
+            "lever_fit": fit,
             "direction": (None if r is None else "positive" if r >= 0 else "negative"),
             "sample_size": len(pairs),
             "in_top_drivers": sig in top_driver_signals,
+            "site_avg_percentile": sap,
+            "verdict": verdict,
         })
 
     horizon_gross_profit = portfolio_gross_profit * max(0.0, horizon_months - RAMP_MONTHS / 2)
@@ -979,12 +1122,83 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
     avg_ticket = _num(project.get("avg_ticket"))
     lever_split = compute_lever_split(budget, rows_by_pincode, [e["pincode"] for e in (portfolio or ranked[:10])])
 
+    # your stores' own mean profile across the operating factors — the second
+    # baseline for the per-location factor deltas (only when there's store data).
+    store_factor_means = None
+    if stores:
+        acc = {}
+        for key, _label, cols, _basis in FACTOR_DEFS:
+            svals = [_factor_score(swot_pct, s["row"], cols) for s in stores]
+            svals = [v for v in svals if v is not None]
+            acc[key] = round(sum(svals) / len(svals), 1) if svals else None
+        store_factor_means = acc
+
+    focus = portfolio or ranked[:5]
+
     def swot_for(e):
         row = rows_by_pincode.get(e["pincode"])
         if not row:
             return None
         opp_score, _ = _opportunity_score(e["ppi_percentile"], avg_ticket, _num(row.get("est_monthly_spend_hh")))
         return location_swot(row, swot_pct, opp_score, e["cannibalisation_discount"], diagnostics, e["pincode"])
+
+    def factors_for(e):
+        row = rows_by_pincode.get(e["pincode"])
+        return location_factors(swot_pct, row, store_factor_means) if row else None
+
+    # "Smallest viable step" — the cheapest single ranked site. Drives the KPI
+    # strip and the investment-split card when the budget funds nothing yet.
+    cheapest = min((e for e in ranked if e.get("capex")), key=lambda e: e["capex"], default=None)
+    smallest_viable = None
+    if cheapest:
+        sv_gp = cheapest["monthly_revenue"] * gross_margin
+        smallest_viable = {
+            "name": cheapest["name"], "pincode": cheapest["pincode"], "state": cheapest["state"],
+            "investment": round(cheapest["capex"]), "stores": 1,
+            "monthly_revenue": round(cheapest["monthly_revenue"]),
+            "monthly_gross_profit": round(sv_gp),
+            "payback_months": payback_months(cheapest["capex"], sv_gp),
+        }
+
+    # "What's moving this curve" — a handful of signed drivers behind the shape,
+    # all from figures already computed above.
+    cand_reach_med = _median([c["reach_gross"] for c in candidates]) or 0.0
+    focus_reach = _median([e["reach_gross"] for e in focus]) or 0.0
+    focus_ppi = _median([e["ppi_percentile"] for e in focus]) or 0.0
+    min_disc = min((e["cannibalisation_discount"] for e in focus), default=1.0)
+    focus_hh = _median([hh_by_pincode.get(e["pincode"]) or 0 for e in focus]) or 0.0
+    curve_drivers = [
+        {"key": "reachable_spend", "label": "Reachable spend per site",
+         "value": round(focus_reach), "unit": "currency",
+         "delta_pct": round((focus_reach / cand_reach_med - 1) * 100) if cand_reach_med else None,
+         "direction": "up" if focus_reach >= cand_reach_med else "down",
+         "basis": "Modelled monthly household spend inside the catchment — top sites vs. the candidate median."},
+        {"key": "wallet_share", "label": "Category wallet share",
+         "value": round(CATEGORY_WALLET_SHARE * 100, 1), "unit": "percent",
+         "delta_pct": None, "direction": "flat",
+         "basis": "Assumed share of the total household wallet this retail category commands."},
+        {"key": "entrant_capture", "label": "New-entrant capture",
+         "value": round(ENTRANT_CAPTURE * 100, 2), "unit": "percent",
+         "delta_pct": None, "direction": "flat",
+         "basis": "Assumed share of that category spend a new entrant wins against incumbents."},
+        {"key": "capture_rate", "label": f"Effective capture ({model.method})",
+         "value": round(model.median_capture * 100, 3), "unit": "percent",
+         "delta_pct": None, "direction": "flat",
+         "basis": "Wallet share x entrant capture (benchmark), or your stores' fitted rate."},
+        {"key": "ppi", "label": "Purchasing-power percentile of top sites",
+         "value": round(focus_ppi, 1), "unit": "index",
+         "delta_pct": round(focus_ppi - round(ppi_floor * 100, 1)) if focus_ppi else None,
+         "direction": "up" if focus_ppi >= round(ppi_floor * 100, 1) else "down",
+         "basis": "Mean PPI percentile of the funded/top sites vs. the quality floor (0.8x your weakest store)."},
+        {"key": "cannibalisation", "label": "Catchment-overlap drag",
+         "value": round((1 - min_disc) * 100, 1), "unit": "percent",
+         "delta_pct": None, "direction": "down" if min_disc < 0.99 else "flat",
+         "basis": "Reachable spend ceded where a site's catchment overlaps another site in the portfolio."},
+        {"key": "households", "label": "Households in catchment (per site)",
+         "value": round(focus_hh), "unit": "count",
+         "delta_pct": None, "direction": "flat",
+         "basis": "Modelled households within the catchment radius of the top sites."},
+    ]
 
     return {
         "sufficient_data": True,
@@ -1006,8 +1220,11 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
         "reach_curve": {
             "points": curve if priced else [],
             "diminishing_returns_from": dim_start,
+            "smallest_viable": smallest_viable,
+            "drivers": curve_drivers,
             "note": ("Cumulative modelled monthly revenue as investment grows, best sites first, "
-                     "with catchment-overlap cannibalisation applied."),
+                     "with catchment-overlap cannibalisation applied. Drawn over a budget-anchored "
+                     "window, not the full candidate set."),
         },
 
         "recommended_portfolio": {
@@ -1030,17 +1247,23 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
                     "lat": e["lat"], "lng": e["lng"],
                     "monthly_revenue": round(e["monthly_revenue"]),
                     "reach_gross": round(e["reach_gross"]),
+                    "revenue_clamped": bool(e.get("revenue_clamped")),
                     "capex": round(e["capex"]) if e["capex"] else None,
                     "capture_rate": round(e["capture_rate"], 5),
                     "ppi_percentile": e["ppi_percentile"],
+                    # hotspot-chart filter fields — cheap, all 25 sites carry them
+                    "income_percentile": swot_pct(rows_by_pincode.get(e["pincode"]) or {}, "est_monthly_income_hh"),
+                    "footfall_percentile": swot_pct(rows_by_pincode.get(e["pincode"]) or {}, "premium_poi_per_km2"),
+                    "households": round(hh_by_pincode.get(e["pincode"]) or 0),
                     "cannibalisation_discount": e["cannibalisation_discount"],
                     "payback_months": payback_months(e["capex"], e["monthly_revenue"] * gross_margin) if e["capex"] else None,
                     "within_budget": e["pincode"] in funded_pcs,
-                    # Only the top 3 carry this — a comparative radar overlay
-                    # of every recommended site would be unreadable, and the
-                    # rest of the site list never needs it.
-                    "lever_percentiles": lever_percentiles_for(e["pincode"]) if i < 3 else None,
-                    "swot": swot_for(e) if i < 3 else None,
+                    # Only the top 5 carry these — a comparative radar / factor
+                    # table over every recommended site would be unreadable, and
+                    # the rest of the site list never needs them.
+                    "lever_percentiles": lever_percentiles_for(e["pincode"]) if i < 5 else None,
+                    "factors": factors_for(e) if i < 5 else None,
+                    "swot": swot_for(e) if i < 5 else None,
                 }
                 for i, e in enumerate(ranked[:25])
             ],
@@ -1054,11 +1277,13 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
 
         "market_capture": {
             "addressable_monthly_spend": round(market_spend),
+            "total_household_spend": round(total_market_spend),
             "current_monthly_revenue": round(current_revenue),
-            "current_capture_pct": round(current_revenue / market_spend * 100, 3) if market_spend else None,
+            "current_capture_pct": round(current_revenue / market_spend * 100, 2) if market_spend else None,
             "projected_monthly_revenue": round(current_revenue + portfolio_revenue),
-            "projected_capture_pct": round((current_revenue + portfolio_revenue) / market_spend * 100, 3) if market_spend else None,
-            "note": "Share of ALL modelled household spend in the target market — not category-specific.",
+            "projected_capture_pct": round((current_revenue + portfolio_revenue) / market_spend * 100, 2) if market_spend else None,
+            "note": (f"Share of the category's slice ({CATEGORY_WALLET_SHARE * 100:.0f}% of total household "
+                     "spend) across the target-market pincodes."),
         },
 
         "lever_fit_radar": radar,
