@@ -1,234 +1,195 @@
 # PaisaMap pricing & credits model
 
-Owner: Raghotham · Drafted 2026-09-11 · Status: **proposal — not decided, not built**
+Owner: Raghotham · Drafted 2026-09-11 · Rev 2 (decisions locked) · Status: **model agreed — not built**
 
-Turns the high-level pricing intent into a coherent model: a credit unit,
-per-action costs derived from our real COGS + margin, five plan tiers mapped to
-the ₹5k–₹100k price points, add-ons, overage, trial, annual, and multi-currency.
-Ends with a simpler alternative and the list of what has to be built first.
+The **3-lever model** (plan tier · credits · seats) with the six open decisions
+resolved. A proposal for the *numbers* still, but the *shape* is settled.
 
-Current code: `paisamap-etl/etl/_pricing.py` holds every number today (all
-flagged "placeholder"). Plans are **one-time `users.plan` flips**, not
-subscriptions. Trials, monthly credit grants, quotas, annual billing and
-multi-currency are **not built**. Pricing also depends on the Company layer
-(roadmap Phase C) — see `docs/DASHBOARD_AUDIT_AND_ROADMAP.md`.
+Current code: `paisamap-etl/etl/_pricing.py` holds every number (all
+"placeholder"). Plans are **one-time `users.plan` flips**, not subscriptions.
+Trials, monthly credit grants, quotas, annual billing, multi-currency are **not
+built**. Depends on the Company layer — roadmap Phase C
+(`docs/DASHBOARD_AUDIT_AND_ROADMAP.md`).
 
 ---
 
-## 1. Objective & principles
+## 1. Decisions locked (2026-09-11)
 
-- **Land low, expand with usage.** A cheap way in; cost rises as the customer
-  gets more value (more forecasts, more locations, more seats, more companies).
-- **Credits are the meter.** One currency for everything variable. The plan fee
-  buys a monthly credit bucket + structural limits (seats, companies).
-- **Margin rule.** Genuinely variable costs (keyword research, geocoding at
-  scale, LLM jobs, payment fees) are priced at **our cost × 1.35** (35% markup,
-  mid-point of the 25–40% target). The plan fee itself is **value-based** —
-  our marginal cost per forecast/report is ~₹0, so cost-plus there would
-  under-price a decision worth lakhs. Target **blended gross margin ≥ 82%**.
-- **Everything monthly.** Annual = **20% off**, credits still granted monthly so
-  usage stays paced.
-- **INR is the reference currency.** Other currencies at a pegged FX, quarterly review.
+| # | Decision |
+|---|---|
+| 1 | **3-lever model** — plan tier, credits, seats. No hard project/keyword quotas; companies stay a hard limit. |
+| 2 | **Both** a card-required trial **and** a free tier — but the free tier is **map + signals only; the dashboard is paid/trial-only** (see §2). |
+| 3 | Tier credits follow the **sloped curve** (Starter 1,000 → Enterprise 40,000+), not flat. |
+| 4 | Annual sweetener = **+5% credits every month**. |
+| 5 | New-keyword research = **12 credits** (subsidised below manual cost; we keep the data). |
+| 6 | Non-logged-in visitors get **3 signals on the open map**. Logged-in free ("Explorer") gets **all signals** on the map. Neither gets the dashboard. |
 
 ---
 
-## 2. What it actually costs us (COGS estimates)
+## 2. Access ladder — who gets what
 
-| Cost | Type | Estimate | Notes |
-|---|---|---|---|
-| Forecast / expansion / location score / report | marginal | **₹0.05–0.60 each** | pre-computed data + a few CPU-seconds. Effectively zero. |
-| Data acquisition + monthly enrichment (YAH/spider, RBI, PhonePe Pulse, govt sets) | fixed | ~₹15–40k/mo of effort + compute | amortised across all customers |
-| Infra (Lightsail box, Postgres, storage) | fixed | ~₹2–4k/mo today | scales slowly |
-| Payment processing (Razorpay) | variable | **~2.36% of each charge** (2% + 18% GST on the fee) | on every plan fee and top-up |
-| Geocoding — free tier (Nominatim, 1 req/s) | marginal | ₹0 | fine to a few hundred stores/day |
-| Geocoding — paid, at scale | variable | **~₹0.35–0.45/address** | only bites past the free tier |
-| **New keyword research** (keyword not in our data) | variable | **₹8–40 via an SEO data API**, or ₹50–150 manual | we keep the data as an asset |
-| Self-intelligence autorun (Phase G, if LLM-backed) | variable | **₹2–15 / customer / run** | opt-in feature, future |
-| Support / success | semi-fixed | grows with customer count | |
+The paywall is the **dashboard/workspace** (projects, forecast, expansion,
+reports, store data, compare, saved locations, connections, API). The map and
+its signals are the top-of-funnel lure.
 
-**Takeaway:** the plan fee is not cost-plus — it funds the fixed data +
-infra + dev base and the margin. Cost-plus (×1.35) governs only the metered
-add-ons: keyword research, geocoding overage, LLM runs.
+| | **Anonymous** | **Explorer** (free) | **Trial** | **Paid** (Starter+) |
+|---|---|---|---|---|
+| Sign-in | no | yes | yes + card | yes + subscription |
+| Open map + score any pincode | ✓ | ✓ | ✓ | ✓ |
+| Signals on the map | **3 core** (PPI, income, spend) | **all** (incl. the 20 pro signals) | all | all |
+| Save locations / shortlist | — | ✓ | ✓ | ✓ |
+| **Dashboard** — projects, forecast, expansion, reports, store data, compare, connections | — | — | ✓ | ✓ |
+| Credits | — | — | 500 (7 days) | plan bucket / month |
+| Companies | — | — | 1 | 1–∞ by tier |
+| API / bulk export | — | — | — | Scale+ |
 
----
-
-## 3. The credit unit
-
-**1 credit ≈ ₹4 blended list value** (₹5.00 at the entry tier, sliding to ₹2.50
-at the top — a normal volume discount that also makes upgrading the cheaper path
-than buying top-ups).
-
-Credits are spent on metered actions (§4). A plan grants a monthly bucket;
-unused **plan credits roll over one month max** (not use-it-or-lose-it — that
-reads as punitive to a B2B buyer), then expire. **Top-up credits roll 60 days.**
+Notes:
+- Explorer is **permanent and free** — no expiry. It's the "get the flavour"
+  state. Conversion happens when someone needs a forecast or a report.
+- The trial auto-converts to **Starter** on day 8 unless cancelled; if the card
+  fails or is removed, the account drops to **Explorer** (not locked out).
+- The old "pick any 10 pro signals for 60 credits" idea is **dropped** — pro
+  signals now come free with login. The credit sinks are forecast / expansion /
+  reports / new keywords / extra projects.
 
 ---
 
-## 4. Per-action credit costs
+## 3. Lever 1 — plan tiers
+
+Monthly billing. **Annual = −20% on price, +5% credits/month**, credits still
+granted monthly (no front-loading a year).
+
+| | **Explorer** | **Trial** | **Starter** | **Growth** | **Scale** | **Pro** | **Enterprise** |
+|---|---|---|---|---|---|---|---|
+| Price / month | Free | ₹0 · 7d | **₹5,000** | **₹12,000** | **₹25,000** | **₹50,000** | **₹1,00,000+** |
+| Annual /mo equiv. | — | — | ₹4,000 | ₹9,600 | ₹20,000 | ₹40,000 | custom |
+| **Credits / month** | — | 500 total | **1,000** | **3,000** | **7,000** | **16,000** | **40,000+** |
+| Implied ₹/credit | — | — | 5.00 | 4.00 | 3.57 | 3.13 | ≤2.50 |
+| Companies | — | 1 | 1 | 1 | **3** | **10** | unlimited |
+| Extra company /mo | — | — | ₹6,000 | ₹6,000 | ₹6,000 | ₹5,000 | negotiated |
+| **Seats included** | 1 | 2 | **3** | 6 | 12 | 25 | custom |
+| Projects | — | 1 | soft ~5 active | soft ~15 | soft ~40 | soft ~100 | unlimited |
+| Signals (map) | — | all | all | all | all | all | all |
+| Keywords / project (in-catalog) | — | 5 | 15 | 15 | 30 | 50 | custom |
+| Export / API | — | — | — | rate-limited | ✓ | ✓ | ✓ + SLA |
+| Self-intelligence jobs (Phase G) | — | — | — | monthly | weekly | daily | daily |
+| Support | — | — | email | email | priority | priority + call | dedicated + SLA |
+
+- **Bigger tiers = more credits per rupee** (5.00 → 2.50). Upgrading always beats
+  buying top-ups past a threshold — that is the expansion path.
+- "Projects — soft ~N" means: create freely; the number is a fair-use guideline,
+  not a hard block. Enforced only if an account is wildly beyond typical use
+  (then: a conversation, or 100 credits per extra project).
+- Margin check: at Starter, ₹5,000 − ~2.36% Razorpay − ~₹400 amortised
+  data/infra ≈ **₹4,480 contribution (~90%)** before support. Blended target
+  across tiers **≥ 82%** holds comfortably.
+
+---
+
+## 4. Lever 2 — credits
+
+**1 credit ≈ ₹4 blended** (₹5.00 at Starter, ₹2.50 at Enterprise). One currency
+for everything metered.
 
 | Action | Credits | Basis |
 |---|---|---|
-| Explore the map, score any pincode, view intelligence | **0 — unlimited** | near-zero COGS; this is the adoption hook |
-| **Forecast run** | **8** | keep current |
-| **Expansion recommendation** | **5** | keep current |
-| **Report (PDF)** | **10** | keep current |
-| **Pro-signal pack unlock** — pick any 10 of the 20 pro signals, 30 days, per company | **60** | "for X credits, open any 10" |
-| Add an **in-catalog keyword** to a project | **0** within the project's quota · **1** over quota | |
-| **Research a new keyword** (not in our data) | **12** | ₹8–40 cost × 1.35, rounded; we keep the data |
-| **Extra seat** beyond the plan's included users | **200 credits/user/mo** *or* ₹900 flat/user/mo | "more users → x credits" |
-| **Extra project** beyond the monthly quota | **100 each** | |
-| **Extra company** | **not credits — a flat plan-dependent fee**, see §5 | "fixed cost per plan" |
-| Self-intelligence autorun (opt-in, future) | **15/run** or bundled into higher tiers | Phase G |
+| Explore map, score pincode, view intelligence, save locations | **0 — unlimited** | near-zero COGS; the adoption hook |
+| **Forecast run** | **8** | unchanged from `_pricing.py` |
+| **Expansion recommendation** | **5** | unchanged |
+| **Report (PDF)** | **10** | unchanged |
+| **Research a new keyword** (not in our data) | **12** | ₹8–40 cost, subsidised; we keep the data + it's queued for backfill |
+| Add an in-catalog keyword within the project's default | **0** | |
+| Extra project beyond fair use | **100** | rare; mostly a soft nudge |
+| Self-intelligence autorun (Phase G, opt-in) | **15 / run** | future |
 
-Rounding rule: metered add-ons round **up** to the nearest whole credit after
-the ×1.35 markup.
+Rounding: metered add-ons round **up** to the whole credit after any ×1.35 markup.
 
----
+**Overage — top-up packs** (priced 10–20% over the plan's implied rate, so
+upgrading is the cheaper path past a threshold):
 
-## 5. Plan tiers
-
-Monthly billing. Annual = **−20%** on the price, credits granted monthly.
-All five paid tiers map to the price caps you set.
-
-| | **Trial** | **Starter** | **Growth** | **Scale** | **Pro** | **Enterprise** |
-|---|---|---|---|---|---|---|
-| Price / month | ₹0 · 7 days | **₹5,000** | **₹12,000** | **₹25,000** | **₹50,000** | **₹1,00,000+** |
-| Annual / month equiv. | — | ₹4,000 | ₹9,600 | ₹20,000 | ₹40,000 | custom |
-| Credits / month | **500 total** | **1,000** | **3,000** | **7,000** | **16,000** | **40,000+** |
-| Implied ₹/credit | — | 5.00 | 4.00 | 3.57 | 3.13 | ≤2.50 |
-| Companies | 1 | 1 | 1 | **3** | **10** | unlimited |
-| Extra company | — | — | — | ₹6,000/mo | ₹5,000/mo | negotiated |
-| Users included | 2 | **3** | 6 | 12 | 25 | custom |
-| Extra seat | — | ₹900/user/mo | ₹900 | ₹800 | ₹700 | negotiated |
-| New projects / month | 1 | **3** | 8 | 20 | 50 | custom |
-| Keywords / project | 5 | **15** | 15 | 30 | 50 | custom |
-| Pro signals | — | 10 (1 unlock incl.) | 10 (1 unlock incl.) | **all 20** | all 20 | all 20 |
-| Data export / API access | — | — | rate-limited | yes | yes | yes + SLA |
-| Self-intelligence jobs | — | — | — | monthly | weekly | daily |
-| Support | — | email | email | priority | priority + call | dedicated + SLA |
-
-Notes:
-- **Bigger plans get more credits per rupee** (5.00 → 2.50). Standard SaaS; it
-  makes "upgrade" cheaper than "keep buying top-ups", which is the expansion path
-  we want.
-- Your original credit numbers were 500 / 1,000 / 3,000 / 5,000. Kept the first
-  three; bumped ₹25k from 5,000 → 7,000 and added a ₹50k tier at 16,000 so the
-  ₹/credit curve slopes the right way at every step. If you'd rather ₹25k = 5,000
-  credits, that's ₹5/credit — no volume discount at that step — flag it.
-- "3 projects **/month**" is a creation quota, not a cap on how many exist. A
-  Starter customer accumulates projects over time; they just can't spin up more
-  than 3 in a calendar month without spending 100 credits each.
-
----
-
-## 6. Overage — when the monthly credits run out
-
-Top-up packs, priced ~10–20% above the plan's implied rate so that past a
-threshold, upgrading a tier is always the better deal:
-
-| Pack | Price (INR) | ₹/credit | Rolls over |
+| Pack | Price | ₹/credit | Rolls over |
 |---|---|---|---|
-| 500 credits | ₹3,000 | 6.00 | 60 days |
-| 2,000 credits | ₹10,000 | 5.00 | 60 days |
-| 5,000 credits | ₹22,000 | 4.40 | 60 days |
+| 500 | ₹3,000 | 6.00 | 60 days |
+| 2,000 | ₹10,000 | 5.00 | 60 days |
+| 5,000 | ₹22,000 | 4.40 | 60 days |
 
-An account that buys two 5,000-packs in a month is shown a one-click "move to
-the next tier and stop buying top-ups" prompt.
+Plan credits roll **one month** then expire; top-up credits roll **60 days**.
+Two 5,000-packs in a month → a one-click "move up a tier" prompt.
+
+---
+
+## 5. Lever 3 — seats
+
+Flat fee per user over the included count. No credit cost, no per-seat metering
+of usage (usage is already metered by credits, which are pooled at the company).
+
+| Tier | Included | Extra seat / month |
+|---|---|---|
+| Starter | 3 | ₹900 |
+| Growth | 6 | ₹900 |
+| Scale | 12 | ₹800 |
+| Pro | 25 | ₹700 |
+| Enterprise | custom | negotiated |
+
+Roles (owner / admin / editor / viewer) come from roadmap Phase D. **Viewers are
+free** — they don't count against the seat limit (read-only, can't spend credits).
+
+---
+
+## 6. New-keyword pipeline
+
+When a customer adds a keyword we don't have data for:
+1. Charge **12 credits**.
+2. Queue the keyword for backfill (an internal list; research via an SEO data
+   API or manually).
+3. Once backfilled, the keyword's demand data appears for **every** customer —
+   the 12 credits partly funded a shared asset, which is why it's subsidised
+   below the ~₹40–150 true research cost.
+4. If backfill fails / the keyword has no meaningful volume, **refund the 12
+   credits** and mark it unavailable.
+
+Keyword feature itself is unbuilt — roadmap Phase F/G.
 
 ---
 
 ## 7. Currency
 
-- **INR** is the reference. **GST 18%** on INR invoices (confirm HSN/SAC with a CA).
-- Other currencies via **Razorpay International** at a pegged FX (₹83.5/USD as of
-  drafting), reviewed quarterly. Indicative USD: Starter **$60**, Growth **$145**,
-  Scale **$299**, Pro **$599**.
-- International invoices treated as **export of service (zero-rated)** — confirm
-  with a CA before relying on it.
+- **INR** reference. **GST 18%** on INR invoices (confirm HSN/SAC with a CA).
+- Other currencies via **Razorpay International** at a pegged FX (₹83.5/USD),
+  quarterly review. Indicative USD: Starter **$60**, Growth **$145**, Scale
+  **$299**, Pro **$599**.
+- International invoices = **export of service, zero-rated** — confirm with a CA.
 
 ---
 
-## 8. Trial & conversion
-
-- **7 days, 500 credits, 1 company / 1 project / 5 keywords**, no pro signals,
-  no export.
-- **Card required at signup** → auto-converts to **Starter** on day 8 unless
-  cancelled. Cleaner B2B funnel, and the day-7 nudge ("your forecast for X is
-  ready — keep it") converts well.
-- Prospects who won't put a card down get a **"Book a demo"** path (larger deals)
-  or a permanently-free **Explorer** view — public map + scoring only, 0 monthly
-  credits, no workspace.
-- Trial credits do **not** roll over.
-
----
-
-## 9. Annual
-
-- **−20%** on the sticker price, one invoice, **credits still granted monthly**
-  (so an annual customer can't front-load a year of usage in month one).
-- One sweetener, pick one: (a) **+5% credits** each month, or (b) **one free
-  tier-bump on seats**. Recommend (a) — simpler, and it compounds engagement.
-
----
-
-## 10. "Is this too cumbersome?" — a simpler alternative (recommended to weigh)
-
-The model above has **8 metered dimensions** (credits, companies, seats,
-projects/mo, keywords/project, pro-signal unlocks, new-keyword research,
-reports). That's a lot to explain on a pricing page and a lot to meter and
-enforce in code.
-
-**Collapse to 3 levers:**
-
-1. **Plan tier** — one row per tier: price, included credits, included seats,
-   included companies. (Keep the five price points.)
-2. **Credits** — the single currency for *everything* variable: forecasts,
-   reports, expansions, pro-signal unlocks, new keywords, extra projects. No
-   separate quotas for projects or keywords — they just cost credits past a
-   generous soft limit.
-3. **Seats** — a flat ₹/user/month over the included count.
-
-Companies stay a hard structural limit (real abuse vector). Everything else
-becomes "unlimited within fair use, or costs credits." Same land-and-expand
-flywheel, roughly a third of the metering to build, and a pricing page a buyer
-understands in 20 seconds.
-
-**Recommendation:** ship the 3-lever version first. Add project/keyword quotas
-later only if data shows abuse.
-
----
-
-## 11. What has to be built (and in what order)
-
-Pricing v2 can't ship before these. Sequenced against the dashboard roadmap:
+## 8. What has to be built (sequenced)
 
 | # | Needs | Depends on |
 |---|---|---|
-| P1 | **Company layer** — plans attach to a company, not a user | Roadmap **Phase C** |
-| P2 | **Recurring subscriptions** — Razorpay Subscriptions (or a monthly cron that re-charges + re-grants), replacing the one-time `users.plan` flip | P1 |
-| P3 | **Monthly credit grant + rollover job** — grant on renewal, expire last month's plan credits, keep top-ups 60 days | P2 |
-| P4 | **Trial** — `trial_ends_at`, the day-8 auto-convert, the day-7 nudge, the no-card Explorer fallback | P2 |
-| P5 | **Metering & enforcement** — seat count, company count, (project/keyword quotas only if we keep §5 not §10) | P1, Roadmap **Phase D** (roles) |
-| P6 | **Keyword feature** — the keyword model itself doesn't exist yet; "add up to N", "research a new one for 12 credits", and the queue that documents new keywords for us to backfill | Roadmap **Phase F/G** |
-| P7 | **Multi-currency** — Razorpay International, FX peg config, export-of-service invoicing | P2 |
-| P8 | **Annual billing** — the −20% SKU, monthly grant on an annual term | P2, P3 |
-| P9 | Move every number in `_pricing.py` from placeholder → decided; add the new keys | all above |
+| P1 | **Company layer** — plan + credits + seats attach to a company | Roadmap **Phase C** |
+| P2 | **Recurring subscriptions** — Razorpay Subscriptions or a monthly re-charge cron, replacing the one-time `users.plan` flip | P1 |
+| P3 | **Monthly credit grant + rollover job** — grant on renewal, expire last month's plan credits, keep top-ups 60 days, +5% on annual | P2 |
+| P4 | **Explorer + Trial** — logged-in-free gets all map signals but no dashboard routes; `trial_ends_at`, day-8 auto-convert to Starter, card-fail → drop to Explorer, day-7 nudge | P2 + Roadmap Phase C |
+| P5 | **Seat enforcement** — count active non-viewer members vs the tier limit | P1, Roadmap **Phase D** |
+| P6 | **Dashboard paywall** — gate every `/workspace/*` route except the map on `plan != explorer` | P4 |
+| P7 | **Keyword feature + backfill queue** — the model, "research a new one for 12 credits", the internal queue, the refund path | Roadmap Phase F/G |
+| P8 | **Multi-currency** — Razorpay International, FX peg config, export invoicing | P2 |
+| P9 | **Annual billing** — the −20% SKU, +5% monthly grant on an annual term | P2, P3 |
+| P10 | `_pricing.py` — every number placeholder → decided; add `PLANS` (credits, seats, companies), `EXPLORER` tier, keyword cost, top-up packs | all |
 
-Rough build size: **P1–P4 ≈ one focused milestone**; P5–P9 layer on after.
+**P1–P4 + P6 ≈ one focused billing-v2 milestone** (the paywall + trial + monthly
+credits). P5, P7–P10 layer on.
 
 ---
 
-## 12. Open decisions for you
+## 9. Still to decide (numbers, not shape)
 
-1. **§5 hard quotas** or **§10 three-lever** model? (Recommend §10.)
-2. ₹25k tier = **7,000 credits** (my curve) or **5,000** (your number, flat rate)?
-3. Trial: **card required** (recommend) or no-card + Explorer fallback, or both?
-4. Annual sweetener: **+5% monthly credits** (recommend) or a free seat bump?
-5. Is a **subsidised** new-keyword price (12 credits ≈ ₹48, below the manual
-   cost) acceptable given we keep the data? Or price it at full manual cost
-   (~40 credits)?
-6. Does "Explorer" (permanently free, map-only) fit the brand, or is PaisaMap
-   trial-then-paid only?
+1. Exact credit grants — is **1,000 / 3,000 / 7,000 / 16,000** right, or shift?
+2. Extra-company fee — **₹6,000/mo** at Starter–Scale, or scale it with tier?
+3. Trial length — **7 days** enough for a buyer to run a real forecast + report,
+   or 14?
+4. Do **viewers** stay free, or count at a reduced rate (₹200/mo)?
+5. USD peg — fixed at ₹83.5, or a small buffer (₹85) so FX moves don't erode margin?
 
 ---
 
@@ -236,4 +197,5 @@ Rough build size: **P1–P4 ≈ one focused milestone**; P5–P9 layer on after.
 
 | Date | Change |
 |---|---|
-| 2026-09-11 | First draft from the high-level intent. |
+| 2026-09-11 | First draft from the high-level intent (full 8-dimension model). |
+| 2026-09-11 | Rev 2 — six decisions locked; collapsed to the 3-lever model; added the access ladder; dropped the pro-signal-unlock SKU (pro signals now free with login). |
