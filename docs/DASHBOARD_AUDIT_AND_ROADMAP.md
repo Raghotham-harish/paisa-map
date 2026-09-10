@@ -206,3 +206,4 @@ parallel R&D tracks that can start once C lands.
 | Date | Session did | Phase items touched |
 |---|---|---|
 | 2026-09-11 | Full audit; wrote this doc + published tracking artifact. | — |
+| 2026-09-11 | Drafted `docs/PRICING_MODEL.md` — the pricing/credits model depends on Phase C (companies) + a billing-v2; see that doc §11 for P1–P9 sequencing. | C (context) |
