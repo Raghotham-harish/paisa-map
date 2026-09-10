@@ -229,6 +229,11 @@ export interface CustomerUpload {
   row_count: number;
   mapping: Partial<Record<CanonicalField, string>> | null;
   quality_report: QualityReport | null;
+  // Rows that never resolved to a real pincode (no valid pincode given, and
+  // either no address or the address failed to geocode) — these are silently
+  // excluded from forecast/expansion/intelligence, since those join on
+  // pincode. Live-computed, so it keeps updating while status === "geocoding".
+  unresolved_count: number;
   error: string | null;
   created_at: string;
   updated_at: string;
@@ -334,6 +339,27 @@ export interface ForecastLeverPercentile {
   percentile: number | null;
 }
 
+export interface ForecastSwotFactor {
+  key: string;
+  label: string;
+  score: number | null;
+  basis: string;
+}
+
+export interface ForecastSwotFlag {
+  key: string;
+  label: string;
+  basis: string;
+}
+
+export interface ForecastSwot {
+  factors: ForecastSwotFactor[];
+  strengths: ForecastSwotFactor[];
+  weaknesses: ForecastSwotFactor[];
+  opportunities: ForecastSwotFlag[];
+  threats: ForecastSwotFlag[];
+}
+
 export interface ForecastSite {
   pincode: string;
   name: string;
@@ -347,9 +373,24 @@ export interface ForecastSite {
   ppi_percentile: number;
   cannibalisation_discount: number;
   payback_months: number | null;
+  // Ranked best-first regardless of budget — this says whether the site is
+  // actually part of recommended_portfolio.investment/monthly_revenue above.
+  within_budget: boolean;
   // Only populated on the top 3 sites — see _forecast_model.py's
-  // lever_percentiles_for.
+  // lever_percentiles_for / location_swot.
   lever_percentiles: ForecastLeverPercentile[] | null;
+  swot: ForecastSwot | null;
+}
+
+export interface ForecastLever {
+  category: string;
+  label: string;
+  pct: number;
+}
+
+export interface ForecastLeverSplit {
+  levers: ForecastLever[];
+  basis: string;
 }
 
 export interface ForecastNudge {
@@ -391,14 +432,18 @@ export interface Forecast {
   revenue_period: RevenuePeriod;
   capex_priced: boolean;
   capex_basis: string | null;
+  // "benchmark" = no store revenue to calibrate on yet — a documented default
+  // capture rate, not fitted on anything. Upload store data to move to
+  // pooled_median (3-7 stores) or regression (8+).
+  calibration: "benchmark" | "pooled_median" | "regression";
   capture_model: {
-    method: "regression" | "pooled_median";
+    method: "benchmark" | "regression" | "pooled_median";
     median_capture_rate: number;
     r2: number | null;
     confidence_band_pct: number;
     stores_used: number;
   };
-  confidence: "high" | "medium" | "low";
+  confidence: "benchmark" | "high" | "medium" | "low";
   candidates_considered: number;
   quality_floor_ppi_percentile: number;
   reach_curve: {
@@ -417,6 +462,7 @@ export interface Forecast {
     sites: ForecastSite[];
   };
   nudge: ForecastNudge | null;
+  lever_split: ForecastLeverSplit;
   investment_split: ForecastSplit[];
   market_capture: {
     addressable_monthly_spend: number;

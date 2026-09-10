@@ -10,8 +10,10 @@ WHAT THIS IS (and is NOT)
 There is **no time-series store-ramp data** anywhere in this codebase — a
 customer upload (customer_locations) is a single revenue/rent/capex snapshot per
 store, not a monthly history. So the saturation curve is NOT fitted on a ramp.
-Instead the model is fully **cross-sectional**, calibrated on the customer's own
-stores:
+Instead the model is fully **cross-sectional**, and produces a real forecast for
+EVERY project by default — driven by its chosen signals, target location(s) and
+budget — with uploaded stores layering on as an optional calibration boost, not
+a requirement:
 
   1. Reachable household spend per pincode
        households(pincode) x est_monthly_spend_hh(pincode)
@@ -25,12 +27,15 @@ stores:
        sum, over every pincode whose centroid is within `catchment_km`, of that
        pincode's reachable spend x a linear distance-decay weight.
 
-  3. Capture rate, calibrated on the customer's own stores
+  3. Capture rate — three tiers, all producing a real forecast (fit_capture_model,
+     benchmark_capture_model):
        capture_i = monthly_revenue_i / catchment_reachable_spend_i
-     regressed (pure-Python OLS, <=2 predictors) on the store's PPI percentile
-     and its driver-fit score. N < 8 stores, or degenerate predictors -> falls
-     back to the pooled median capture. N < MIN_STORES -> the whole endpoint
-     returns sufficient_data:false and charges nothing.
+     >= REGRESSION_MIN_STORES (8) usable stores -> regressed (pure-Python OLS,
+     <=2 predictors) on PPI percentile + driver-fit score. >= MIN_STORES (3) ->
+     the pooled median capture. Fewer (including zero) -> DEFAULT_CAPTURE_RATE,
+     a documented benchmark, nudged by each location's own PPI percentile —
+     labelled `calibration: "benchmark"` everywhere it's surfaced so it's never
+     confused with a real fit. Upload store data to move up a tier.
 
   4. Diminishing returns — two mechanisms, both real:
        (a) the portfolio is filled greedily by predicted-revenue-per-rupee, so
@@ -40,11 +45,20 @@ stores:
 
   5. Outputs: the reach curve, the recommended rupee split by state, payback
      (needs the project's gross_margin_pct + revenue_period), market-capture %,
-     and a lever-fit radar (do the project's chosen signals actually move this
-     customer's revenue?).
+     a lever-fit radar (do the project's chosen signals actually move revenue?),
+     a rule-based budget-split-by-lever allocation (compute_lever_split), and a
+     per-site SWOT of composite signal-proxy factors (location_swot) for the
+     top few recommended sites. `recommended_portfolio.sites` is ranked
+     best-first regardless of whether the budget can actually afford each one
+     (each carries `within_budget`) — so "which locations yield well" and their
+     SWOT stay informative even when the budget is too small to fund a site.
 
 Every constant is in ASSUMPTIONS and echoed in the response. Nothing here is
-presented as more precise than "a modelled projection".
+presented as more precise than "a modelled projection" — and nothing here
+(manufacturing favorability, raw-material availability, footfall, etc.) is
+presented as a literal measurement the codebase doesn't have; every such
+composite factor carries a `basis` string naming exactly which real signals
+it's derived from.
 """
 
 import bisect
@@ -53,11 +67,16 @@ import csv
 
 import _signals_data
 
-MIN_STORES = 3              # below this: sufficient_data:false, no charge
+MIN_STORES = 3              # below this: benchmark capture (not calibrated on your stores)
 REGRESSION_MIN_STORES = 8   # below this: pooled-median capture, not a fit
 REGRESSION_MIN_R2 = 0.15    # a fit weaker than this is no better than the pooled median
 AVG_HOUSEHOLD_SIZE = 4.6    # Census of India 2011 national average household size
 DEFAULT_GROSS_MARGIN_PCT = 35.0   # blended retail gross margin, used only if the project has none
+DEFAULT_CAPTURE_RATE = 0.005      # 0.5% of catchment reachable spend — a conservative benchmark
+                                  # for an unestablished entrant, used only when there's no store
+                                  # revenue to calibrate on (< MIN_STORES). Nudged +/-40% by the
+                                  # location's own opportunity/affordability fit (see benchmark_capture_model).
+NATIONAL_SEED_TOP_N = 500         # candidate seed size when a project has neither stores nor target_pincodes
 RAMP_MONTHS = 12           # a new store is assumed to reach modelled steady-state revenue linearly over this many months
 CURVE_STEPS = 14
 DIMINISHING_RETURNS_RATIO = 0.5   # marginal revenue/rupee below this fraction of the first segment's => "diminishing" zone
@@ -65,6 +84,39 @@ EXPANSION_MARGIN_KM = 25.0       # how far beyond the catchment radius to look f
 MAX_CANDIDATES = 3000            # hard cap on the candidate universe (keeps the request O(seconds))
 DENSITY_PROXY_COLS = ("radiance_mean", "premium_poi_per_km2", "fin_density_per_km2")
 CANNIBALISATION_SHARE = 0.5      # fraction of an overlap that a new store cedes to the incumbent
+DEFAULT_STORE_SQFT = 800         # typical small-format retail footprint — used only when neither your
+                                  # own stores' capex nor their rent/rate ratio is available (e.g. a
+                                  # brand-new project with no store data yet)
+
+# lever-split allocator — six spend categories a business can put budget behind.
+LEVER_CATEGORIES = (
+    "advertising", "sales_distribution", "promotions", "rnd_product", "production_supply_chain", "ops_capex",
+)
+LEVER_LABELS = {
+    "advertising": "Advertising & Marketing",
+    "sales_distribution": "Sales & Distribution",
+    "promotions": "Promotions & Discounts",
+    "rnd_product": "R&D / Product Development",
+    "production_supply_chain": "Production & Supply Chain",
+    "ops_capex": "Store Ops & CapEx",
+}
+# "lean" (small budget) vs "scale" (large budget) allocation profiles — interpolated
+# on a log scale between LEAN_BUDGET/SCALE_BUDGET. Both are hand-set starting points,
+# then tilted by the candidate locations' own signal profile (see compute_lever_split).
+LEVER_LEAN_PROFILE = {
+    "advertising": 30, "sales_distribution": 22, "promotions": 18,
+    "rnd_product": 8, "production_supply_chain": 12, "ops_capex": 10,
+}
+LEVER_SCALE_PROFILE = {
+    "advertising": 18, "sales_distribution": 16, "promotions": 10,
+    "rnd_product": 18, "production_supply_chain": 24, "ops_capex": 14,
+}
+LEAN_BUDGET = 5e4     # ₹50k — fully "lean" profile at/below this
+SCALE_BUDGET = 5e7    # ₹5cr — fully "scale" profile at/above this
+
+# SWOT composite proxies — percentile thresholds for bucketing.
+SWOT_STRENGTH_PCT = 65.0
+SWOT_WEAKNESS_PCT = 35.0
 
 ASSUMPTIONS = {
     "avg_household_size": AVG_HOUSEHOLD_SIZE,
@@ -81,7 +133,14 @@ ASSUMPTIONS = {
     "capture_rate": (
         f"Fitted on your stores: capture = revenue / catchment reachable spend. "
         f">= {REGRESSION_MIN_STORES} stores -> regression on PPI percentile + driver fit; "
-        f"fewer -> your stores' median capture."
+        f"{MIN_STORES}-{REGRESSION_MIN_STORES - 1} -> your stores' median capture; "
+        f"fewer than {MIN_STORES} -> a benchmark capture rate ({DEFAULT_CAPTURE_RATE * 100:.1f}% of "
+        f"reachable spend, nudged by each location's own purchasing-power percentile) since there's no "
+        f"store revenue yet to calibrate on — upload store data for a rate fitted on your own performance."
+    ),
+    "capex_estimate": (
+        f"Your stores' median fit-out cost if available; else assumed store size x local property rate; "
+        f"else (no store data at all) a default {DEFAULT_STORE_SQFT}-sqft store x local property rate."
     ),
     "diminishing_returns": (
         "The portfolio is filled best-revenue-per-rupee first, and a new store inside "
@@ -383,6 +442,17 @@ def fit_capture_model(observations):
     return CaptureModel("pooled_median", lambda a, b: med, med, min(max(cv, 0.15), 0.6), None, len(obs))
 
 
+def benchmark_capture_model():
+    """No store revenue to calibrate on (< MIN_STORES usable stores) — DEFAULT_CAPTURE_RATE,
+    nudged +/-40% by the location's own PPI percentile (better purchasing power => assumed to
+    convert reachable spend a bit better). Not fitted on anything; `method == "benchmark"`
+    everywhere this is surfaced so it's never confused with a real fit."""
+    def _predict(ppi_pct, driver_fit):
+        tilt = ((ppi_pct if ppi_pct is not None else 0.5) - 0.5) * 0.8  # +/-0.4 at the extremes
+        return DEFAULT_CAPTURE_RATE * (1.0 + tilt)
+    return CaptureModel("benchmark", _predict, DEFAULT_CAPTURE_RATE, 0.5, None, 0)
+
+
 # ── driver-fit percentile helper ────────────────────────────────────────────
 def _driver_fit_scorer(top_drivers, rows_by_pincode):
     """Returns fit(row) -> 0..1, the average percentile of the row across the
@@ -410,6 +480,185 @@ def _driver_fit_scorer(top_drivers, rows_by_pincode):
         return sum(parts) / len(parts) if parts else None
 
     return fit
+
+
+AFFORDABILITY_FLOOR_PCT = 2.0   # ticket <= this % of monthly household spend -> no affordability penalty
+AFFORDABILITY_CEIL_PCT = 20.0   # ticket >= this % of monthly household spend -> affordability_fit floors at 0
+
+
+def _opportunity_score(economic_score_100, avg_ticket, spend):
+    """economic_score (0-100) blended with ticket-size affordability fit, same formula as
+    blueprints/intelligence.py's opportunity_assessment — duplicated (a dozen lines) rather
+    than importing a blueprint back into this etl module, same convention as
+    _estimate_store_sqft above. Returns (opportunity_score, ticket_pct_of_spend|None)."""
+    if not avg_ticket or not spend:
+        return economic_score_100, None
+    ticket_pct = avg_ticket / spend * 100
+    if ticket_pct <= AFFORDABILITY_FLOOR_PCT:
+        fit = 100.0
+    elif ticket_pct >= AFFORDABILITY_CEIL_PCT:
+        fit = 0.0
+    else:
+        span = AFFORDABILITY_CEIL_PCT - AFFORDABILITY_FLOOR_PCT
+        fit = 100 * (1 - (ticket_pct - AFFORDABILITY_FLOOR_PCT) / span)
+    return round(economic_score_100 * 0.7 + fit * 0.3, 1), round(ticket_pct, 2)
+
+
+def _risk_level(diagnostics, pincode):
+    """Duplicated (same convention, ~8 lines) from intelligence.py's risk_assessment —
+    just the level + score, the narrative text lives only in the intelligence endpoints."""
+    anomaly = (diagnostics.get("anomalies") or {}).get(pincode) if diagnostics else None
+    score = anomaly.get("anomaly_score") if anomaly else None
+    if score is None:
+        return "Unknown", None
+    if score >= 0.65:
+        return "High", score
+    if score >= 0.4:
+        return "Medium", score
+    return "Low", score
+
+
+# ── lever-split allocator ─────────────────────────────────────────────────────
+def compute_lever_split(budget, rows_by_pincode, candidate_pincodes):
+    """How the budget should split across 6 spend levers. A rule-based allocation
+    framework, NOT a performance-calibrated model (there's no data source in this
+    codebase for "how well does a rupee of R&D spend perform") — label it as such
+    wherever it's surfaced. Two real, documented inputs tilt the two hand-set base
+    profiles (LEVER_LEAN_PROFILE for a small budget, LEVER_SCALE_PROFILE for a large
+    one): the budget size itself (log-interpolated between LEAN_BUDGET/SCALE_BUDGET),
+    and the recommended locations' own signal profile. Recomputes on every call, so
+    it naturally recalibrates whenever the budget or portfolio changes."""
+    b = max(LEAN_BUDGET, min(SCALE_BUDGET, budget))
+    t = (math.log(b) - math.log(LEAN_BUDGET)) / (math.log(SCALE_BUDGET) - math.log(LEAN_BUDGET))
+    weighted = {k: LEVER_LEAN_PROFILE[k] * (1 - t) + LEVER_SCALE_PROFILE[k] * t for k in LEVER_CATEGORIES}
+
+    rows = [rows_by_pincode[pc] for pc in candidate_pincodes if pc in rows_by_pincode]
+
+    def _pct_avg(col):
+        vals = sorted(v for v in (_num(r.get(col)) for r in rows_by_pincode.values()) if v is not None)
+        if not vals or not rows:
+            return 0.5
+        pcts = [bisect.bisect_right(vals, _num(r.get(col))) / len(vals) for r in rows if _num(r.get(col)) is not None]
+        return sum(pcts) / len(pcts) if pcts else 0.5
+
+    manufacturing = (_pct_avg("factories_per_lakh") + _pct_avg("msme_per_lakh")) / 2
+    distribution = (_pct_avg("bank_branches_per_lakh") + _pct_avg("fin_density_per_km2")) / 2
+    demand_density = (_pct_avg("premium_poi_per_km2") + _pct_avg("est_monthly_income_hh")) / 2
+
+    # tilts shift weight toward the lever a location's own profile favours; the
+    # equal-and-opposite shift always lands on ops_capex so the six numbers keep
+    # summing to (approximately) 100 before the final normalisation pass below.
+    tilts = {
+        "production_supply_chain": (manufacturing - 0.5) * 12,
+        "rnd_product": (manufacturing - 0.5) * 6,
+        "sales_distribution": (0.5 - distribution) * 12,   # weak distribution -> spend MORE building it
+        "advertising": (demand_density - 0.5) * 10,
+        "promotions": (demand_density - 0.5) * 6,
+    }
+    for k, dv in tilts.items():
+        weighted[k] += dv
+    weighted["ops_capex"] -= sum(tilts.values())
+
+    total = sum(weighted.values()) or 1.0
+    levers = [{"category": k, "label": LEVER_LABELS[k], "pct": max(2.0, weighted[k] / total * 100)}
+              for k in LEVER_CATEGORIES]
+    norm = sum(l["pct"] for l in levers) or 1.0
+    for l in levers:
+        l["pct"] = round(l["pct"] / norm * 100, 1)
+    drift = round(100 - sum(l["pct"] for l in levers), 1)
+    if drift:
+        levers.sort(key=lambda l: l["pct"], reverse=True)
+        levers[0]["pct"] = round(levers[0]["pct"] + drift, 1)
+
+    return {
+        "levers": levers,
+        "basis": ("A rule-based allocation framework using your budget size and the recommended "
+                  "locations' own signal profile (manufacturing, financial-distribution and "
+                  "commercial-density percentiles) — not a performance-calibrated model."),
+    }
+
+
+# ── location SWOT composite ───────────────────────────────────────────────────
+SWOT_PROXY_COLS = ("est_monthly_income_hh", "est_monthly_spend_hh", "car_2w_ratio", "luxury_share", "ev_share",
+                    "factories_per_lakh", "msme_per_lakh", "cropping_intensity_pct",
+                    "bank_branches_per_lakh", "fin_density_per_km2",
+                    "cars_per_1000", "lmv_per_1000", "radiance_mean", "premium_poi_per_km2")
+
+
+def _swot_percentile_lookup(rows_by_pincode):
+    """Precompute one sorted-values list per proxy column (not per site) so scoring the
+    top-3 sites' SWOT is O(sites x columns x log n), not O(sites x columns x n)."""
+    sorted_vals = {}
+    for col in SWOT_PROXY_COLS:
+        vals = sorted(v for v in (_num(r.get(col)) for r in rows_by_pincode.values()) if v is not None)
+        if vals:
+            sorted_vals[col] = vals
+
+    def pct(row, col):
+        vals = sorted_vals.get(col)
+        v = _num(row.get(col))
+        return round(bisect.bisect_right(vals, v) / len(vals) * 100, 1) if (vals and v is not None) else None
+
+    return pct
+
+
+def location_swot(row, pct, opportunity_score, cannibalisation_discount, diagnostics, pincode):
+    """Composite proxy scores (0-100 percentile) for a candidate location, bucketed
+    SWOT-style. None of these are literal measurements of supply chain / manufacturing
+    / footfall etc. — this codebase has no dataset for any of that — every factor
+    carries a `basis` string naming exactly which real signals it's derived from."""
+    def avg(*vals):
+        vals = [v for v in vals if v is not None]
+        return sum(vals) / len(vals) if vals else None
+
+    factors = [
+        {"key": "opportunity", "label": "Opportunity score", "score": opportunity_score,
+         "basis": "Purchasing-power percentile blended with your ticket-size affordability fit"},
+        {"key": "audience_fit", "label": "Audience demographics fit",
+         "score": avg(pct(row, "est_monthly_income_hh"), pct(row, "est_monthly_spend_hh"),
+                      pct(row, "car_2w_ratio"), pct(row, "luxury_share"), pct(row, "ev_share")),
+         "basis": "Income/spend + vehicle-ownership percentile composite"},
+        {"key": "manufacturing", "label": "Manufacturing favorability",
+         "score": avg(pct(row, "factories_per_lakh"), pct(row, "msme_per_lakh")),
+         "basis": "Factories + MSME density percentile composite"},
+        {"key": "raw_material", "label": "Raw-material / resource proxy",
+         "score": pct(row, "cropping_intensity_pct"),
+         "basis": "Cropping-intensity percentile — an agri-linked proxy, most relevant to "
+                  "agriculture/food businesses, not a literal sourcing survey"},
+        {"key": "distribution", "label": "Financial distribution access",
+         "score": avg(pct(row, "bank_branches_per_lakh"), pct(row, "fin_density_per_km2")),
+         "basis": "Bank-branch + financial-institution density percentile composite"},
+        {"key": "transport", "label": "Transport & logistics density",
+         "score": avg(pct(row, "cars_per_1000"), pct(row, "lmv_per_1000")),
+         "basis": "Car + light-commercial-vehicle density percentile composite"},
+        {"key": "geography", "label": "Geographic / infrastructure benefit",
+         "score": avg(pct(row, "radiance_mean"), pct(row, "premium_poi_per_km2")),
+         "basis": "Night-lights + commercial-POI density percentile composite"},
+        {"key": "footfall", "label": "Commercial density (footfall proxy)",
+         "score": pct(row, "premium_poi_per_km2"),
+         "basis": "Commercial POI density percentile — a footfall PROXY, not measured foot traffic"},
+    ]
+
+    strengths = [f for f in factors if f["score"] is not None and f["score"] >= SWOT_STRENGTH_PCT]
+    weaknesses = [f for f in factors if f["score"] is not None and f["score"] <= SWOT_WEAKNESS_PCT]
+
+    mid = [f for f in factors if f["score"] is not None and SWOT_WEAKNESS_PCT < f["score"] < SWOT_STRENGTH_PCT]
+    opportunities = [{"key": f["key"], "label": f"Room to grow: {f['label']}", "basis": f["basis"]}
+                      for f in sorted(mid, key=lambda f: -f["score"])[:2]]
+
+    threats = []
+    risk_level, anomaly_score = _risk_level(diagnostics, pincode)
+    if risk_level in ("High", "Medium"):
+        threats.append({"key": "data_reliability", "label": f"{risk_level} data-volatility risk",
+                         "basis": f"Anomaly score {round(anomaly_score, 2)} vs. its surrounding area — "
+                                  "treat the modelled figures here with extra caution."})
+    if cannibalisation_discount is not None and cannibalisation_discount < 0.85:
+        threats.append({"key": "cannibalisation", "label": "Overlaps another site's catchment",
+                         "basis": f"Reachable spend discounted {round((1 - cannibalisation_discount) * 100)}% "
+                                  "for catchment overlap with another site in your portfolio."})
+
+    return {"factors": factors, "strengths": strengths, "weaknesses": weaknesses,
+            "opportunities": opportunities, "threats": threats}
 
 
 # ── main entry point ─────────────────────────────────────────────────────────
@@ -447,16 +696,6 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
                        "monthly_revenue": rev * rev_to_monthly,
                        "capex": _num(loc.get("capex")), "row": row})
 
-    if len(stores) < MIN_STORES:
-        return {
-            "sufficient_data": False,
-            "reason": "not_enough_stores",
-            "detail": (f"The forecast model calibrates on your own stores — it needs at least "
-                       f"{MIN_STORES} with a resolved pincode and revenue. This project has {len(stores)}."),
-            "stores_usable": len(stores),
-            "min_stores_required": MIN_STORES,
-        }
-
     hh_by_pincode = estimate_households(rows_by_pincode, geography, district_pop)
     index = build_spatial_index(rows_by_pincode, hh_by_pincode)
 
@@ -479,15 +718,10 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
     store_ppi_pcts = [o["ppi_pct"] for o in observations if o["capture"] and o["capture"] > 0]
     ppi_floor = 0.8 * min(store_ppi_pcts) if store_ppi_pcts else 0.0
 
-    model = fit_capture_model(observations)
-    if model is None:
-        return {
-            "sufficient_data": False,
-            "reason": "capture_uncalibratable",
-            "detail": ("Your stores' revenue and their modelled catchment spend don't yield a usable "
-                       "capture rate (all zero or missing). Check that store revenue imported correctly."),
-            "stores_usable": len(stores),
-        }
+    # < MIN_STORES usable stores, or the ones we have don't yield a usable capture
+    # rate (all zero/missing reach) — fall back to the benchmark rate rather than
+    # refusing to forecast; every project gets a real (labelled) result.
+    model = fit_capture_model(observations) or benchmark_capture_model()
 
     owned_pincodes = {s["pincode"] for s in stores}
     owned_coords = [(s["lat"], s["lng"]) for s in stores]
@@ -502,32 +736,44 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
     if not anchors:
         anchors = owned_coords
 
-    cand_pcs = set()
-    for lat, lng in anchors:
-        for pc, _plat, _plng, _u in _nearby(index, lat, lng, catchment_km + EXPANSION_MARGIN_KM):
-            cand_pcs.add(pc)
+    if anchors:
+        cand_pcs = set()
+        for lat, lng in anchors:
+            for pc, _plat, _plng, _u in _nearby(index, lat, lng, catchment_km + EXPANSION_MARGIN_KM):
+                cand_pcs.add(pc)
+    else:
+        # no stores and no target_pincodes — nothing to anchor a "nearby" walk on.
+        # Seed candidates directly from the top nationally-ranked pincodes by PPI
+        # so a brand-new project with no data at all still gets a real forecast.
+        cand_pcs = set(sorted(
+            (pc for pc, r in rows_by_pincode.items()
+             if _num(r.get("ppi_ml")) is not None and _num(r.get("lat")) is not None),
+            key=lambda pc: _num(rows_by_pincode[pc].get("ppi_ml")),
+            reverse=True,
+        )[:NATIONAL_SEED_TOP_N])
     cand_pcs -= owned_pincodes
     cand_pcs = [pc for pc in cand_pcs if ppi_pct(rows_by_pincode[pc]) is not None]
     if len(cand_pcs) > MAX_CANDIDATES:
         cand_pcs.sort(key=lambda pc: _num(rows_by_pincode[pc].get("ppi_ml")) or 0, reverse=True)
         cand_pcs = cand_pcs[:MAX_CANDIDATES]
 
-    # per-store capex: prefer the customer's own median, else sqft x local rate
+    # per-store capex: prefer the customer's own median, else sqft x local rate,
+    # else (no store data at all) a default store size x local rate.
     own_capex = _median([s["capex"] for s in stores if s["capex"] and s["capex"] > 0])
     assumed_sqft = _estimate_store_sqft(locations, rows_by_pincode) if own_capex is None else None
 
     def capex_for(row):
         if own_capex is not None:
             return own_capex
-        if assumed_sqft is not None:
-            rate = _num(row.get("rate_per_sqft"))
-            if rate:
-                return rate * assumed_sqft
-        return None
+        rate = _num(row.get("rate_per_sqft"))
+        if not rate:
+            return None
+        return rate * (assumed_sqft if assumed_sqft is not None else DEFAULT_STORE_SQFT)
 
     capex_basis = ("your stores' median fit-out cost" if own_capex is not None
-                   else ("modelled: assumed store size x local property rate" if assumed_sqft is not None
-                         else None))
+                   else "modelled: assumed store size x local property rate" if assumed_sqft is not None
+                   else f"modelled: a default {DEFAULT_STORE_SQFT}-sqft store x local property rate "
+                        "— upload your own stores' rent/fit-out cost for a sharper estimate")
 
     candidates = []
     for pc in cand_pcs:
@@ -558,7 +804,16 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
             "detail": "No candidate pincodes with modelled household spend were found near your target market.",
         }
 
-    priced = all(c["capex"] for c in candidates)
+    # Drop candidates with no resolvable capex (missing rate_per_sqft for that
+    # pincode) from the ranking pool rather than letting a handful of gaps in
+    # a large candidate universe (e.g. the national seed, which spans ~500
+    # pincodes and is never all uniformly covered) disable budget-constrained
+    # pricing for every candidate. Only fall back to unpriced ranking when
+    # NONE of them have a usable capex at all.
+    priced_candidates = [c for c in candidates if c["capex"] is not None]
+    priced = len(priced_candidates) > 0
+    if priced:
+        candidates = priced_candidates
     # rank by revenue-per-rupee when capex is known, else by raw revenue
     candidates.sort(key=lambda c: (c["revenue_gross"] / c["capex"]) if priced else c["revenue_gross"],
                     reverse=True)
@@ -597,6 +852,7 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
             spent += e["capex"]
     else:
         portfolio = ranked[:10]
+    funded_pcs = {e["pincode"] for e in portfolio}
 
     portfolio_revenue = sum(e["monthly_revenue"] for e in portfolio)
     portfolio_gross_profit = portfolio_revenue * gross_margin
@@ -672,7 +928,6 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
     # Capex-priced only — "move ₹X" is meaningless without a capex figure.
     nudge = None
     if priced and portfolio and len(ranked) > len(portfolio):
-        funded_pcs = {e["pincode"] for e in portfolio}
         weakest_funded = portfolio[-1]
         best_unfunded = next((e for e in ranked if e["pincode"] not in funded_pcs), None)
         if best_unfunded and best_unfunded["pincode"] != weakest_funded["pincode"]:
@@ -717,8 +972,23 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
             out.append({"signal": sig, "label": _signals_data.SIGNAL_LABELS.get(sig, sig), "percentile": pct})
         return out
 
+    # budget-split lever radar and per-site SWOT — both computed off the same
+    # ranked/portfolio data above, so they recalibrate automatically whenever
+    # the budget changes and the portfolio it produces changes with it.
+    swot_pct = _swot_percentile_lookup(rows_by_pincode)
+    avg_ticket = _num(project.get("avg_ticket"))
+    lever_split = compute_lever_split(budget, rows_by_pincode, [e["pincode"] for e in (portfolio or ranked[:10])])
+
+    def swot_for(e):
+        row = rows_by_pincode.get(e["pincode"])
+        if not row:
+            return None
+        opp_score, _ = _opportunity_score(e["ppi_percentile"], avg_ticket, _num(row.get("est_monthly_spend_hh")))
+        return location_swot(row, swot_pct, opp_score, e["cannibalisation_discount"], diagnostics, e["pincode"])
+
     return {
         "sufficient_data": True,
+        "calibration": model.method,
         "budget": round(budget),
         "catchment_km": catchment_km,
         "time_horizon_months": horizon_months,
@@ -727,7 +997,8 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
         "capex_priced": priced,
         "capex_basis": capex_basis,
         "capture_model": model.as_dict(),
-        "confidence": ("high" if model.method == "regression" and (model.r2 or 0) >= 0.5 and model.n_used >= REGRESSION_MIN_STORES
+        "confidence": ("benchmark" if model.method == "benchmark"
+                       else "high" if model.method == "regression" and (model.r2 or 0) >= 0.5 and model.n_used >= REGRESSION_MIN_STORES
                        else "medium" if model.n_used >= 5 else "low"),
         "candidates_considered": len(candidates),
         "quality_floor_ppi_percentile": round(ppi_floor * 100, 1),
@@ -747,6 +1018,12 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
             "horizon_gross_profit": round(horizon_gross_profit),
             "payback_months": pf_payback,
             "within_horizon": (pf_payback is not None and pf_payback <= horizon_months),
+            # Ranked best-first, NOT filtered to what the budget actually funds — a
+            # tiny budget (e.g. a few thousand rupees, well under any site's fit-out
+            # cost) would otherwise wipe out "which locations yield well" entirely,
+            # even though that ranking has nothing to do with whether you can afford
+            # to open there yet. `within_budget` says whether this site is part of
+            # `investment`/`monthly_revenue` above; the rest are informational.
             "sites": [
                 {
                     "pincode": e["pincode"], "name": e["name"], "state": e["state"],
@@ -758,16 +1035,20 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
                     "ppi_percentile": e["ppi_percentile"],
                     "cannibalisation_discount": e["cannibalisation_discount"],
                     "payback_months": payback_months(e["capex"], e["monthly_revenue"] * gross_margin) if e["capex"] else None,
+                    "within_budget": e["pincode"] in funded_pcs,
                     # Only the top 3 carry this — a comparative radar overlay
                     # of every recommended site would be unreadable, and the
                     # rest of the site list never needs it.
                     "lever_percentiles": lever_percentiles_for(e["pincode"]) if i < 3 else None,
+                    "swot": swot_for(e) if i < 3 else None,
                 }
-                for i, e in enumerate(portfolio[:25])
+                for i, e in enumerate(ranked[:25])
             ],
         },
 
         "nudge": nudge,
+
+        "lever_split": lever_split,
 
         "investment_split": split_list,
 

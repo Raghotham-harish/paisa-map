@@ -171,6 +171,90 @@ export function LeverLines({
   );
 }
 
+/* ── budget-split lever radar — 6 spend categories, a real polar chart ─── */
+export function LeverSplitRadar({ levers }: { levers: { label: string; pct: number }[] }) {
+  const n = levers.length;
+  if (n < 3) return null;
+  const W = 440, H = 400, cx = W / 2, cy = H / 2 - 6, R = 130;
+  const maxPct = Math.max(...levers.map((l) => l.pct), 15) * 1.15;
+  const angle = (i: number) => (Math.PI * 2 * i) / n - Math.PI / 2;
+  const pt = (i: number, frac: number): [number, number] => {
+    const a = angle(i);
+    const r = R * frac;
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  };
+  const dataPts = levers.map((l, i) => pt(i, Math.min(1, l.pct / maxPct)));
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block", maxWidth: 460, margin: "0 auto", overflow: "visible" }}>
+      {[0.25, 0.5, 0.75, 1].map((f) => (
+        <polygon key={f} points={levers.map((_, i) => pt(i, f).join(",")).join(" ")}
+          fill="none" stroke={GRID} strokeWidth={1} />
+      ))}
+      {levers.map((_, i) => {
+        const [x, y] = pt(i, 1);
+        return <line key={i} x1={cx} y1={cy} x2={x} y2={y} stroke={GRID} strokeWidth={1} />;
+      })}
+      <polygon points={dataPts.map((p) => p.join(",")).join(" ")} fill={RUPEE} fillOpacity={0.28}
+        stroke={RUPEE_DEEP} strokeWidth={2.5} strokeLinejoin="round" />
+      {dataPts.map(([x, y], i) => <circle key={i} cx={x} cy={y} r={4} fill={RUPEE_DEEP} />)}
+      {levers.map((l, i) => {
+        const c = Math.cos(angle(i));
+        const anchor = Math.abs(c) < 0.25 ? "middle" : c > 0 ? "start" : "end";
+        const [lx, ly] = pt(i, 1.3);
+        return (
+          <g key={l.label}>
+            <text x={lx} y={ly - 3} fontSize={12} fontWeight={600} textAnchor={anchor} fill={INK}>{l.label}</text>
+            <text x={lx} y={ly + 13} fontSize={13.5} fontWeight={700} textAnchor={anchor} fill={RUPEE_DEEP}>
+              {Math.round(l.pct)}%
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/* ── location SWOT — 4-quadrant grid of composite proxy factors ────────── */
+export function LocationSwot({
+  swot,
+}: {
+  swot: {
+    strengths: { key: string; label: string; score: number | null; basis: string }[];
+    weaknesses: { key: string; label: string; score: number | null; basis: string }[];
+    opportunities: { key: string; label: string; basis: string }[];
+    threats: { key: string; label: string; basis: string }[];
+  };
+}) {
+  const quads: { title: string; tone: string; items: { label: string; basis: string; score?: number | null }[] }[] = [
+    { title: "Strengths", tone: "delta-pos", items: swot.strengths },
+    { title: "Weaknesses", tone: "rejected", items: swot.weaknesses },
+    { title: "Opportunities", tone: "shortlist", items: swot.opportunities },
+    { title: "Threats", tone: "reviewing", items: swot.threats },
+  ];
+  return (
+    <div className="fc-swot-grid">
+      {quads.map((q) => (
+        <div className="fc-swot-quad" key={q.title}>
+          <div className="fc-swot-quad-title">{q.title}</div>
+          {q.items.length === 0 ? (
+            <p className="wiz-hint" style={{ margin: 0 }}>None flagged.</p>
+          ) : (
+            <ul className="fc-swot-list">
+              {q.items.map((it) => (
+                <li key={it.label} title={it.basis}>
+                  <span className={`pill ${q.tone}`}>{it.label}</span>
+                  {it.score != null && <span className="fc-swot-score">{Math.round(it.score)}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ── hotspots — market size × opportunity, bubble = CapEx ──────────────── */
 export function HotspotBubbles({
   points,

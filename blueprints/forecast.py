@@ -2,14 +2,19 @@
 forecast.py — GET /api/forecast (map-first workspace, P3).
 
 One endpoint, one page: returns the reach curve, recommended rupee split,
-payback, market-capture %, and lever-fit radar for a project, all from
-_forecast_model.build_forecast (see that module's docstring for the model).
+payback, market-capture %, lever-fit radar, budget-split lever allocation, and
+per-site SWOT for a project, all from _forecast_model.build_forecast (see that
+module's docstring for the model).
 
-Calibrated on the project's own uploaded stores (customer_locations), so it's
-gated to projects that have store data. Charged in credits like
-expansion_recommend — but ONLY when the model actually returns a forecast; an
-insufficient-data response (too few stores, uncalibratable capture) is free,
-same "don't burn credits on a non-result" rule reports.py/expansion.py follow.
+Works for every project by default — driven by the project's own signals,
+target location(s) and budget, using a documented benchmark capture rate when
+there's no store data yet. Uploaded stores (customer_locations) are an
+additional calibration layer, not a requirement: >=3 usable stores moves the
+capture rate to your own median, >=8 to a fitted regression. Charged in
+credits like expansion_recommend — but ONLY when the model actually returns a
+forecast; a genuine no-result (no candidate pincodes near the target market)
+is free, same "don't burn credits on a non-result" rule reports.py/expansion.py
+follow.
 """
 
 import sys

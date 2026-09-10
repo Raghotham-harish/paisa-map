@@ -1169,6 +1169,24 @@ def list_customer_locations(user_id, project_id=None):
     return [dict(r) for r in rows]
 
 
+def count_unresolved_locations(upload_id, user_id):
+    """Rows from this upload with no resolved pincode (geocode_status in
+    failed/unresolvable/still-pending) — these can't be joined to the signals
+    dataset, so they're silently excluded from forecast/expansion/intelligence.
+    Surfaced so that exclusion is visible instead of silent."""
+    engine = _require_engine()
+    tables = _get_tables()
+    locs = tables["customer_locations"]
+    from sqlalchemy import select, func
+    with engine.connect() as conn:
+        return conn.execute(
+            select(func.count()).select_from(locs).where(
+                locs.c.upload_id == upload_id, locs.c.user_id == user_id,
+                locs.c.pincode.is_(None),
+            )
+        ).scalar_one()
+
+
 def list_pending_geocode_locations(upload_id, user_id):
     engine = _require_engine()
     tables = _get_tables()

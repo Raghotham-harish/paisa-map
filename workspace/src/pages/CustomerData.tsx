@@ -300,8 +300,10 @@ export default function CustomerData() {
             {upload && upload.status === "ready" && upload.quality_report && (
               <div style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <span className="pill delta-pos">{upload.quality_report.total_rows} rows imported</span>
-                {upload.quality_report.missing_location > 0 && (
-                  <span className="pill rejected">{upload.quality_report.missing_location} missing address/pincode</span>
+                {upload.unresolved_count > 0 && (
+                  <span className="pill rejected" title="No valid pincode, and no address that could be geocoded — these rows can't be joined to the signals dataset, so they're excluded from your forecast.">
+                    {upload.unresolved_count} couldn't be matched to a pincode
+                  </span>
                 )}
                 {upload.quality_report.duplicate_count > 0 && (
                   <span className="pill reviewing">{upload.quality_report.duplicate_count} possible duplicates</span>

@@ -4,9 +4,16 @@ import { ApiError, Forecast as ForecastResult, ForecastResponse, PricingConfig, 
 import { EmptyState } from "../components/EmptyState";
 import { ForecastPreview } from "../components/ForecastPreview";
 import { illustrations } from "../lib/illustrations";
-import { HotspotBubbles, KpiStrip, LeverLines, money, ReachCurve, SplitBars } from "../components/forecastCharts";
+import {
+  HotspotBubbles, KpiStrip, LeverLines, LeverSplitRadar, LocationSwot, money, ReachCurve, SplitBars,
+} from "../components/forecastCharts";
 
-const CONF_CLASS: Record<string, string> = { high: "delta-pos", medium: "reviewing", low: "rejected" };
+const CONF_CLASS: Record<string, string> = { high: "delta-pos", medium: "reviewing", low: "rejected", benchmark: "shortlist" };
+const CALIBRATION_LABEL: Record<string, string> = {
+  benchmark: "Benchmark (no store data yet)",
+  pooled_median: "Calibrated on your stores' median",
+  regression: "Fitted regression on your stores",
+};
 
 export default function Forecast() {
   const [params, setParams] = useSearchParams();
@@ -69,13 +76,17 @@ export default function Forecast() {
 
   const f = result && result.sufficient_data ? result : null;
   const mc = f?.market_capture;
+  const cheapestSite = f?.recommended_portfolio.sites.reduce<typeof f.recommended_portfolio.sites[number] | null>(
+    (min, s) => (s.capex != null && (min == null || s.capex < (min.capex ?? Infinity)) ? s : min), null,
+  ) ?? null;
 
   return (
     <>
       <h1 className="page-title">Forecast</h1>
       <p className="page-sub">
-        Investment → reachable-revenue, calibrated on your own stores. A modelled projection, not a guarantee —
-        see the assumptions at the bottom.
+        Investment → reachable-revenue, driven by your project's signals, location and budget — sharpened once you
+        upload store data to calibrate on your own performance. A modelled projection, not a guarantee — see the
+        assumptions at the bottom.
       </p>
 
       {projects === null ? (
@@ -140,11 +151,19 @@ export default function Forecast() {
                 </div>
               </div>
 
+              {f.calibration === "benchmark" && (
+                <p className="wiz-hint" style={{ marginTop: -8, marginBottom: 16 }}>
+                  <span className={`pill ${CONF_CLASS.benchmark}`} style={{ marginRight: 8 }}>{CALIBRATION_LABEL.benchmark}</span>
+                  This uses a documented benchmark capture rate, not one fitted on your own sales —{" "}
+                  <Link to="/customer-data">upload at least 3 stores</Link> to calibrate it on your real performance.
+                </p>
+              )}
+
               <KpiStrip
                 items={[
                   { label: "Added revenue / mo", value: money(f.recommended_portfolio.monthly_revenue, true) },
                   ...(mc ? [{ label: "Segment market capture", value: `${mc.current_capture_pct}% → ${mc.projected_capture_pct}%` }] : []),
-                  { label: "New stores", value: String(f.recommended_portfolio.stores) },
+                  { label: "New stores this budget funds", value: String(f.recommended_portfolio.stores) },
                   { label: "Blended payback", value: f.recommended_portfolio.payback_months != null ? `${f.recommended_portfolio.payback_months} mo` : "—" },
                   { label: "Candidates weighed", value: f.candidates_considered.toLocaleString("en-IN") },
                 ]}
@@ -202,9 +221,23 @@ export default function Forecast() {
               )}
 
               <div className="card fc-chart-card">
+                <div className="fc-card-head">
+                  <span className="kicker">Recommended budget split by lever</span>
+                  <span className="wiz-hint">recalculates with your budget and location</span>
+                </div>
+                <LeverSplitRadar levers={f.lever_split.levers.map((l) => ({ label: l.label, pct: l.pct }))} />
+                <p className="fc-chart-note">{f.lever_split.basis}</p>
+              </div>
+
+              <div className="card fc-chart-card">
                 <div className="kicker">Recommended investment split</div>
                 {f.investment_split.length === 0 ? (
-                  <p className="wiz-hint" style={{ marginTop: 8 }}>No sites fit the budget.</p>
+                  <p className="wiz-hint" style={{ marginTop: 8 }}>
+                    No sites fit this budget yet
+                    {cheapestSite
+                      ? ` — the least expensive recommended site (${cheapestSite.name}) needs about ${money(cheapestSite.capex, true)}.`
+                      : "."}
+                  </p>
                 ) : (
                   <SplitBars
                     rows={f.investment_split.map((s) => ({
@@ -242,7 +275,9 @@ export default function Forecast() {
                     <li>
                       {f.capture_model.method === "regression"
                         ? `Fitted regression · R² ${f.capture_model.r2 ?? "—"}`
-                        : "Calibrated on your stores' median capture"}
+                        : f.capture_model.method === "pooled_median"
+                        ? "Calibrated on your stores' median capture"
+                        : `Benchmark capture rate (${(f.capture_model.median_capture_rate * 100).toFixed(2)}% of reachable spend) — not calibrated on your stores`}
                     </li>
                     <li>&plusmn;{f.capture_model.confidence_band_pct}% confidence band</li>
                     <li>{f.candidates_considered.toLocaleString("en-IN")} candidate pincodes considered</li>
@@ -274,22 +309,30 @@ export default function Forecast() {
 
               {f.recommended_portfolio.sites.length > 0 && (
                 <div className="card">
-                  <div className="kicker">Where the model would put stores</div>
+                  <div className="fc-card-head">
+                    <span className="kicker">Which locations yield well</span>
+                    <span className="wiz-hint">ranked best-first &mdash; not all may fit your current budget</span>
+                  </div>
                   <ul className="list" style={{ marginTop: 10 }}>
                     {f.recommended_portfolio.sites.map((s) => (
-                      <li key={s.pincode}>
-                        <div>
-                          <div className="primary">{s.name} &middot; {s.pincode}</div>
-                          <div className="secondary">
-                            {s.state} &middot; PPI pct {s.ppi_percentile}
-                            {s.capex != null ? ` · CapEx ${money(s.capex, true)}` : ""}
-                            {s.cannibalisation_discount < 0.98 ? ` · overlap −${Math.round((1 - s.cannibalisation_discount) * 100)}%` : ""}
+                      <li key={s.pincode} style={{ flexDirection: "column", alignItems: "stretch" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", width: "100%", gap: 12 }}>
+                          <div>
+                            <div className="primary">{s.name} &middot; {s.pincode}</div>
+                            <div className="secondary">
+                              {s.state} &middot; PPI pct {s.ppi_percentile}
+                              {s.capex != null ? ` · CapEx ${money(s.capex, true)}` : ""}
+                              {s.cannibalisation_discount < 0.98 ? ` · overlap −${Math.round((1 - s.cannibalisation_discount) * 100)}%` : ""}
+                            </div>
+                          </div>
+                          <div className="row-actions">
+                            <span className={`pill ${s.within_budget ? "delta-pos" : "shortlist"}`}>
+                              {s.within_budget ? `+${money(s.monthly_revenue, true)}/mo` : "needs bigger budget"}
+                            </span>
+                            {s.payback_months != null && <span className="pill shortlist">{s.payback_months} mo payback</span>}
                           </div>
                         </div>
-                        <div className="row-actions">
-                          <span className="pill delta-pos">+{money(s.monthly_revenue, true)}/mo</span>
-                          {s.payback_months != null && <span className="pill shortlist">{s.payback_months} mo payback</span>}
-                        </div>
+                        {s.swot && <LocationSwot swot={s.swot} />}
                       </li>
                     ))}
                   </ul>

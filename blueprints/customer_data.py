@@ -137,6 +137,7 @@ def get_upload(user_id, upload_id):
     return jsonify({"upload": {
         **upload, "raw_rows": None,
         "sample_rows": raw_rows[:5], "row_count": len(raw_rows),
+        "unresolved_count": _auth_db.count_unresolved_locations(upload_id, user_id),
     }})
 
 
@@ -146,7 +147,9 @@ def list_uploads(user_id):
     project_id = request.args.get("project_id", type=int)
     uploads = _auth_db.list_customer_uploads(user_id, project_id)
     return jsonify({"uploads": [
-        {**u, "raw_rows": None, "row_count": len(u.get("raw_rows") or [])} for u in uploads
+        {**u, "raw_rows": None, "row_count": len(u.get("raw_rows") or []),
+         "unresolved_count": _auth_db.count_unresolved_locations(u["id"], user_id)}
+        for u in uploads
     ]})
 
 
@@ -252,7 +255,10 @@ def commit_upload(user_id, upload_id):
 
     _auth_db.log_activity(user_id, "customer_data_upload_commit", target_type="customer_upload",
                            target_id=upload_id, metadata={"project_id": upload["project_id"]})
-    return jsonify({"upload": {**upload, "raw_rows": None}})
+    return jsonify({"upload": {
+        **upload, "raw_rows": None,
+        "unresolved_count": _auth_db.count_unresolved_locations(upload_id, user_id),
+    }})
 
 
 @customer_data_bp.route("/uploads/<int:upload_id>/retry", methods=["POST"])
