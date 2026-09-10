@@ -1,9 +1,10 @@
 # PaisaMap pricing & credits model
 
-Owner: Raghotham · Drafted 2026-09-11 · Rev 2 (decisions locked) · Status: **model agreed — not built**
+Owner: Raghotham · Drafted 2026-09-11 · Rev 3 (all decisions locked) · Status: **model agreed — not built**
 
-The **3-lever model** (plan tier · credits · seats) with the six open decisions
-resolved. A proposal for the *numbers* still, but the *shape* is settled.
+The **3-lever model** (plan tier · credits · seats) plus a standalone
+**signal-only** ladder (₹200 / ₹500). Shape and numbers are both settled now;
+they still need validating against a live Razorpay account.
 
 Current code: `paisamap-etl/etl/_pricing.py` holds every number (all
 "placeholder"). Plans are **one-time `users.plan` flips**, not subscriptions.
@@ -13,44 +14,60 @@ built**. Depends on the Company layer — roadmap Phase C
 
 ---
 
-## 1. Decisions locked (2026-09-11)
+## 1. Decisions locked
 
-| # | Decision |
-|---|---|
-| 1 | **3-lever model** — plan tier, credits, seats. No hard project/keyword quotas; companies stay a hard limit. |
-| 2 | **Both** a card-required trial **and** a free tier — but the free tier is **map + signals only; the dashboard is paid/trial-only** (see §2). |
-| 3 | Tier credits follow the **sloped curve** (Starter 1,000 → Enterprise 40,000+), not flat. |
-| 4 | Annual sweetener = **+5% credits every month**. |
-| 5 | New-keyword research = **12 credits** (subsidised below manual cost; we keep the data). |
-| 6 | Non-logged-in visitors get **3 signals on the open map**. Logged-in free ("Explorer") gets **all signals** on the map. Neither gets the dashboard. |
+| # | Decision | Set |
+|---|---|---|
+| 1 | **3-lever model** — plan tier, credits, seats. No hard project/keyword quotas; companies stay a hard limit. | 09-11 |
+| 2 | **Both** a card-required trial **and** a free account — but the free account is **map + 3 core signals + save-locations only; the dashboard is paid/trial-only**. | 09-11 |
+| 3 | Tier credits: **1,000 / 3,000 / 7,000 / 16,000 / 40,000+**. | 09-11 |
+| 4 | Annual = **−20% price + 5% credits every month**. | 09-11 |
+| 5 | New-keyword research = **12 credits** (subsidised; we keep the data). | 09-11 |
+| 6 | **Pro signals are NOT free with login.** Anonymous + free account see the **3 core** signals only. Pro signals are a paid upgrade — see the signal-only ladder in §2. | 09-11 |
+| 7 | **Signal-only tiers:** **₹200/mo** = 3 core + a ~10-signal pro subset; **₹500/mo** = all 20 pro signals (replaces ₹200, not additive). Neither includes the dashboard or credits. | 09-11 |
+| 8 | Free accounts stay — anyone can sign in free (3-signal map + save locations); everything above is a paid upgrade. | 09-11 |
+| 9 | Trial = **7 days**. Extra-company fee = **flat ₹6,000/mo** (₹5,000 at Pro). | 09-11 |
+| 10 | **Team viewers are free** and don't count against the seat limit (read-only dashboard, can't spend credits). | 09-11 |
+| 11 | Non-INR pricing uses a **real-time FX rate** at checkout, not a fixed peg. | 09-11 |
 
 ---
 
-## 2. Access ladder — who gets what
+## 2. Access ladders — who gets what
 
-The paywall is the **dashboard/workspace** (projects, forecast, expansion,
-reports, store data, compare, saved locations, connections, API). The map and
-its signals are the top-of-funnel lure.
+**Two paid ladders.** The *signal ladder* (₹200 / ₹500) is for people who want
+the data on the map but aren't running expansion projects — analysts,
+consultants, lenders, researchers. The *dashboard ladder* (₹5k+) is the full
+product and includes all signals. The signal ladder is a stepping stone to it.
 
-| | **Anonymous** | **Explorer** (free) | **Trial** | **Paid** (Starter+) |
-|---|---|---|---|---|
-| Sign-in | no | yes | yes + card | yes + subscription |
-| Open map + score any pincode | ✓ | ✓ | ✓ | ✓ |
-| Signals on the map | **3 core** (PPI, income, spend) | **all** (incl. the 20 pro signals) | all | all |
-| Save locations / shortlist | — | ✓ | ✓ | ✓ |
-| **Dashboard** — projects, forecast, expansion, reports, store data, compare, connections | — | — | ✓ | ✓ |
-| Credits | — | — | 500 (7 days) | plan bucket / month |
-| Companies | — | — | 1 | 1–∞ by tier |
-| API / bulk export | — | — | — | Scale+ |
+| | **Anonymous** | **Free** (login) | **Signals Lite** ₹200/mo | **Signals Pro** ₹500/mo | **Trial** | **Dashboard** ₹5k+ |
+|---|---|---|---|---|---|---|
+| Sign-in | no | yes, free | yes | yes | yes + card | yes + subscription |
+| Open map + score any pincode | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Signals on the map | **3 core** | **3 core** | 3 core + **~10 pro** | **all 20 pro** | all | all |
+| Save locations / shortlist | — | ✓ | ✓ | ✓ | ✓ | ✓ |
+| **Dashboard** — projects, forecast, expansion, reports, store data, compare | — | — | — | — | ✓ | ✓ |
+| Credits | — | — | — | — | 500 (7 days) | plan bucket / month |
+| Companies · seats | — | — | — | — | 1 · 2 | 1–∞ · 3–25 by tier |
+| API / bulk export | — | — | — | — | — | Scale+ |
 
 Notes:
-- Explorer is **permanent and free** — no expiry. It's the "get the flavour"
-  state. Conversion happens when someone needs a forecast or a report.
-- The trial auto-converts to **Starter** on day 8 unless cancelled; if the card
-  fails or is removed, the account drops to **Explorer** (not locked out).
-- The old "pick any 10 pro signals for 60 credits" idea is **dropped** — pro
-  signals now come free with login. The credit sinks are forecast / expansion /
-  reports / new keywords / extra projects.
+- **3 core signals** = PPI, avg household income, avg household spend
+  (`ppi_ml`, `est_monthly_income_hh`, `est_monthly_spend_hh`).
+- **The ~10-signal "Lite" subset** (proposal — adjust freely): `bank_branches_per_lakh`,
+  `upi_txn_value_per_capita`, `deposits_per_capita`, `msme_per_lakh`,
+  `nsdp_per_capita`, `premium_poi_per_km2`, `radiance_mean`, `cars_per_1000`,
+  `car_2w_ratio`, `luxury_share` — the banking / spend-power / commercial-density /
+  affluence signals a site scout actually reads. **Signals Pro** adds the
+  remaining 10 (branch-type splits, filers, factories, cropping intensity,
+  schools, LMV, EV share, etc.).
+- A free account is a **permanent** state — the top-of-funnel for nurture and the
+  save-locations retention hook.
+- The trial auto-converts to **Starter** on day 8 unless cancelled; a failed card
+  drops the account to **Free** (never locked out — they keep their saved locations).
+- Signals Lite/Pro are **month-to-month, no annual, no credits.** Upgrading to a
+  Dashboard plan supersedes them (all 20 signals included).
+- Dropped: the "pick any 10 pro signals for 60 credits" credit-sink idea — the
+  ₹200/₹500 subscriptions replace it.
 
 ---
 
@@ -59,21 +76,25 @@ Notes:
 Monthly billing. **Annual = −20% on price, +5% credits/month**, credits still
 granted monthly (no front-loading a year).
 
-| | **Explorer** | **Trial** | **Starter** | **Growth** | **Scale** | **Pro** | **Enterprise** |
-|---|---|---|---|---|---|---|---|
-| Price / month | Free | ₹0 · 7d | **₹5,000** | **₹12,000** | **₹25,000** | **₹50,000** | **₹1,00,000+** |
-| Annual /mo equiv. | — | — | ₹4,000 | ₹9,600 | ₹20,000 | ₹40,000 | custom |
-| **Credits / month** | — | 500 total | **1,000** | **3,000** | **7,000** | **16,000** | **40,000+** |
-| Implied ₹/credit | — | — | 5.00 | 4.00 | 3.57 | 3.13 | ≤2.50 |
-| Companies | — | 1 | 1 | 1 | **3** | **10** | unlimited |
-| Extra company /mo | — | — | ₹6,000 | ₹6,000 | ₹6,000 | ₹5,000 | negotiated |
-| **Seats included** | 1 | 2 | **3** | 6 | 12 | 25 | custom |
-| Projects | — | 1 | soft ~5 active | soft ~15 | soft ~40 | soft ~100 | unlimited |
-| Signals (map) | — | all | all | all | all | all | all |
-| Keywords / project (in-catalog) | — | 5 | 15 | 15 | 30 | 50 | custom |
-| Export / API | — | — | — | rate-limited | ✓ | ✓ | ✓ + SLA |
-| Self-intelligence jobs (Phase G) | — | — | — | monthly | weekly | daily | daily |
-| Support | — | — | email | email | priority | priority + call | dedicated + SLA |
+| | **Trial** | **Starter** | **Growth** | **Scale** | **Pro** | **Enterprise** |
+|---|---|---|---|---|---|---|
+| Price / month | ₹0 · 7d | **₹5,000** | **₹12,000** | **₹25,000** | **₹50,000** | **₹1,00,000+** |
+| Annual /mo equiv. | — | ₹4,000 | ₹9,600 | ₹20,000 | ₹40,000 | custom |
+| **Credits / month** | 500 total | **1,000** | **3,000** | **7,000** | **16,000** | **40,000+** |
+| Implied ₹/credit | — | 5.00 | 4.00 | 3.57 | 3.13 | ≤2.50 |
+| Companies | 1 | 1 | 1 | **3** | **10** | unlimited |
+| Extra company /mo | — | ₹6,000 | ₹6,000 | ₹6,000 | ₹5,000 | negotiated |
+| **Seats included** | 2 | **3** | 6 | 12 | 25 | custom |
+| Projects | 1 | soft ~5 active | soft ~15 | soft ~40 | soft ~100 | unlimited |
+| Signals (map + models) | all 20 | all 20 | all 20 | all 20 | all 20 | all 20 |
+| Keywords / project (in-catalog) | 5 | 15 | 15 | 30 | 50 | custom |
+| Export / API | — | — | rate-limited | ✓ | ✓ | ✓ + SLA |
+| Self-intelligence jobs (Phase G) | — | — | monthly | weekly | daily | daily |
+| Support | — | email | email | priority | priority + call | dedicated + SLA |
+
+**Below the dashboard ladder** (§2): a free account (3 core signals + save
+locations), **Signals Lite ₹200/mo** (3 core + ~10 pro), **Signals Pro ₹500/mo**
+(all 20 pro). None include the dashboard, credits, seats or companies.
 
 - **Bigger tiers = more credits per rupee** (5.00 → 2.50). Upgrading always beats
   buying top-ups past a threshold — that is the expansion path.
@@ -155,9 +176,14 @@ Keyword feature itself is unbuilt — roadmap Phase F/G.
 ## 7. Currency
 
 - **INR** reference. **GST 18%** on INR invoices (confirm HSN/SAC with a CA).
-- Other currencies via **Razorpay International** at a pegged FX (₹83.5/USD),
-  quarterly review. Indicative USD: Starter **$60**, Growth **$145**, Scale
-  **$299**, Pro **$599**.
+- Non-INR customers are charged in their own currency, converted at a
+  **real-time FX rate** fetched at checkout (a rate provider — or Razorpay
+  International's own conversion — cached ~60 min). No fixed peg. Indicative USD
+  today: Starter ≈ $60, Growth ≈ $144, Scale ≈ $300, Pro ≈ $600; Signals Lite
+  ≈ $2.4, Pro ≈ $6.
+- Small FX-drift risk between the price a visitor sees and the charge — acceptable
+  for monthly billing; re-quote on the checkout screen so what they confirm is
+  what they pay.
 - International invoices = **export of service, zero-rated** — confirm with a CA.
 
 ---
@@ -169,27 +195,31 @@ Keyword feature itself is unbuilt — roadmap Phase F/G.
 | P1 | **Company layer** — plan + credits + seats attach to a company | Roadmap **Phase C** |
 | P2 | **Recurring subscriptions** — Razorpay Subscriptions or a monthly re-charge cron, replacing the one-time `users.plan` flip | P1 |
 | P3 | **Monthly credit grant + rollover job** — grant on renewal, expire last month's plan credits, keep top-ups 60 days, +5% on annual | P2 |
-| P4 | **Explorer + Trial** — logged-in-free gets all map signals but no dashboard routes; `trial_ends_at`, day-8 auto-convert to Starter, card-fail → drop to Explorer, day-7 nudge | P2 + Roadmap Phase C |
+| P4 | **Free account + Trial** — free login = 3 core signals + save locations, no dashboard; `trial_ends_at`, day-8 auto-convert to Starter, card-fail → drop to Free, day-7 nudge | P2 + Roadmap Phase C |
 | P5 | **Seat enforcement** — count active non-viewer members vs the tier limit | P1, Roadmap **Phase D** |
-| P6 | **Dashboard paywall** — gate every `/workspace/*` route except the map on `plan != explorer` | P4 |
-| P7 | **Keyword feature + backfill queue** — the model, "research a new one for 12 credits", the internal queue, the refund path | Roadmap Phase F/G |
-| P8 | **Multi-currency** — Razorpay International, FX peg config, export invoicing | P2 |
-| P9 | **Annual billing** — the −20% SKU, +5% monthly grant on an annual term | P2, P3 |
-| P10 | `_pricing.py` — every number placeholder → decided; add `PLANS` (credits, seats, companies), `EXPLORER` tier, keyword cost, top-up packs | all |
+| P6 | **Dashboard paywall** — gate every `/workspace/*` route except the map on an active dashboard subscription | P4 |
+| P7 | **Signal tiers** — the ₹200 / ₹500 monthly SKUs; per-plan signal allow-list (3 core / +10 / all 20); enforce it in the map (`signalPalette`/`SIGNAL_DEFS` gating) and in `columns_for_plan` for `/api/export` and the models | P2 |
+| P8 | **Keyword feature + backfill queue** — the model, "research a new one for 12 credits", the internal queue, the refund path | Roadmap Phase F/G |
+| P9 | **Multi-currency** — real-time FX at checkout, per-currency invoicing, export-of-service handling | P2 |
+| P10 | **Annual billing** — the −20% SKU, +5% monthly grant on an annual term | P2, P3 |
+| P11 | `_pricing.py` — every number placeholder → decided; add `PLANS`, `SIGNAL_TIERS` (₹200/₹500 + allow-lists), keyword cost, top-up packs | all |
 
-**P1–P4 + P6 ≈ one focused billing-v2 milestone** (the paywall + trial + monthly
-credits). P5, P7–P10 layer on.
+**P1–P4 + P6 ≈ one focused billing-v2 milestone** (the dashboard paywall + trial
++ monthly credits). P7 (signal tiers) is a small standalone add. P5, P8–P11 layer on.
 
 ---
 
-## 9. Still to decide (numbers, not shape)
+## 9. Still open
 
-1. Exact credit grants — is **1,000 / 3,000 / 7,000 / 16,000** right, or shift?
-2. Extra-company fee — **₹6,000/mo** at Starter–Scale, or scale it with tier?
-3. Trial length — **7 days** enough for a buyer to run a real forecast + report,
-   or 14?
-4. Do **viewers** stay free, or count at a reduced rate (₹200/mo)?
-5. USD peg — fixed at ₹83.5, or a small buffer (₹85) so FX moves don't erode margin?
+Only one shape question left, plus the fine print:
+
+1. **Which ~10 pro signals go in the ₹200 "Lite" tier?** §2 has a proposal —
+   confirm or swap.
+2. Top-up pack prices (₹3,000 / ₹10,000 / ₹22,000) — validate once real usage
+   data exists.
+3. GST HSN/SAC code + the export-of-service zero-rating — confirm with a CA.
+4. Self-intelligence credit cost (15/run) — set properly once Phase G scopes the
+   real per-run compute/LLM cost.
 
 ---
 
@@ -198,4 +228,5 @@ credits). P5, P7–P10 layer on.
 | Date | Change |
 |---|---|
 | 2026-09-11 | First draft from the high-level intent (full 8-dimension model). |
-| 2026-09-11 | Rev 2 — six decisions locked; collapsed to the 3-lever model; added the access ladder; dropped the pro-signal-unlock SKU (pro signals now free with login). |
+| 2026-09-11 | Rev 2 — collapsed to the 3-lever model; access ladder; dropped the pro-signal credit-unlock. |
+| 2026-09-11 | Rev 3 — all decisions locked. Pro signals are **paid, not free with login**: added the standalone **₹200 / ₹500 signal-only ladder**; free account = 3 core signals + save-locations; real-time FX (no peg); viewers free; trial 7 days; extra-company flat ₹6,000. |
