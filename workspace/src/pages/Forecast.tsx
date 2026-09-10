@@ -5,7 +5,8 @@ import { EmptyState } from "../components/EmptyState";
 import { ForecastPreview } from "../components/ForecastPreview";
 import { illustrations } from "../lib/illustrations";
 import {
-  HotspotBubbles, KpiStrip, LeverLines, LeverSplitRadar, LocationSwot, money, ReachCurve, SplitBars,
+  ConfidenceMeter, CurveDrivers, ForecastSummaryCard, HotspotBubbles, KpiStrip, LeverSplitRadar,
+  LocationCompareRadar, LocationFactorTable, LocationSwotTable, money, ReachCurve, SignalRevenuePanel, SplitBars,
 } from "../components/forecastCharts";
 
 const CONF_CLASS: Record<string, string> = { high: "delta-pos", medium: "reviewing", low: "rejected", benchmark: "shortlist" };
@@ -15,6 +16,12 @@ const CALIBRATION_LABEL: Record<string, string> = {
   regression: "Fitted regression on your stores",
 };
 
+type PrevCurve = { budget: number; points: { investment: number; monthly_revenue: number }[]; monthly_revenue: number; stores: number };
+const prevKey = (pid: number) => `pm_fc_prev_${pid}`;
+
+const pctDelta = (now: number, was: number | undefined | null) =>
+  was == null || was === 0 ? null : ((now - was) / Math.abs(was)) * 100;
+
 export default function Forecast() {
   const [params, setParams] = useSearchParams();
   const [projects, setProjects] = useState<Project[] | null>(null);
@@ -23,6 +30,7 @@ export default function Forecast() {
   const [pricing, setPricing] = useState<PricingConfig | null>(null);
   const [result, setResult] = useState<ForecastResponse | null>(null);
   const [resultBudget, setResultBudget] = useState<number | null>(null);
+  const [prev, setPrev] = useState<PrevCurve | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,6 +43,10 @@ export default function Forecast() {
       if (initial) {
         setProjectId(initial.id);
         if (initial.total_investment != null) setBudget(String(initial.total_investment));
+        try {
+          const raw = localStorage.getItem(prevKey(initial.id));
+          if (raw) setPrev(JSON.parse(raw));
+        } catch { /* ignore */ }
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -48,15 +60,30 @@ export default function Forecast() {
     setResult(null);
     setResultBudget(null);
     setError(null);
+    try {
+      const raw = localStorage.getItem(prevKey(id));
+      setPrev(raw ? JSON.parse(raw) : null);
+    } catch { setPrev(null); }
     const p = projects?.find((x) => x.id === id);
     setBudget(p?.total_investment != null ? String(p.total_investment) : "");
-    setParams((prev) => { const n = new URLSearchParams(prev); n.set("project_id", String(id)); return n; }, { replace: true });
+    setParams((prevP) => { const n = new URLSearchParams(prevP); n.set("project_id", String(id)); return n; }, { replace: true });
   };
 
   const run = async () => {
     if (projectId == null) return;
     setRunning(true);
     setError(null);
+    // snapshot the current forecast as "previous" before overwriting
+    if (result && result.sufficient_data && projectId != null) {
+      const snap: PrevCurve = {
+        budget: result.budget,
+        points: result.reach_curve.points.map((p) => ({ investment: p.investment, monthly_revenue: p.monthly_revenue })),
+        monthly_revenue: result.recommended_portfolio.monthly_revenue,
+        stores: result.recommended_portfolio.stores,
+      };
+      setPrev(snap);
+      try { localStorage.setItem(prevKey(projectId), JSON.stringify(snap)); } catch { /* ignore */ }
+    }
     try {
       const b = Number(budget) || undefined;
       setResult(await api.getForecast(projectId, b));
@@ -74,11 +101,19 @@ export default function Forecast() {
     }
   };
 
-  const f = result && result.sufficient_data ? result : null;
+  const f: ForecastResult | null = result && result.sufficient_data ? result : null;
   const mc = f?.market_capture;
-  const cheapestSite = f?.recommended_portfolio.sites.reduce<typeof f.recommended_portfolio.sites[number] | null>(
-    (min, s) => (s.capex != null && (min == null || s.capex < (min.capex ?? Infinity)) ? s : min), null,
-  ) ?? null;
+  const rp = f?.recommended_portfolio;
+  const sv = f?.reach_curve.smallest_viable ?? null;
+  const fundsNothing = !!f && (rp?.stores ?? 0) === 0;
+
+  // KPI values — always show something budget-responsive
+  const addedRev = fundsNothing && sv ? sv.monthly_revenue : rp?.monthly_revenue ?? 0;
+  const stores = fundsNothing && sv ? sv.stores : rp?.stores ?? 0;
+  const payback = fundsNothing && sv ? sv.payback_months : rp?.payback_months;
+
+  const swotSites = (rp?.sites ?? []).filter((s) => s.swot).slice(0, 5).map((s) => ({ name: s.name, swot: s.swot }));
+  const factorSites = (rp?.sites ?? []).filter((s) => s.factors).slice(0, 5).map((s) => ({ name: s.name, factors: s.factors }));
 
   return (
     <>
@@ -136,7 +171,7 @@ export default function Forecast() {
             <ForecastPreview detail={result && !result.sufficient_data ? result.detail : null} />
           )}
 
-          {f && (
+          {f && rp && (
             <>
               <div className="fc-headline">
                 <div>
@@ -154,17 +189,31 @@ export default function Forecast() {
               {f.calibration === "benchmark" && (
                 <p className="wiz-hint" style={{ marginTop: -8, marginBottom: 16 }}>
                   <span className={`pill ${CONF_CLASS.benchmark}`} style={{ marginRight: 8 }}>{CALIBRATION_LABEL.benchmark}</span>
-                  This uses a documented benchmark capture rate, not one fitted on your own sales —{" "}
-                  <Link to="/customer-data">upload at least 3 stores</Link> to calibrate it on your real performance.
+                  Capture rate = {(f.capture_model.median_capture_rate * 100).toFixed(3)}% of catchment spend, built from an
+                  assumed {(f.reach_curve.drivers.find((d) => d.key === "wallet_share")?.value ?? 5)}% category wallet share ×{" "}
+                  {(f.reach_curve.drivers.find((d) => d.key === "entrant_capture")?.value ?? 1)}% new-entrant capture —{" "}
+                  <Link to="/customer-data">upload at least 3 stores</Link> to fit it on your real sales.
                 </p>
               )}
 
               <KpiStrip
                 items={[
-                  { label: "Added revenue / mo", value: money(f.recommended_portfolio.monthly_revenue, true) },
-                  ...(mc ? [{ label: "Segment market capture", value: `${mc.current_capture_pct}% → ${mc.projected_capture_pct}%` }] : []),
-                  { label: "New stores this budget funds", value: String(f.recommended_portfolio.stores) },
-                  { label: "Blended payback", value: f.recommended_portfolio.payback_months != null ? `${f.recommended_portfolio.payback_months} mo` : "—" },
+                  {
+                    label: "Added revenue / mo", value: money(addedRev, true),
+                    hint: fundsNothing ? `smallest viable step: ${sv ? money(sv.investment, true) : "—"}` : undefined,
+                    delta: fundsNothing ? null : pctDelta(rp.monthly_revenue, prev?.monthly_revenue),
+                  },
+                  ...(mc ? [{
+                    label: "Segment market capture",
+                    value: `${mc.current_capture_pct ?? 0}% → ${mc.projected_capture_pct ?? 0}%`,
+                  }] : []),
+                  {
+                    label: "New stores this budget funds", value: String(stores),
+                    hint: fundsNothing ? "budget below one site's fit-out cost" : undefined,
+                    delta: fundsNothing ? null : (prev?.stores != null ? rp.stores - prev.stores : null),
+                    deltaLabel: prev?.stores != null ? `${Math.abs(rp.stores - prev.stores)}` : undefined,
+                  },
+                  { label: "Blended payback", value: payback != null ? `${payback} mo` : "—" },
                   { label: "Candidates weighed", value: f.candidates_considered.toLocaleString("en-IN") },
                 ]}
               />
@@ -172,78 +221,110 @@ export default function Forecast() {
               <div className="card fc-chart-card">
                 <div className="fc-card-head">
                   <span className="kicker">Investment &rarr; projected reachable revenue</span>
-                  <span className="wiz-hint">the dashed line is your budget</span>
+                  <span className="wiz-hint">solid = this budget · dotted = your last run</span>
                 </div>
-                <ReachCurve
-                  points={f.reach_curve.points.map((p) => ({ investment: p.investment, monthly_revenue: p.monthly_revenue }))}
-                  budget={f.budget}
-                  dimFrom={f.reach_curve.diminishing_returns_from}
-                />
-                {f.reach_curve.diminishing_returns_from != null && (
-                  <div className="callout-sweetspot">
-                    <b>Sweet spot &asymp; {money(f.reach_curve.diminishing_returns_from, true)}.</b>{" "}
-                    Beyond this, each extra rupee buys materially less than the sites already ahead of it.
+                <div className="fc-curve-layout">
+                  <div>
+                    <ReachCurve
+                      points={f.reach_curve.points.map((p) => ({ investment: p.investment, monthly_revenue: p.monthly_revenue, stores: p.stores, at_budget: p.at_budget }))}
+                      budget={f.budget}
+                      dimFrom={f.reach_curve.diminishing_returns_from}
+                      smallestViable={sv}
+                      prev={prev && prev.points.length >= 2 ? { points: prev.points, budget: prev.budget } : null}
+                    />
+                    {f.reach_curve.diminishing_returns_from != null && (
+                      <div className="callout-sweetspot">
+                        <b>Sweet spot &asymp; {money(f.reach_curve.diminishing_returns_from, true)}.</b>{" "}
+                        Beyond this, each extra rupee buys materially less than the sites already ahead of it.
+                      </div>
+                    )}
+                    <p className="fc-chart-note">{f.reach_curve.note}</p>
                   </div>
-                )}
+                  <CurveDrivers drivers={f.reach_curve.drivers} />
+                </div>
               </div>
 
               <div className="card fc-chart-card">
-                <div className="kicker">Does each signal actually move revenue?</div>
-                <LeverLines
-                  levers={f.lever_fit_radar.map((l) => ({ label: l.label, fit: l.lever_fit }))}
-                  candidates={f.recommended_portfolio.sites
-                    .filter((s) => s.lever_percentiles)
-                    .slice(0, 3)
-                    .map((s) => ({ label: s.name, values: (s.lever_percentiles ?? []).map((lp) => lp.percentile) }))}
+                <div className="fc-card-head">
+                  <span className="kicker">Does each signal actually move revenue?</span>
+                  <span className="wiz-hint">
+                    {f.calibration === "benchmark" ? "site percentiles — upload stores for a fitted verdict" : "correlation with your stores' revenue"}
+                  </span>
+                </div>
+                <SignalRevenuePanel
+                  rows={f.lever_fit_radar.map((l) => ({
+                    label: l.label, lever_fit: l.lever_fit, site_avg_percentile: l.site_avg_percentile,
+                    verdict: l.verdict, direction: l.direction, sample_size: l.sample_size,
+                  }))}
                 />
               </div>
 
-              {f.recommended_portfolio.sites.length >= 2 && (
+              {rp.sites.length >= 2 && (
                 <div className="card fc-chart-card">
                   <div className="fc-card-head">
-                    <span className="kicker">Hotspots &mdash; market size vs opportunity</span>
-                    <span className="wiz-hint">
-                      bubble = est. CapEx &middot; <span style={{ color: "var(--rupee-deep)" }}>&#9679;</span> core &middot;{" "}
-                      <span style={{ color: "#8A5A00" }}>&#9679;</span> edge &middot;{" "}
-                      <span style={{ color: "var(--ink-soft)" }}>&#9679;</span> expansion
-                    </span>
+                    <span className="kicker">Hotspots &mdash; market size vs modelled revenue</span>
                   </div>
                   <HotspotBubbles
-                    points={f.recommended_portfolio.sites.map((s) => ({
-                      name: s.name,
-                      x: s.reach_gross,
-                      y: s.monthly_revenue,
-                      capex: s.capex,
+                    points={rp.sites.map((s) => ({
+                      name: s.name, reach_gross: s.reach_gross, monthly_revenue: s.monthly_revenue,
+                      households: s.households, capex: s.capex, ppi_percentile: s.ppi_percentile,
+                      income_percentile: s.income_percentile, footfall_percentile: s.footfall_percentile,
+                      within_budget: s.within_budget, state: s.state,
                       tier: s.ppi_percentile >= 200 / 3 ? "core" : s.ppi_percentile >= 100 / 3 ? "edge" : "expansion",
                     }))}
                   />
                 </div>
               )}
 
-              <div className="card fc-chart-card">
-                <div className="fc-card-head">
-                  <span className="kicker">Recommended budget split by lever</span>
-                  <span className="wiz-hint">recalculates with your budget and location</span>
+              <div className="fc-two-wide">
+                <div className="card fc-chart-card">
+                  <div className="fc-card-head">
+                    <span className="kicker">Recommended budget split by lever</span>
+                    <span className="wiz-hint">recalculates with your budget</span>
+                  </div>
+                  <LeverSplitRadar levers={f.lever_split.levers.map((l) => ({ label: l.label, pct: l.pct }))} />
+                  <p className="fc-chart-note">{f.lever_split.basis}</p>
                 </div>
-                <LeverSplitRadar levers={f.lever_split.levers.map((l) => ({ label: l.label, pct: l.pct }))} />
-                <p className="fc-chart-note">{f.lever_split.basis}</p>
+                <div className="card fc-chart-card">
+                  <div className="kicker">How the top sites score on operating factors</div>
+                  <LocationFactorTable sites={factorSites} />
+                </div>
               </div>
 
+              {factorSites.length >= 2 && (
+                <div className="card fc-chart-card">
+                  <div className="fc-card-head">
+                    <span className="kicker">Top sites compared &mdash; operating-factor profile</span>
+                    <span className="wiz-hint">up to 5 locations · 0–100 percentiles</span>
+                  </div>
+                  <LocationCompareRadar sites={factorSites} />
+                </div>
+              )}
+
               <div className="card fc-chart-card">
-                <div className="kicker">Recommended investment split</div>
+                <div className="fc-card-head">
+                  <span className="kicker">
+                    {f.investment_split.length ? "Recommended investment split" : "Smallest viable step"}
+                  </span>
+                </div>
                 {f.investment_split.length === 0 ? (
-                  <p className="wiz-hint" style={{ marginTop: 8 }}>
-                    No sites fit this budget yet
-                    {cheapestSite
-                      ? ` — the least expensive recommended site (${cheapestSite.name}) needs about ${money(cheapestSite.capex, true)}.`
-                      : "."}
-                  </p>
+                  sv ? (
+                    <div className="fc-viable">
+                      <div>
+                        <div className="fc-viable-name">{sv.name} &middot; {sv.state}</div>
+                        <div className="fc-viable-note">No site fits {money(f.budget, true)} yet. The cheapest recommended site opens for:</div>
+                      </div>
+                      <div className="fc-viable-stats">
+                        <span><b className="mono">{money(sv.investment, true)}</b> fit-out</span>
+                        <span><b className="mono">+{money(sv.monthly_revenue, true)}</b>/mo revenue</span>
+                        <span><b className="mono">{sv.payback_months ?? "—"} mo</b> payback</span>
+                      </div>
+                    </div>
+                  ) : <p className="wiz-hint" style={{ marginTop: 8 }}>No priced sites near your target market.</p>
                 ) : (
                   <SplitBars
                     rows={f.investment_split.map((s) => ({
-                      name: s.state,
-                      investment: s.investment,
-                      share: s.investment_share_pct,
+                      name: s.state, investment: s.investment, share: s.investment_share_pct,
                       note: `+${money(s.monthly_revenue, true)}/mo`,
                     }))}
                   />
@@ -268,36 +349,32 @@ export default function Forecast() {
               <div className="fc-two">
                 <div className="card">
                   <div className="kicker">Forecast confidence</div>
-                  <span className={`pill ${CONF_CLASS[f.confidence]}`} style={{ marginTop: 8, display: "inline-block" }}>
-                    {f.confidence}
-                  </span>
-                  <ul className="fc-rail-bullets">
-                    <li>
-                      {f.capture_model.method === "regression"
-                        ? `Fitted regression · R² ${f.capture_model.r2 ?? "—"}`
-                        : f.capture_model.method === "pooled_median"
-                        ? "Calibrated on your stores' median capture"
-                        : `Benchmark capture rate (${(f.capture_model.median_capture_rate * 100).toFixed(2)}% of reachable spend) — not calibrated on your stores`}
-                    </li>
-                    <li>&plusmn;{f.capture_model.confidence_band_pct}% confidence band</li>
-                    <li>{f.candidates_considered.toLocaleString("en-IN")} candidate pincodes considered</li>
-                    <li>Reach is modelled household spend, not booked sales</li>
-                  </ul>
+                  <ConfidenceMeter
+                    confidence={f.confidence}
+                    bandPct={f.capture_model.confidence_band_pct}
+                    method={f.capture_model.method}
+                    r2={f.capture_model.r2}
+                    candidates={f.candidates_considered}
+                  />
                 </div>
 
                 {f.lever_fit_radar.length > 0 && (
                   <div className="card">
                     <div className="kicker">Levers you're under-using</div>
-                    <div className="fc-lever-list">
+                    <div className="fc-underused">
                       {[...f.lever_fit_radar]
-                        .sort((a, b) => (a.lever_fit ?? 999) - (b.lever_fit ?? 999))
+                        .sort((a, b) => ((a.lever_fit ?? a.site_avg_percentile ?? 999) - (b.lever_fit ?? b.site_avg_percentile ?? 999)))
                         .map((l) => {
-                          const fit = l.lever_fit;
-                          const tone = fit == null ? "shortlist" : fit < 40 ? "rejected" : fit < 60 ? "reviewing" : "delta-pos";
-                          const word = fit == null ? "no signal" : fit < 40 ? "weak" : fit < 60 ? "partial" : "strong";
+                          const v = l.lever_fit ?? l.site_avg_percentile ?? 0;
+                          const tone = v < 40 ? "rejected" : v < 60 ? "reviewing" : "delta-pos";
+                          const word = v < 40 ? "weak" : v < 60 ? "partial" : "strong";
                           return (
-                            <div className="fc-lever" key={l.signal}>
-                              <span>{l.label}</span>
+                            <div className="fc-underused-row" key={l.signal}>
+                              <span className="fc-underused-name">{l.label}</span>
+                              <span className="fc-underused-track">
+                                <span style={{ width: `${Math.max(3, Math.min(100, v))}%` }} className={`t-${tone}`} />
+                              </span>
+                              <span className="mono fc-underused-n">{Math.round(v)}</span>
                               <span className={`pill ${tone}`}>{word}</span>
                             </div>
                           );
@@ -307,37 +384,65 @@ export default function Forecast() {
                 )}
               </div>
 
-              {f.recommended_portfolio.sites.length > 0 && (
+              {swotSites.length > 0 && (
+                <div className="card fc-chart-card">
+                  <div className="fc-card-head">
+                    <span className="kicker">SWOT &mdash; top recommended sites</span>
+                    <span className="wiz-hint">number = 0–100 factor percentile</span>
+                  </div>
+                  <LocationSwotTable sites={swotSites} />
+                </div>
+              )}
+
+              {rp.sites.length > 0 && (
                 <div className="card">
                   <div className="fc-card-head">
                     <span className="kicker">Which locations yield well</span>
                     <span className="wiz-hint">ranked best-first &mdash; not all may fit your current budget</span>
                   </div>
                   <ul className="list" style={{ marginTop: 10 }}>
-                    {f.recommended_portfolio.sites.map((s) => (
-                      <li key={s.pincode} style={{ flexDirection: "column", alignItems: "stretch" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", width: "100%", gap: 12 }}>
-                          <div>
-                            <div className="primary">{s.name} &middot; {s.pincode}</div>
-                            <div className="secondary">
-                              {s.state} &middot; PPI pct {s.ppi_percentile}
-                              {s.capex != null ? ` · CapEx ${money(s.capex, true)}` : ""}
-                              {s.cannibalisation_discount < 0.98 ? ` · overlap −${Math.round((1 - s.cannibalisation_discount) * 100)}%` : ""}
-                            </div>
-                          </div>
-                          <div className="row-actions">
-                            <span className={`pill ${s.within_budget ? "delta-pos" : "shortlist"}`}>
-                              {s.within_budget ? `+${money(s.monthly_revenue, true)}/mo` : "needs bigger budget"}
-                            </span>
-                            {s.payback_months != null && <span className="pill shortlist">{s.payback_months} mo payback</span>}
+                    {rp.sites.map((s) => (
+                      <li key={s.pincode}>
+                        <div>
+                          <div className="primary">{s.name} &middot; {s.pincode}</div>
+                          <div className="secondary">
+                            {s.state} &middot; PPI pct {s.ppi_percentile}
+                            {s.capex != null ? ` · CapEx ${money(s.capex, true)}` : ""}
+                            {s.cannibalisation_discount < 0.98 ? ` · overlap −${Math.round((1 - s.cannibalisation_discount) * 100)}%` : ""}
+                            {s.revenue_clamped ? " · revenue capped" : ""}
                           </div>
                         </div>
-                        {s.swot && <LocationSwot swot={s.swot} />}
+                        <div className="row-actions">
+                          <span className={`pill ${s.within_budget ? "delta-pos" : "shortlist"}`}>
+                            {s.within_budget ? `+${money(s.monthly_revenue, true)}/mo` : "needs bigger budget"}
+                          </span>
+                          {s.payback_months != null && <span className="pill shortlist">{s.payback_months} mo payback</span>}
+                        </div>
                       </li>
                     ))}
                   </ul>
                 </div>
               )}
+
+              <ForecastSummaryCard
+                headline={fundsNothing
+                  ? `At ${money(f.budget, true)} — nothing opens yet`
+                  : `At ${money(f.budget, true)} — ${rp.stores} new ${rp.stores === 1 ? "store" : "stores"}`}
+                stats={[
+                  { label: "Investment deployed", value: money(fundsNothing && sv ? sv.investment : rp.investment ?? f.budget, true), tone: "neutral", sub: fundsNothing ? "smallest viable" : undefined },
+                  { label: "Added revenue / mo", value: money(addedRev, true), tone: "pos" },
+                  { label: "Added gross profit / mo", value: money(fundsNothing && sv ? sv.monthly_gross_profit : rp.monthly_gross_profit, true), tone: "pos" },
+                  { label: "Blended payback", value: payback != null ? `${payback} mo` : "—", tone: "neutral", sub: project?.time_horizon_months ? `${project.time_horizon_months}-mo horizon` : undefined },
+                  { label: "Market capture", value: mc ? `${mc.current_capture_pct ?? 0}% → ${mc.projected_capture_pct ?? 0}%` : "—", tone: "neutral" },
+                  { label: `Gross profit over ${f.time_horizon_months} mo`, value: money(rp.horizon_gross_profit, true), tone: "pos" },
+                ]}
+                costs={[
+                  { label: "total fit-out CapEx", value: money(fundsNothing && sv ? sv.investment : rp.investment ?? 0, true) },
+                  { label: "per store (avg)", value: money(rp.stores > 0 && rp.investment ? rp.investment / rp.stores : (sv?.investment ?? null), true) },
+                  { label: "credits for this forecast", value: cost != null ? String(cost) : "—" },
+                ]}
+                footnote={`Revenue is modelled reachable household spend at a ${(f.capture_model.median_capture_rate * 100).toFixed(3)}% capture rate (${f.capture_model.method}), gross profit at ${f.gross_margin_pct}% margin. ${f.capex_basis ?? ""}`}
+              />
 
               <details style={{ marginTop: 20, fontSize: 12.5, color: "var(--ink-soft)" }}>
                 <summary style={{ cursor: "pointer", fontWeight: 600 }}>Model assumptions</summary>

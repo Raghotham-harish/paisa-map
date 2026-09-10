@@ -331,6 +331,37 @@ export interface ForecastCurvePoint {
   investment: number;
   monthly_revenue: number;
   stores: number;
+  at_budget?: boolean;
+}
+
+export interface ForecastCurveDriver {
+  key: string;
+  label: string;
+  value: number;
+  unit: "currency" | "percent" | "count" | "index" | string;
+  delta_pct: number | null;
+  direction: "up" | "down" | "flat";
+  basis: string;
+}
+
+export interface ForecastSmallestViable {
+  name: string;
+  pincode: string;
+  state: string | null;
+  investment: number;
+  stores: number;
+  monthly_revenue: number;
+  monthly_gross_profit: number;
+  payback_months: number | null;
+}
+
+export interface ForecastFactor {
+  key: string;
+  label: string;
+  score: number | null;
+  basis: string;
+  delta_vs_median: number | null;
+  delta_vs_your_stores: number | null;
 }
 
 export interface ForecastLeverPercentile {
@@ -368,17 +399,22 @@ export interface ForecastSite {
   lng: number;
   monthly_revenue: number;
   reach_gross: number;
+  revenue_clamped: boolean;
   capex: number | null;
   capture_rate: number;
   ppi_percentile: number;
+  income_percentile: number | null;
+  footfall_percentile: number | null;
+  households: number;
   cannibalisation_discount: number;
   payback_months: number | null;
   // Ranked best-first regardless of budget — this says whether the site is
   // actually part of recommended_portfolio.investment/monthly_revenue above.
   within_budget: boolean;
-  // Only populated on the top 3 sites — see _forecast_model.py's
-  // lever_percentiles_for / location_swot.
+  // Only populated on the top 5 sites — see _forecast_model.py's
+  // lever_percentiles_for / location_factors / location_swot.
   lever_percentiles: ForecastLeverPercentile[] | null;
+  factors: ForecastFactor[] | null;
   swot: ForecastSwot | null;
 }
 
@@ -421,6 +457,8 @@ export interface LeverFit {
   direction: "positive" | "negative" | null;
   sample_size: number;
   in_top_drivers: boolean;
+  site_avg_percentile: number | null;
+  verdict: string;
 }
 
 export interface Forecast {
@@ -449,6 +487,8 @@ export interface Forecast {
   reach_curve: {
     points: ForecastCurvePoint[];
     diminishing_returns_from: number | null;
+    smallest_viable: ForecastSmallestViable | null;
+    drivers: ForecastCurveDriver[];
     note: string;
   };
   recommended_portfolio: {
@@ -466,6 +506,7 @@ export interface Forecast {
   investment_split: ForecastSplit[];
   market_capture: {
     addressable_monthly_spend: number;
+    total_household_spend?: number;
     current_monthly_revenue: number;
     current_capture_pct: number | null;
     projected_monthly_revenue: number;
