@@ -8,6 +8,8 @@ import {
   AMBER, DOT, DOT_PRIMARY, deltaColor, GRID, INK, LOC_COLORS, ramp, RAMPS,
   RUPEE, RUPEE_DEEP, SOFT, STROKE, STROKE_PRIMARY, TIER_FILL,
 } from "./chartTheme";
+import { Pill } from "./Pill";
+import { FilterBar, FilterSelect } from "./FilterBar";
 
 export function money(n: number | null | undefined, compact = false): string {
   if (n == null) return "—";
@@ -169,7 +171,7 @@ export function SignalRevenuePanel({ rows }: { rows: SignalRow[] }) {
               <span style={{ width: `${Math.max(3, Math.min(100, shown))}%`, background: ramp("suitability", shown) }} />
             </span>
             <span className="fc-sig-num mono">{Math.round(shown)}</span>
-            <span className={`pill ${verdictTone(r.verdict)}`}>{r.verdict}</span>
+            <Pill tone={verdictTone(r.verdict)}>{r.verdict}</Pill>
             <span className="fc-sig-meta">
               {r.lever_fit != null
                 ? `${r.direction === "negative" ? "−" : "+"} correlation, n=${r.sample_size}`
@@ -228,25 +230,30 @@ export function HotspotBubbles({ points }: { points: HotspotSite[] }) {
 
   return (
     <>
-      <div className="fc-filters">
-        <label>Colour by
-          <select value={colorBy} onChange={(e) => setColorBy(e.target.value)}>
-            {COLOR_BY.map((c) => <option key={c.k} value={c.k}>{c.label}</option>)}
-          </select>
-        </label>
-        <label>X axis
-          <select value={xBy} onChange={(e) => setXBy(e.target.value)}>
-            {X_BY.map((c) => <option key={c.k} value={c.k}>{c.label}</option>)}
-          </select>
-        </label>
-        <label>Show
-          <select value={scope} onChange={(e) => setScope(e.target.value)}>
-            <option value="all">All ranked</option>
-            <option value="budget">Within budget</option>
-            {states.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </label>
-      </div>
+      <FilterBar>
+        <FilterSelect
+          label="Colour by"
+          value={colorBy}
+          onChange={setColorBy}
+          options={COLOR_BY.map((c) => ({ value: c.k, label: c.label }))}
+        />
+        <FilterSelect
+          label="X axis"
+          value={xBy}
+          onChange={setXBy}
+          options={X_BY.map((c) => ({ value: c.k, label: c.label }))}
+        />
+        <FilterSelect
+          label="Show"
+          value={scope}
+          onChange={setScope}
+          options={[
+            { value: "all", label: "All ranked" },
+            { value: "budget", label: "Within budget" },
+            ...states.map((s) => ({ value: s, label: s })),
+          ]}
+        />
+      </FilterBar>
       <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block", maxWidth: "100%", overflow: "visible" }}>
         {[0, 0.5, 1].map((t) => (
           <g key={`y${t}`}>

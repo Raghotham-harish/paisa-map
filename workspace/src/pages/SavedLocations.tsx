@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, LocationStatus, SavedLocation } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { illustrations } from "../lib/illustrations";
@@ -9,6 +10,7 @@ import { UndoToastStack } from "../components/UndoToast";
 import { usePendingDelete } from "../lib/undo";
 import { MicroBar } from "../components/MicroViz";
 import { ramp } from "../components/chartTheme";
+import { ActionBar } from "../components/ActionBar";
 
 const STATUS_OPTIONS: LocationStatus[] = ["shortlist", "reviewing", "approved", "rejected"];
 
@@ -19,7 +21,10 @@ export default function SavedLocations() {
   const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({});
   const [scores, setScores] = useState<Record<string, number | null>>({});
   const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkWorking, setBulkWorking] = useState(false);
   const { pending, remove, undo, isPending } = usePendingDelete();
+  const navigate = useNavigate();
 
   const load = () => {
     setLoadError(null);
@@ -72,10 +77,48 @@ export default function SavedLocations() {
     });
   };
 
+  const toggleSelect = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
   const q = query.trim().toLowerCase();
   const filtered = locations?.filter(
     (l) => !isPending(l.id) && (!q || l.pincode.includes(q) || (l.name || "").toLowerCase().includes(q))
   ) ?? [];
+  // Intersect with what's actually on screen — a location removed by the
+  // single-row delete flow above can leave a stale id in `selected`.
+  const selectedIds = filtered.map((l) => l.id).filter((id) => selected.has(id));
+
+  const onBulkStatus = async (status: LocationStatus) => {
+    setBulkWorking(true);
+    try {
+      await Promise.all(selectedIds.map((id) => api.updateLocation(id, { status })));
+    } catch {
+      setActionError("Couldn't update status for all selected locations — try again.");
+    } finally {
+      setBulkWorking(false);
+      setSelected(new Set());
+      load();
+    }
+  };
+
+  const onBulkDelete = async () => {
+    if (!window.confirm(`Delete ${selectedIds.length} saved location${selectedIds.length === 1 ? "" : "s"}? This can't be undone.`)) return;
+    setBulkWorking(true);
+    try {
+      await Promise.all(selectedIds.map((id) => api.deleteLocation(id)));
+    } catch {
+      setActionError("Couldn't delete all selected locations — try again.");
+    } finally {
+      setBulkWorking(false);
+      setSelected(new Set());
+      load();
+    }
+  };
 
   return (
     <>
@@ -102,10 +145,38 @@ export default function SavedLocations() {
         {filtered.length === 0 ? (
           <EmptyState icon="🔍" title="No matches" description={`Nothing matches "${query}".`} />
         ) : (
+        <>
+        <ActionBar count={selectedIds.length} onClear={() => setSelected(new Set())}>
+          <select
+            defaultValue=""
+            disabled={bulkWorking}
+            onChange={(e) => {
+              if (e.target.value) onBulkStatus(e.target.value as LocationStatus);
+              e.target.value = "";
+            }}
+          >
+            <option value="" disabled>Set status…</option>
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>
+            ))}
+          </select>
+          <button className="btn secondary" disabled={bulkWorking} onClick={onBulkDelete}>
+            Delete {selectedIds.length}
+          </button>
+        </ActionBar>
         <DataList>
           {filtered.map((loc) => (
             <DataRow
               key={loc.id}
+              leading={
+                <input
+                  type="checkbox"
+                  checked={selected.has(loc.id)}
+                  onChange={() => toggleSelect(loc.id)}
+                  aria-label={`Select ${loc.name || loc.pincode}`}
+                />
+              }
+              onToggle={() => navigate(`/map?pincode=${loc.pincode}${loc.project_id ? `&project_id=${loc.project_id}` : ""}`)}
               title={loc.name || loc.pincode}
               subtitle={
                 <>
@@ -147,6 +218,7 @@ export default function SavedLocations() {
             />
           ))}
         </DataList>
+        </>
         )}
         </>
       </AsyncBoundary>

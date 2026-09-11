@@ -6,43 +6,54 @@ import { EmptyState } from "../components/EmptyState";
 import { illustrations } from "../lib/illustrations";
 import { MapSessionState, readMapSession } from "../lib/mapSession";
 import { useWorkspace } from "../lib/workspace";
-
-const ACTION_LABELS: Record<string, string> = {
-  login: "Signed in",
-  project_create: "Created project",
-  location_save: "Saved a location",
-  location_score: "Scored a location",
-  location_compare: "Compared locations",
-  forecast_run: "Ran a forecast",
-  report_generate: "Generated a report",
-};
-
-function describe(entry: ActivityEntry): string {
-  const label = ACTION_LABELS[entry.action] || entry.action;
-  const pincode = (entry.metadata as any)?.pincode;
-  return pincode ? `${label} — ${pincode}` : label;
-}
+import { MiniMap } from "../components/MiniMap";
+import { AsyncBoundary } from "../components/AsyncBoundary";
+import { DataList, DataRow } from "../components/DataList";
+import { StatChip } from "../components/StatChip";
+import { describeActivity } from "../lib/activity";
 
 export default function Dashboard() {
   const { user } = useAuth();
   const { projects } = useWorkspace();
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
+  const [activityError, setActivityError] = useState<string | null>(null);
   const [locations, setLocations] = useState<SavedLocation[] | null>(null);
   const [session, setSession] = useState<MapSessionState | null>(null);
+  const [thumbScores, setThumbScores] = useState<Record<string, number | null>>({});
+
+  const loadActivity = () => {
+    setActivityError(null);
+    setActivity(null);
+    api.listActivity(5).then((data) => setActivity(data.activity)).catch(() => setActivityError("Couldn't load your recent activity — try again."));
+  };
 
   useEffect(() => {
-    api.listActivity(5).then((data) => setActivity(data.activity));
-    api.listLocations().then((data) => setLocations(data.locations));
+    loadActivity();
+    api.listLocations().then((data) => setLocations(data.locations)).catch(() => setLocations([]));
     setSession(readMapSession());
   }, []);
-
-  if (!user) return null;
 
   // Prefer whatever project the map session was last on (real "pick up where
   // you left off"), falling back to the first project when there's no
   // session yet or it points at a project that's since been deleted.
   const sessionProject = session?.projectId != null ? (projects?.find((p) => p.id === session.projectId) ?? null) : null;
   const activeProject = sessionProject ?? projects?.[0] ?? null;
+  const heroLocations = locations?.filter((l) => l.project_id === activeProject?.id) ?? [];
+
+  useEffect(() => {
+    // Bounded to the active project's own (typically handful of) locations —
+    // reuses the same per-pincode scoring endpoint SavedLocations calls, so
+    // the hero thumbnail tints with the map's real ramp instead of a guess.
+    heroLocations.forEach((l) => {
+      if (l.pincode in thumbScores) return;
+      api.getLocationScore(l.pincode)
+        .then((s) => setThumbScores((prev) => ({ ...prev, [l.pincode]: s.economic_score })))
+        .catch(() => setThumbScores((prev) => ({ ...prev, [l.pincode]: null })));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject?.id, locations]);
+
+  if (!user) return null;
 
   // Real "added this week" counts from data already on hand — not a fabricated
   // trend, just a client-side filter on created_at (no history endpoint exists
@@ -92,74 +103,67 @@ export default function Dashboard() {
             {!activeProject && <Link className="btn secondary" to="/projects/new">New project</Link>}
           </div>
         </div>
-        <div className="map-hero-thumb" aria-hidden="true">
-          <svg width="100%" height="100%" viewBox="0 0 360 200" preserveAspectRatio="xMidYMid slice">
-            <rect width="360" height="200" fill="#EDEFE7" />
-            <g stroke="#C9CEBF" strokeWidth="2" fill="none">
-              <path d="M-10 60 C 120 40 240 90 370 50" />
-              <path d="M-10 130 C 130 110 260 150 370 120" />
-              <path d="M110 -10 C 130 70 100 130 150 210" />
-              <path d="M250 -10 C 240 70 270 130 250 210" />
-            </g>
-            <path d="M300 200 L360 200 L360 92 q-40 20 -40 55 q-2 30 -20 26z" fill="#CAD8D2" />
-            <circle cx="180" cy="100" r="46" fill="#216A0B" fillOpacity="0.16" />
-            <g fill="#216A0B" stroke="#fff" strokeWidth="2">
-              <circle cx="180" cy="96" r="17" />
-              <circle cx="120" cy="70" r="12" />
-              <circle cx="238" cy="120" r="13" />
-              <circle cx="150" cy="140" r="9" />
-            </g>
-            <circle cx="205" cy="82" r="16" fill="none" stroke="#DFAE3A" strokeWidth="1.5" />
-          </svg>
+        <div className="map-hero-thumb">
+          <MiniMap
+            width={360}
+            height={200}
+            points={heroLocations.map((l) => ({ lat: l.lat, lng: l.lng, score: thumbScores[l.pincode] }))}
+          />
         </div>
       </div>
 
       <div className="stat-row">
-        <div className="stat-tile">
+        <Link className="stat-tile stat-tile-link" to="/billing">
           <div className="label">Plan</div>
           <div className="value plan">{user.plan}</div>
-        </div>
-        <div className="stat-tile">
+        </Link>
+        <Link className="stat-tile stat-tile-link" to="/billing">
           <div className="label">Credits</div>
           <div className="value">{user.credits}</div>
-        </div>
-        <div className="stat-tile">
+        </Link>
+        <Link className="stat-tile stat-tile-link" to="/locations">
           <div className="label">Saved locations</div>
           <div className="value">{locations === null ? "—" : locations.length}</div>
           {newLocations > 0 && <div className="stat-tile-delta">+{newLocations} this week</div>}
-        </div>
-        <div className="stat-tile">
+        </Link>
+        <Link className="stat-tile stat-tile-link" to="/projects">
           <div className="label">Projects</div>
           <div className="value">{projects === null ? "—" : projects.length}</div>
           {newProjects > 0 && <div className="stat-tile-delta">+{newProjects} this week</div>}
-        </div>
+        </Link>
       </div>
 
       <div className="card">
-        <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--mono)", letterSpacing: ".06em", textTransform: "uppercase" }}>
-          Recent activity
-        </p>
-        {activity === null ? (
-          <p style={{ margin: 0, color: "var(--ink-soft)", fontSize: 13.5 }}>Loading…</p>
-        ) : activity.length === 0 ? (
-          <EmptyState
-            bare
-            illustration={illustrations.noData}
-            title="Let's get you started"
-            description="Save a location from the map or create a project — either one puts you on the board here."
-            primaryAction={{ label: "Open the map", href: "/" }}
-            secondaryAction={{ label: "Create a project", to: "/projects" }}
-          />
-        ) : (
-          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
-            {activity.map((entry) => (
-              <li key={entry.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13.5 }}>
-                <span>{describe(entry)}</span>
-                <span style={{ color: "var(--ink-soft)", fontSize: 12 }}>{new Date(entry.created_at).toLocaleDateString()}</span>
-              </li>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
+          <p className="kicker" style={{ margin: 0 }}>Recent activity</p>
+          <Link to="/activity" style={{ fontSize: 12.5 }}>View all →</Link>
+        </div>
+        <AsyncBoundary
+          loading={activity === null && !activityError}
+          error={activityError}
+          onRetry={loadActivity}
+          empty={activity?.length === 0}
+          emptyState={
+            <EmptyState
+              bare
+              illustration={illustrations.noData}
+              title="Let's get you started"
+              description="Save a location from the map or create a project — either one puts you on the board here."
+              primaryAction={{ label: "Open the map", href: "/" }}
+              secondaryAction={{ label: "Create a project", to: "/projects" }}
+            />
+          }
+        >
+          <DataList>
+            {(activity ?? []).map((entry) => (
+              <DataRow
+                key={entry.id}
+                title={describeActivity(entry)}
+                trailing={<StatChip icon="ti ti-clock">{new Date(entry.created_at).toLocaleDateString()}</StatChip>}
+              />
             ))}
-          </ul>
-        )}
+          </DataList>
+        </AsyncBoundary>
       </div>
     </>
   );

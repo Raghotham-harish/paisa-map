@@ -3,6 +3,7 @@ import { ApiKey, api } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { DataList, DataRow } from "../components/DataList";
 import { AsyncBoundary } from "../components/AsyncBoundary";
+import { Pill } from "../components/Pill";
 
 export default function ApiKeys() {
   const [keys, setKeys] = useState<ApiKey[] | null>(null);
@@ -148,7 +149,7 @@ export default function ApiKeys() {
                 key={k.id}
                 title={k.label || "Untitled key"}
                 subtitle={<code>{k.key_prefix}…</code>}
-                trailing={<span className="pill rejected">Revoked</span>}
+                trailing={<Pill tone="rejected">Revoked</Pill>}
               />
             ))}
           </DataList>

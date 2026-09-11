@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { api, Project, ProjectFields } from "../lib/api";
+import { Link, useNavigate } from "react-router-dom";
+import { api, Project, ProjectFields, SavedLocation } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { SearchInput } from "../components/SearchInput";
 import { DataList, DataRow } from "../components/DataList";
@@ -8,12 +8,13 @@ import { AsyncBoundary } from "../components/AsyncBoundary";
 import { UndoToastStack } from "../components/UndoToast";
 import { usePendingDelete } from "../lib/undo";
 import { StatChip } from "../components/StatChip";
+import { MiniMap } from "../components/MiniMap";
 
 const EMPTY_FIELDS: ProjectFields = {
   name: "", description: "", business_type: "", target_segment: "", avg_ticket: "", website_url: "",
 };
 
-function BusinessFields({
+export function BusinessFields({
   fields, onChange,
 }: {
   fields: ProjectFields;
@@ -64,6 +65,7 @@ function BusinessFields({
 
 export default function Projects() {
   const [projects, setProjects] = useState<Project[] | null>(null);
+  const [locations, setLocations] = useState<SavedLocation[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [newFields, setNewFields] = useState<ProjectFields>(EMPTY_FIELDS);
   const [creating, setCreating] = useState(false);
@@ -73,6 +75,7 @@ export default function Projects() {
   const [query, setQuery] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
   const { pending, remove, undo, isPending } = usePendingDelete();
+  const navigate = useNavigate();
 
   const load = () => {
     setLoadError(null);
@@ -82,6 +85,11 @@ export default function Projects() {
   };
 
   useEffect(load, []);
+  // One call for all projects' thumbnails — grouped client-side by project_id
+  // below, rather than a per-row fetch (avoids an N+1 request fan-out).
+  useEffect(() => {
+    api.listLocations().then((data) => setLocations(data.locations)).catch(() => {});
+  }, []);
 
   const onCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -205,16 +213,24 @@ export default function Projects() {
                 </a>
               );
             }
+            const projectLocations = locations.filter((l) => l.project_id === p.id);
             return (
               <DataRow
                 key={p.id}
+                leading={<MiniMap width={48} height={48} points={projectLocations.map((l) => ({ lat: l.lat, lng: l.lng }))} />}
                 title={p.name}
                 subtitle={p.description}
                 chips={chips}
-                onToggle={() => (editingId === p.id ? setEditingId(null) : startEdit(p))}
+                onToggle={() => navigate(`/projects/${p.id}`)}
                 trailing={
                   <>
-                    <span className="meta">{new Date(p.updated_at).toLocaleDateString()}</span>
+                    <StatChip icon="ti ti-calendar">{new Date(p.updated_at).toLocaleDateString()}</StatChip>
+                    <button
+                      className="btn secondary"
+                      onClick={(e) => { e.stopPropagation(); editingId === p.id ? setEditingId(null) : startEdit(p); }}
+                    >
+                      Edit
+                    </button>
                     <button
                       className="btn secondary"
                       onClick={(e) => { e.stopPropagation(); onDelete(p); }}

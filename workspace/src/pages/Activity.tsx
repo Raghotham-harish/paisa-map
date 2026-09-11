@@ -3,18 +3,8 @@ import { api, ActivityEntry } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { DataList, DataRow } from "../components/DataList";
 import { AsyncBoundary } from "../components/AsyncBoundary";
-
-const ACTION_LABELS: Record<string, string> = {
-  login: "Signed in",
-  project_create: "Created project",
-  location_save: "Saved a location",
-};
-
-function describe(entry: ActivityEntry): string {
-  const label = ACTION_LABELS[entry.action] || entry.action;
-  const pincode = (entry.metadata as any)?.pincode;
-  return pincode ? `${label} — ${pincode}` : label;
-}
+import { StatChip } from "../components/StatChip";
+import { describeActivity } from "../lib/activity";
 
 export default function Activity() {
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
@@ -51,8 +41,8 @@ export default function Activity() {
           {(activity ?? []).map((entry) => (
             <DataRow
               key={entry.id}
-              title={describe(entry)}
-              trailing={<span className="meta">{new Date(entry.created_at).toLocaleString()}</span>}
+              title={describeActivity(entry)}
+              trailing={<StatChip icon="ti ti-clock">{new Date(entry.created_at).toLocaleString()}</StatChip>}
             />
           ))}
         </DataList>

@@ -5,6 +5,8 @@ import { useAuth } from "../lib/auth";
 import { openCheckout } from "../lib/razorpay";
 import { DataList, DataRow } from "../components/DataList";
 import { AsyncBoundary } from "../components/AsyncBoundary";
+import { StatChip } from "../components/StatChip";
+import { Pill } from "../components/Pill";
 
 const PLAN_ORDER: Array<"free" | "pro" | "team"> = ["free", "pro", "team"];
 
@@ -147,14 +149,7 @@ export default function Billing() {
       </div>
       {pricing && (
         <div className="card" style={{ marginBottom: 20 }}>
-          <p
-            style={{
-              margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--mono)",
-              letterSpacing: ".06em", textTransform: "uppercase",
-            }}
-          >
-            Buy credits
-          </p>
+          <p className="kicker" style={{ marginBottom: 14 }}>Buy credits</p>
           {buyError && <div style={{ color: "var(--flame)", fontSize: 12, marginBottom: 10 }}>{buyError}</div>}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             {Object.entries(pricing.credit_packs).map(([packId, pack]) => (
@@ -170,73 +165,78 @@ export default function Billing() {
           </div>
         </div>
       )}
-      <AsyncBoundary
-        loading={ledger === null && !creditsError}
-        error={creditsError}
-        onRetry={loadCredits}
-        empty={ledger?.length === 0}
-        emptyState={
-          <EmptyState
-            icon="💳"
-            title="No credit activity yet"
-            description="Credit awards and spend will show up here as you use paid features."
-            bare
-          />
-        }
-      >
-        <DataList>
-          {(ledger ?? []).map((entry) => (
-            <DataRow
-              key={entry.id}
-              title={REASON_LABELS[entry.reason] || entry.reason}
-              subtitle={new Date(entry.created_at).toLocaleString()}
-              trailing={
-                <>
-                  <span className={`pill ${entry.delta >= 0 ? "delta-pos" : "delta-neg"}`}>
-                    {entry.delta >= 0 ? "+" : ""}
-                    {entry.delta}
-                  </span>
-                  <span className="meta">balance: {entry.balance_after}</span>
-                </>
-              }
+      <div className="card" style={{ marginBottom: 20 }}>
+        <p className="kicker" style={{ marginBottom: 14 }}>Credit history</p>
+        <AsyncBoundary
+          loading={ledger === null && !creditsError}
+          error={creditsError}
+          onRetry={loadCredits}
+          empty={ledger?.length === 0}
+          emptyState={
+            <EmptyState
+              icon="💳"
+              title="No credit activity yet"
+              description="Credit awards and spend will show up here as you use paid features."
+              bare
             />
-          ))}
-        </DataList>
-      </AsyncBoundary>
+          }
+        >
+          <DataList>
+            {(ledger ?? []).map((entry) => (
+              <DataRow
+                key={entry.id}
+                title={REASON_LABELS[entry.reason] || entry.reason}
+                subtitle={new Date(entry.created_at).toLocaleString()}
+                trailing={
+                  <>
+                    <Pill tone={entry.delta >= 0 ? "delta-pos" : "delta-neg"}>
+                      {entry.delta >= 0 ? "+" : ""}
+                      {entry.delta}
+                    </Pill>
+                    <StatChip icon="ti ti-wallet">balance: {entry.balance_after}</StatChip>
+                  </>
+                }
+              />
+            ))}
+          </DataList>
+        </AsyncBoundary>
+      </div>
 
-      <p className="kicker" style={{ margin: "28px 0 10px" }}>Invoices</p>
-      <AsyncBoundary
-        loading={invoices === null && !invoicesError}
-        error={invoicesError}
-        onRetry={loadInvoices}
-        empty={invoices?.length === 0}
-        emptyState={
-          <EmptyState
-            icon="🧾"
-            title="No invoices yet"
-            description="Invoices for credit purchases, plan upgrades, and one-off report purchases will show up here."
-            bare
-          />
-        }
-      >
-        <DataList>
-          {(invoices ?? []).map((inv) => (
-            <DataRow
-              key={inv.id}
-              title={inv.line_item_label}
-              subtitle={`${inv.invoice_number} · ${new Date(inv.created_at).toLocaleDateString()}`}
-              trailing={
-                <>
-                  <span className="meta">₹{(inv.total_amount_paise / 100).toLocaleString("en-IN")}</span>
-                  <a className="btn secondary" href={api.invoiceDownloadUrl(inv.id)}>
-                    Download PDF
-                  </a>
-                </>
-              }
+      <div className="card">
+        <p className="kicker" style={{ marginBottom: 14 }}>Invoices</p>
+        <AsyncBoundary
+          loading={invoices === null && !invoicesError}
+          error={invoicesError}
+          onRetry={loadInvoices}
+          empty={invoices?.length === 0}
+          emptyState={
+            <EmptyState
+              icon="🧾"
+              title="No invoices yet"
+              description="Invoices for credit purchases, plan upgrades, and one-off report purchases will show up here."
+              bare
             />
-          ))}
-        </DataList>
-      </AsyncBoundary>
+          }
+        >
+          <DataList>
+            {(invoices ?? []).map((inv) => (
+              <DataRow
+                key={inv.id}
+                title={inv.line_item_label}
+                subtitle={`${inv.invoice_number} · ${new Date(inv.created_at).toLocaleDateString()}`}
+                trailing={
+                  <>
+                    <StatChip icon="ti ti-currency-rupee">₹{(inv.total_amount_paise / 100).toLocaleString("en-IN")}</StatChip>
+                    <a className="btn secondary" href={api.invoiceDownloadUrl(inv.id)}>
+                      Download PDF
+                    </a>
+                  </>
+                }
+              />
+            ))}
+          </DataList>
+        </AsyncBoundary>
+      </div>
     </>
   );
 }

@@ -8,6 +8,7 @@ import { EmptyState } from "../components/EmptyState";
 import { AsyncBoundary } from "../components/AsyncBoundary";
 import { ReturnBanner } from "../components/ReturnTo";
 import { useWorkspace } from "../lib/workspace";
+import { Pill } from "../components/Pill";
 
 const PROVIDERS: { id: ConnectionProvider; label: string; description: string }[] = [
   {
@@ -241,11 +242,11 @@ export default function Connections() {
                         <p style={{ fontSize: 13, color: "var(--ink-soft)", margin: 0 }}>{description}</p>
                       </div>
                       {conn ? (
-                        <span className={`pill ${conn.status === "connected" ? "approved" : "rejected"}`}>
+                        <Pill tone={conn.status === "connected" ? "approved" : "rejected"}>
                           {conn.status === "connected" ? "Connected" : "Needs reconnect"}
-                        </span>
+                        </Pill>
                       ) : (
-                        <span className="pill shortlist">Not connected</span>
+                        <Pill tone="shortlist">Not connected</Pill>
                       )}
                     </div>
 
@@ -432,6 +433,6 @@ export default function Connections() {
 }
 
 const thStyle: React.CSSProperties = {
-  textAlign: "left", padding: "4px 8px", borderBottom: "1px solid var(--line)", color: "var(--ink-soft)",
+  textAlign: "left", padding: "4px 8px", borderBottom: "1px solid var(--border)", color: "var(--ink-soft)",
 };
-const tdStyle: React.CSSProperties = { padding: "4px 8px", borderBottom: "1px solid var(--line)" };
+const tdStyle: React.CSSProperties = { padding: "4px 8px", borderBottom: "1px solid var(--border)" };

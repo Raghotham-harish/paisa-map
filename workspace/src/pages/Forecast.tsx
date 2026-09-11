@@ -6,6 +6,7 @@ import { ForecastPreview } from "../components/ForecastPreview";
 import { DataList, DataRow } from "../components/DataList";
 import { AsyncBoundary } from "../components/AsyncBoundary";
 import { StatChip } from "../components/StatChip";
+import { Pill } from "../components/Pill";
 import { MicroBar } from "../components/MicroViz";
 import { RUPEE } from "../components/chartTheme";
 import { illustrations } from "../lib/illustrations";
@@ -172,15 +173,15 @@ export default function Forecast() {
                 </div>
                 <div className="fc-headline-pills">
                   {project?.time_horizon_months != null && (
-                    <span className="pill shortlist">{project.time_horizon_months}-mo horizon</span>
+                    <Pill tone="shortlist">{project.time_horizon_months}-mo horizon</Pill>
                   )}
-                  <span className={`pill ${CONF_CLASS[f.confidence]}`}>{f.confidence} confidence</span>
+                  <Pill tone={CONF_CLASS[f.confidence]}>{f.confidence} confidence</Pill>
                 </div>
               </div>
 
               {f.calibration === "benchmark" && (
                 <p className="wiz-hint" style={{ marginTop: -8, marginBottom: 16 }}>
-                  <span className={`pill ${CONF_CLASS.benchmark}`} style={{ marginRight: 8 }}>{CALIBRATION_LABEL.benchmark}</span>
+                  <Pill tone={CONF_CLASS.benchmark} style={{ marginRight: 8 }}>{CALIBRATION_LABEL.benchmark}</Pill>
                   Capture rate = {(f.capture_model.median_capture_rate * 100).toFixed(3)}% of catchment spend, built from an
                   assumed {(f.reach_curve.drivers.find((d) => d.key === "wallet_share")?.value ?? 5)}% category wallet share ×{" "}
                   {(f.reach_curve.drivers.find((d) => d.key === "entrant_capture")?.value ?? 1)}% new-entrant capture —{" "}
@@ -367,7 +368,7 @@ export default function Forecast() {
                                 <span style={{ width: `${Math.max(3, Math.min(100, v))}%` }} className={`t-${tone}`} />
                               </span>
                               <span className="mono fc-underused-n">{Math.round(v)}</span>
-                              <span className={`pill ${tone}`}>{word}</span>
+                              <Pill tone={tone}>{word}</Pill>
                             </div>
                           );
                         })}
@@ -421,9 +422,9 @@ export default function Forecast() {
                       trailing={
                         <>
                           <MicroBar value={s.monthly_revenue} max={maxRevenue} color={RUPEE} />
-                          <span className={`pill ${s.within_budget ? "delta-pos" : "shortlist"}`}>
+                          <Pill tone={s.within_budget ? "delta-pos" : "shortlist"}>
                             {s.within_budget ? `+${money(s.monthly_revenue, true)}/mo` : "needs bigger budget"}
-                          </span>
+                          </Pill>
                         </>
                       }
                     />

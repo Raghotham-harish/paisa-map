@@ -526,6 +526,11 @@ export type ForecastResponse = Forecast | ForecastInsufficient;
 
 export type ConnectionProvider = "google_analytics" | "search_console";
 
+export const PROVIDER_LABEL: Record<ConnectionProvider, string> = {
+  google_analytics: "Google Analytics",
+  search_console: "Search Console",
+};
+
 export interface OAuthConnection {
   id: number;
   project_id: number;

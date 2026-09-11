@@ -2,10 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import {
   ApiError,
-  ConnectionProvider,
   CustomerUpload,
   OAuthConnection,
   OutcomeGoal,
+  PROVIDER_LABEL,
   ProjectFields,
   RevenuePeriod,
   SignalCatalogItem,
@@ -14,6 +14,7 @@ import {
 import { MultiSelect, Option, SingleSelect } from "../components/MultiSelect";
 import { fuzzyBestMatch } from "../lib/fuzzyMatch";
 import { ReturnToLink } from "../components/ReturnTo";
+import { Pill } from "../components/Pill";
 
 const INDUSTRIES = [
   "Apparel & Footwear", "Jewellery & Accessories", "Food & Beverage / QSR", "Grocery & Kirana",
@@ -229,7 +230,7 @@ export default function ProjectWizard() {
               <div className="wiz-int-card wiz-int-soon">
                 <b>Salesforce</b>
                 <span>Won-deal ship-to pincodes</span>
-                <span className="pill shortlist">Coming soon</span>
+                <Pill tone="shortlist">Coming soon</Pill>
               </div>
               <UploadCard uploads={uploads} />
             </div>
@@ -326,11 +327,6 @@ export default function ProjectWizard() {
   );
 }
 
-const PROVIDER_LABEL: Record<ConnectionProvider, string> = {
-  google_analytics: "Google Analytics",
-  search_console: "Search Console",
-};
-
 /** GA4 / Search Console card — real linked-account state once a project
  *  exists, the plain "Connect" link before that (new, unsaved project). */
 function IntegrationCard({ title, desc, conn }: { title: string; desc: string; conn: OAuthConnection | undefined }) {
@@ -340,11 +336,11 @@ function IntegrationCard({ title, desc, conn }: { title: string; desc: string; c
       <span>{desc}</span>
       {conn ? (
         <>
-          <span className={`pill ${conn.status === "connected" ? "approved" : "rejected"}`}>
+          <Pill tone={conn.status === "connected" ? "approved" : "rejected"}>
             {conn.status === "connected"
               ? `Linked${conn.external_account_email ? " · " + conn.external_account_email : ""}`
               : `Reconnect ${PROVIDER_LABEL[conn.provider]}`}
-          </span>
+          </Pill>
           <ReturnToLink className="btn secondary" to="/connections" fromLabel="project setup">Manage</ReturnToLink>
         </>
       ) : (
@@ -371,9 +367,9 @@ function UploadCard({ uploads }: { uploads: CustomerUpload[] }) {
       <span>Store revenue, rent, footfall</span>
       {latest ? (
         <>
-          <span className={`pill ${UPLOAD_STATUS_PILL[latest.status]}`}>
+          <Pill tone={UPLOAD_STATUS_PILL[latest.status]}>
             {latest.status === "ready" ? `Linked · ${latest.row_count} rows` : latest.status.replace("_", " ")}
-          </span>
+          </Pill>
           <ReturnToLink className="btn secondary" to="/customer-data" fromLabel="project setup">Manage</ReturnToLink>
         </>
       ) : (

@@ -8,6 +8,7 @@ import { openCheckout } from "../lib/razorpay";
 import { DataList, DataRow } from "../components/DataList";
 import { AsyncBoundary } from "../components/AsyncBoundary";
 import { StatChip } from "../components/StatChip";
+import { Pill } from "../components/Pill";
 
 const RISK_CLASS: Record<string, string> = {
   Low: "delta-pos",
@@ -176,14 +177,7 @@ export default function Reports() {
       >
         <>
           <div className="card" style={{ marginBottom: 24 }}>
-            <p
-              style={{
-                margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--mono)",
-                letterSpacing: ".06em", textTransform: "uppercase",
-              }}
-            >
-              Generate for a project
-            </p>
+            <p className="kicker" style={{ marginBottom: 14 }}>Generate for a project</p>
             <DataList>
               {(projects ?? []).map((p) => {
                 const chips: ReactNode[] = [
@@ -235,7 +229,9 @@ export default function Reports() {
 
           {shareError && <p style={{ color: "var(--flame)", fontSize: 13, marginBottom: 14 }}>{shareError}</p>}
 
-          {(reports ?? []).length === 0 ? (
+          <div className="card">
+            <p className="kicker" style={{ marginBottom: 14 }}>Your reports</p>
+            {(reports ?? []).length === 0 ? (
             <EmptyState
               icon="📄"
               title="No reports yet"
@@ -253,8 +249,8 @@ export default function Reports() {
                     subtitle={summary}
                     trailing={
                       <>
-                        <span className={`pill ${STATUS_CLASS[r.status]}`}>{r.status}</span>
-                        <span className="meta">{new Date(r.created_at).toLocaleDateString()}</span>
+                        <Pill tone={STATUS_CLASS[r.status]}>{r.status}</Pill>
+                        <StatChip icon="ti ti-calendar">{new Date(r.created_at).toLocaleDateString()}</StatChip>
                         {r.status === "ready" && (
                           <>
                             <a className="btn secondary" href={api.reportDownloadUrl(r.id)}>
@@ -295,9 +291,9 @@ export default function Reports() {
                         {r.params?.locations && r.params.locations.length > 0 && (
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                             {r.params.locations.map((loc) => (
-                              <span
+                              <Pill
                                 key={loc.pincode}
-                                className={`pill ${RISK_CLASS[loc.risk.level] || "shortlist"}`}
+                                tone={RISK_CLASS[loc.risk.level] || "shortlist"}
                                 title={
                                   loc.digital_signal
                                     ? `${loc.risk.note} — GA4: ${loc.digital_signal.sessions} sessions, ${loc.digital_signal.conversions} conversions`
@@ -306,7 +302,7 @@ export default function Reports() {
                               >
                                 {loc.name} · {loc.opportunity?.suitability ?? `${loc.economic_score}/100`}
                                 {loc.digital_signal ? " · GA4" : ""}
-                              </span>
+                              </Pill>
                             ))}
                           </div>
                         )}
@@ -317,6 +313,7 @@ export default function Reports() {
               })}
             </DataList>
           )}
+          </div>
         </>
       </AsyncBoundary>
     </>

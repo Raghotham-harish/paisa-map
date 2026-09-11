@@ -13,6 +13,7 @@ export function DataList({ children }: { children: ReactNode }) {
 }
 
 export function DataRow({
+  leading,
   title,
   subtitle,
   chips,
@@ -21,6 +22,8 @@ export function DataRow({
   expanded,
   onToggle,
 }: {
+  /** Fixed-size visual at the row's start — e.g. a per-project map thumbnail. */
+  leading?: ReactNode;
   title: ReactNode;
   subtitle?: ReactNode;
   /** Small meta facts rendered as a chip row — e.g. business type, target segment. */
@@ -36,6 +39,11 @@ export function DataRow({
   return (
     <li className="data-row">
       <div className={`data-row-top${onToggle ? " clickable" : ""}`} onClick={onToggle}>
+        {leading && (
+          <div className="data-row-leading" onClick={(e) => onToggle && e.stopPropagation()}>
+            {leading}
+          </div>
+        )}
         <div className="data-row-main">
           <div className="data-row-title">{title}</div>
           {subtitle && <div className="data-row-subtitle">{subtitle}</div>}

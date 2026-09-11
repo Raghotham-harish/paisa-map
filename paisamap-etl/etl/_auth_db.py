@@ -67,6 +67,13 @@ def _get_tables():
         Column("owner_user_id", Integer),  # FK added at the DB level via schema.sql;
                                                # left unconstrained here to avoid a hard
                                                # creation-order cycle with users
+        # Phase C, staged: plan/website_url exist on the org now so the
+        # organizations blueprint has somewhere real to read/write, but
+        # nothing else in the app resolves plan from here yet — users.plan
+        # is still the one actually enforced (see the Organizations section
+        # of this file for why that cutover is deliberately separate).
+        Column("plan", Text, nullable=False, server_default="free"),
+        Column("website_url", Text),
         Column("created_at", DateTime(timezone=True), nullable=False),
     )
 
@@ -170,6 +177,9 @@ def _get_tables():
         "credits_ledger", _metadata,
         Column("id", Integer, primary_key=True, autoincrement=True),
         Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        # Phase C, staged: NULL until credits pooling actually cuts over to the
+        # org level — every existing/new row keeps writing user_id as today.
+        Column("org_id", Integer, ForeignKey("organizations.id")),
         Column("delta", Integer, nullable=False),
         Column("reason", Text, nullable=False),
         Column("ref_type", Text),
@@ -194,6 +204,9 @@ def _get_tables():
         Column("id", Integer, primary_key=True, autoincrement=True),
         Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         Column("project_id", Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        # Phase C, staged: NULL until store-data sharing across a company's
+        # projects actually cuts over — see the Organizations section above.
+        Column("org_id", Integer, ForeignKey("organizations.id")),
         Column("filename", Text, nullable=False),
         Column("format", Text, nullable=False),
         Column("status", Text, nullable=False, server_default="pending_mapping"),
@@ -214,6 +227,9 @@ def _get_tables():
         Column("id", Integer, primary_key=True, autoincrement=True),
         Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
         Column("project_id", Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        # Phase C, staged: NULL until store-data sharing across a company's
+        # projects actually cuts over — see the Organizations section above.
+        Column("org_id", Integer, ForeignKey("organizations.id")),
         Column("upload_id", Integer, ForeignKey("customer_uploads.id", ondelete="CASCADE"), nullable=False),
         Column("store_name", Text),
         Column("raw_address", Text),
@@ -238,6 +254,9 @@ def _get_tables():
         Column("id", Integer, primary_key=True, autoincrement=True),
         Column("project_id", Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
         Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        # Phase C, staged: NULL until connections sharing across a company's
+        # projects actually cuts over — see the Organizations section above.
+        Column("org_id", Integer, ForeignKey("organizations.id")),
         Column("provider", Text, nullable=False),
         Column("status", Text, nullable=False, server_default="connected"),
         Column("external_account_email", Text),
@@ -393,6 +412,14 @@ _MIGRATIONS = [
     ("projects", "gross_margin_pct", "FLOAT"),
     ("projects", "revenue_period", "TEXT"),
     ("saved_locations", "allocated_investment", "FLOAT"),
+    # Phase C, staged (organizations layer) — additive only, nothing reads
+    # these yet. See the Organizations section of this file.
+    ("organizations", "plan", "TEXT DEFAULT 'free'"),
+    ("organizations", "website_url", "TEXT"),
+    ("credits_ledger", "org_id", "INTEGER"),
+    ("customer_uploads", "org_id", "INTEGER"),
+    ("customer_locations", "org_id", "INTEGER"),
+    ("oauth_connections", "org_id", "INTEGER"),
 ]
 
 
@@ -733,6 +760,322 @@ def log_activity(user_id, action, target_type=None, target_id=None, metadata=Non
     engine = _require_engine()
     with engine.begin() as c:
         c.execute(log.insert().values(**values))
+
+
+def get_user_by_email(email):
+    engine = _require_engine()
+    tables = _get_tables()
+    users = tables["users"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(users.c.id, users.c.email, users.c.name, users.c.picture_url)
+            .where(users.c.email == email)
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+# ── Organizations (Phase C, staged) ───────────────────────────────────────────
+# Additive-only for now: real orgs + membership, but nothing existing
+# (users.plan, credits_ledger, project/connection/upload ownership) reads from
+# an org yet. Cutting those over is a separate, later step — plan/credits sit
+# on top of a payment surface (orders, invoices, Razorpay webhooks, api_keys
+# tier resolution) that's all wired straight to user_id today, and getting
+# that migration wrong touches real money. This section only ships the
+# container + membership so the frontend has something real to build a
+# company switcher against; org_id columns added elsewhere in this file
+# (credits_ledger, customer_uploads, customer_locations, oauth_connections)
+# stay NULL until that later cutover actually writes to them.
+
+ORG_ROLES = ("owner", "admin", "member")
+
+
+def create_organization(user_id, name):
+    """Creates the org and adds the creator as 'owner' in one transaction."""
+    engine = _require_engine()
+    tables = _get_tables()
+    orgs = tables["organizations"]
+    members = tables["org_members"]
+    now = _now()
+    with engine.begin() as conn:
+        result = conn.execute(
+            orgs.insert().values(name=name, owner_user_id=user_id, plan="free", created_at=now)
+        )
+        new_id = result.inserted_primary_key[0]
+        conn.execute(
+            members.insert().values(org_id=new_id, user_id=user_id, role="owner", created_at=now)
+        )
+    return get_organization(new_id, user_id)
+
+
+def get_org_role(org_id, user_id):
+    """The caller's role in this org, or None if they're not a member."""
+    engine = _require_engine()
+    tables = _get_tables()
+    members = tables["org_members"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(members.c.role).where(members.c.org_id == org_id, members.c.user_id == user_id)
+        ).first()
+    return row.role if row else None
+
+
+def list_organizations(user_id):
+    """Orgs the caller is a member of, with their role in each."""
+    engine = _require_engine()
+    tables = _get_tables()
+    orgs = tables["organizations"]
+    members = tables["org_members"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(orgs, members.c.role)
+            .select_from(orgs.join(members, members.c.org_id == orgs.c.id))
+            .where(members.c.user_id == user_id)
+            .order_by(orgs.c.created_at.asc())
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def get_organization(org_id, user_id):
+    """Membership-scoped — returns None if the org doesn't exist or the caller
+    isn't a member (same not-found-vs-not-a-member non-disclosure as get_project)."""
+    role = get_org_role(org_id, user_id)
+    if role is None:
+        return None
+    engine = _require_engine()
+    tables = _get_tables()
+    orgs = tables["organizations"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(select(orgs).where(orgs.c.id == org_id)).mappings().first()
+    if row is None:
+        return None
+    out = dict(row)
+    out["role"] = role
+    return out
+
+
+def update_organization(org_id, user_id, **fields):
+    """Owner/admin only."""
+    role = get_org_role(org_id, user_id)
+    if role not in ("owner", "admin"):
+        return None
+    allowed = {k: v for k, v in fields.items() if k in ("name", "website_url") and v is not None}
+    if not allowed:
+        return get_organization(org_id, user_id)
+    engine = _require_engine()
+    tables = _get_tables()
+    orgs = tables["organizations"]
+    with engine.begin() as conn:
+        conn.execute(orgs.update().where(orgs.c.id == org_id).values(**allowed))
+    return get_organization(org_id, user_id)
+
+
+def delete_organization(org_id, user_id):
+    """Owner only."""
+    role = get_org_role(org_id, user_id)
+    if role != "owner":
+        return False
+    engine = _require_engine()
+    tables = _get_tables()
+    orgs = tables["organizations"]
+    with engine.begin() as conn:
+        result = conn.execute(orgs.delete().where(orgs.c.id == org_id))
+    return result.rowcount > 0
+
+
+def list_org_members(org_id, user_id):
+    """Any member can view the roster."""
+    if get_org_role(org_id, user_id) is None:
+        return None
+    engine = _require_engine()
+    tables = _get_tables()
+    members = tables["org_members"]
+    users = tables["users"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(members.c.id, members.c.role, members.c.created_at,
+                   users.c.id.label("user_id"), users.c.email, users.c.name, users.c.picture_url)
+            .select_from(members.join(users, users.c.id == members.c.user_id))
+            .where(members.c.org_id == org_id)
+            .order_by(members.c.created_at.asc())
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def add_org_member(org_id, actor_user_id, target_email, role="member"):
+    """Owner/admin only, and only for a user who already has a PaisaMap
+    account — there's no invite-by-email flow yet (Phase D), so the caller
+    surfaces "ask them to sign in first" for an unknown email."""
+    actor_role = get_org_role(org_id, actor_user_id)
+    if actor_role not in ("owner", "admin"):
+        return {"error": "forbidden"}
+    if role not in ORG_ROLES:
+        role = "member"
+    target = get_user_by_email(target_email)
+    if target is None:
+        return {"error": "user_not_found"}
+    engine = _require_engine()
+    tables = _get_tables()
+    members = tables["org_members"]
+    from sqlalchemy import select
+    now = _now()
+    with engine.begin() as conn:
+        existing = conn.execute(
+            select(members.c.id).where(members.c.org_id == org_id, members.c.user_id == target["id"])
+        ).first()
+        if existing:
+            return {"error": "already_a_member"}
+        conn.execute(
+            members.insert().values(org_id=org_id, user_id=target["id"], role=role, created_at=now)
+        )
+    return {"members": list_org_members(org_id, actor_user_id)}
+
+
+def _count_owners(org_id, conn):
+    from sqlalchemy import select, func
+    tables = _get_tables()
+    members = tables["org_members"]
+    return conn.execute(
+        select(func.count(members.c.id)).where(members.c.org_id == org_id, members.c.role == "owner")
+    ).scalar()
+
+
+def remove_org_member(org_id, actor_user_id, target_user_id):
+    """Owner/admin only; refuses to remove the org's last owner (would leave
+    it with no one able to manage membership or billing)."""
+    actor_role = get_org_role(org_id, actor_user_id)
+    if actor_role not in ("owner", "admin"):
+        return {"error": "forbidden"}
+    engine = _require_engine()
+    tables = _get_tables()
+    members = tables["org_members"]
+    from sqlalchemy import select
+    with engine.begin() as conn:
+        target_role = conn.execute(
+            select(members.c.role)
+            .where(members.c.org_id == org_id, members.c.user_id == target_user_id)
+        ).scalar()
+        if target_role is None:
+            return {"error": "not_a_member"}
+        if target_role == "owner" and _count_owners(org_id, conn) <= 1:
+            return {"error": "cannot_remove_last_owner"}
+        conn.execute(
+            members.delete().where(members.c.org_id == org_id, members.c.user_id == target_user_id)
+        )
+    return {"status": "ok"}
+
+
+def update_org_member_role(org_id, actor_user_id, target_user_id, role):
+    """Owner only; refuses to demote the org's last owner."""
+    if get_org_role(org_id, actor_user_id) != "owner":
+        return {"error": "forbidden"}
+    if role not in ORG_ROLES:
+        return {"error": "invalid_role"}
+    engine = _require_engine()
+    tables = _get_tables()
+    members = tables["org_members"]
+    from sqlalchemy import select
+    with engine.begin() as conn:
+        current_role = conn.execute(
+            select(members.c.role).where(members.c.org_id == org_id, members.c.user_id == target_user_id)
+        ).scalar()
+        if current_role is None:
+            return {"error": "not_a_member"}
+        if current_role == "owner" and role != "owner" and _count_owners(org_id, conn) <= 1:
+            return {"error": "cannot_demote_last_owner"}
+        conn.execute(
+            members.update()
+            .where(members.c.org_id == org_id, members.c.user_id == target_user_id)
+            .values(role=role)
+        )
+    return {"members": list_org_members(org_id, actor_user_id)}
+
+
+def backfill_organizations():
+    """C3 — one-time (and safely re-runnable) backfill: every user without an
+    org gets one auto-created default company ("<name>'s Workspace"), and
+    every one of their existing projects / oauth_connections /
+    customer_uploads / customer_locations / credits_ledger rows gets stamped
+    with that org_id. A project's website_url (first one found) is carried up
+    to the org too, if the org doesn't already have one.
+
+    Still additive in effect, not a behavioral cutover: nothing in the app
+    reads org_id to make a decision yet, so running this changes zero live
+    behavior — it only prepares the data a later cutover will actually read.
+    Idempotent — only touches rows where org_id IS NULL, so re-running after
+    new signups/projects land just backfills what's newly missing. Returns a
+    summary dict for the caller to print.
+    """
+    engine = _require_engine()
+    tables = _get_tables()
+    users = tables["users"]
+    orgs = tables["organizations"]
+    members = tables["org_members"]
+    projects = tables["projects"]
+    connections = tables["oauth_connections"]
+    uploads = tables["customer_uploads"]
+    locations = tables["customer_locations"]
+    ledger = tables["credits_ledger"]
+    from sqlalchemy import select
+
+    counts = {
+        "users_seen": 0, "orgs_created": 0, "projects_stamped": 0,
+        "connections_stamped": 0, "uploads_stamped": 0,
+        "locations_stamped": 0, "ledger_rows_stamped": 0,
+    }
+
+    with engine.connect() as conn:
+        user_rows = conn.execute(
+            select(users.c.id, users.c.email, users.c.name, users.c.plan, users.c.org_id)
+        ).mappings().all()
+    counts["users_seen"] = len(user_rows)
+
+    for u in user_rows:
+        org_id = u["org_id"]
+        if org_id is None:
+            display = u["name"] or (u["email"].split("@")[0] if u["email"] else "My")
+            now = _now()
+            with engine.begin() as conn:
+                result = conn.execute(
+                    orgs.insert().values(
+                        name=f"{display}'s Workspace", owner_user_id=u["id"],
+                        plan=u["plan"], created_at=now,
+                    )
+                )
+                org_id = result.inserted_primary_key[0]
+                conn.execute(
+                    members.insert().values(org_id=org_id, user_id=u["id"], role="owner", created_at=now)
+                )
+                conn.execute(users.update().where(users.c.id == u["id"]).values(org_id=org_id))
+            counts["orgs_created"] += 1
+
+        with engine.begin() as conn:
+            first_url = conn.execute(
+                select(projects.c.website_url)
+                .where(projects.c.user_id == u["id"], projects.c.website_url.isnot(None))
+                .limit(1)
+            ).scalar()
+            if first_url:
+                conn.execute(
+                    orgs.update()
+                    .where(orgs.c.id == org_id, orgs.c.website_url.is_(None))
+                    .values(website_url=first_url)
+                )
+            for table, key in ((projects, "projects_stamped"), (connections, "connections_stamped"),
+                                (uploads, "uploads_stamped"), (locations, "locations_stamped"),
+                                (ledger, "ledger_rows_stamped")):
+                r = conn.execute(
+                    table.update()
+                    .where(table.c.user_id == u["id"], table.c.org_id.is_(None))
+                    .values(org_id=org_id)
+                )
+                counts[key] += r.rowcount
+
+    return counts
 
 
 PROJECT_EDITABLE_FIELDS = ("name", "description", "business_type", "target_segment",

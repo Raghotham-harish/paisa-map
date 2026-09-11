@@ -6,6 +6,7 @@ import SignIn from "./pages/SignIn";
 import Dashboard from "./pages/Dashboard";
 import MapWorkspace from "./pages/MapWorkspace";
 import Projects from "./pages/Projects";
+import ProjectDetail from "./pages/ProjectDetail";
 import ProjectWizard from "./pages/ProjectWizard";
 import SavedLocations from "./pages/SavedLocations";
 import Activity from "./pages/Activity";
@@ -125,6 +126,7 @@ export default function App() {
               <Route path="/map" element={<MapWorkspace />} />
               <Route path="/projects" element={<Projects />} />
               <Route path="/projects/new" element={<ProjectWizard />} />
+              <Route path="/projects/:id" element={<ProjectDetail />} />
               <Route path="/locations" element={<SavedLocations />} />
               <Route path="/customer-data" element={<CustomerData />} />
               <Route path="/forecast" element={<Forecast />} />

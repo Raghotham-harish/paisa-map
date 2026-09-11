@@ -153,6 +153,7 @@ app.config.update(
 try:
     from blueprints.auth import auth_bp
     from blueprints.projects import projects_bp
+    from blueprints.organizations import organizations_bp
     from blueprints.locations import locations_bp
     from blueprints.activity import activity_bp
     from blueprints.credits import credits_bp
@@ -167,6 +168,7 @@ try:
     from blueprints.api_keys import api_keys_bp
     app.register_blueprint(auth_bp)
     app.register_blueprint(projects_bp)
+    app.register_blueprint(organizations_bp)
     app.register_blueprint(locations_bp)
     app.register_blueprint(activity_bp)
     app.register_blueprint(credits_bp)

@@ -11,6 +11,8 @@ import { ReturnBanner } from "../components/ReturnTo";
 import { UndoToastStack } from "../components/UndoToast";
 import { useWorkspace } from "../lib/workspace";
 import { usePendingDelete } from "../lib/undo";
+import { Pill } from "../components/Pill";
+import { StatChip } from "../components/StatChip";
 
 const DRIVER_MIN_SAMPLES = 5;
 
@@ -237,6 +239,7 @@ export default function CustomerData() {
       >
         <>
           <div className="card" style={{ marginBottom: 24 }}>
+            <p className="kicker" style={{ margin: 0 }}>Upload store data</p>
             {!upload && (
               <div style={{ marginTop: 14 }}>
                 <input
@@ -280,7 +283,7 @@ export default function CustomerData() {
                       <thead>
                         <tr>
                           {(upload.headers || []).map((h) => (
-                            <th key={h} style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid var(--line)", color: "var(--ink-soft)" }}>
+                            <th key={h} style={{ textAlign: "left", padding: "4px 8px", borderBottom: "1px solid var(--border)", color: "var(--ink-soft)" }}>
                               {h}
                             </th>
                           ))}
@@ -290,7 +293,7 @@ export default function CustomerData() {
                         {upload.sample_rows.map((row, i) => (
                           <tr key={i}>
                             {(upload.headers || []).map((h) => (
-                              <td key={h} style={{ padding: "4px 8px", borderBottom: "1px solid var(--line)" }}>
+                              <td key={h} style={{ padding: "4px 8px", borderBottom: "1px solid var(--border)" }}>
                                 {row[h]}
                               </td>
                             ))}
@@ -318,14 +321,14 @@ export default function CustomerData() {
 
             {upload && upload.status === "ready" && upload.quality_report && (
               <div style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <span className="pill delta-pos">{upload.quality_report.total_rows} rows imported</span>
+                <Pill tone="delta-pos">{upload.quality_report.total_rows} rows imported</Pill>
                 {upload.unresolved_count > 0 && (
-                  <span className="pill rejected" title="No valid pincode, and no address that could be geocoded — these rows can't be joined to the signals dataset, so they're excluded from your forecast.">
+                  <Pill tone="rejected" title="No valid pincode, and no address that could be geocoded — these rows can't be joined to the signals dataset, so they're excluded from your forecast.">
                     {upload.unresolved_count} couldn't be matched to a pincode
-                  </span>
+                  </Pill>
                 )}
                 {upload.quality_report.duplicate_count > 0 && (
-                  <span className="pill reviewing">{upload.quality_report.duplicate_count} possible duplicates</span>
+                  <Pill tone="reviewing">{upload.quality_report.duplicate_count} possible duplicates</Pill>
                 )}
                 <button className="btn secondary" onClick={() => setUpload(null)}>Upload another</button>
               </div>
@@ -338,15 +341,17 @@ export default function CustomerData() {
             )}
           </div>
 
-          <AsyncBoundary
-            loading={locations === null && !locationsError}
-            error={locationsError}
-            onRetry={() => projectId != null && loadForProject(projectId)}
-            empty={locations?.length === 0}
-            emptyState={
-              <EmptyState illustration={illustrations.folderFiles} title="No store data yet" description="Upload a CSV or Excel file above to get started." bare />
-            }
-          >
+          <div className="card">
+            <p className="kicker" style={{ marginBottom: 14 }}>Your stores</p>
+            <AsyncBoundary
+              loading={locations === null && !locationsError}
+              error={locationsError}
+              onRetry={() => projectId != null && loadForProject(projectId)}
+              empty={locations?.length === 0}
+              emptyState={
+                <EmptyState illustration={illustrations.folderFiles} title="No store data yet" description="Upload a CSV or Excel file above to get started." bare />
+              }
+            >
             <DataList>
               {(locations ?? []).filter((loc) => !isPendingLocation(loc.id)).map((loc) => (
                 <DataRow
@@ -370,11 +375,11 @@ export default function CustomerData() {
                   }
                   trailing={
                     <>
-                      <span className={`pill ${GEOCODE_CLASS[loc.geocode_status]}`}>{loc.geocode_status}</span>
+                      <Pill tone={GEOCODE_CLASS[loc.geocode_status]}>{loc.geocode_status}</Pill>
                       {loc.intelligence && (
-                        <span className={`pill ${RISK_CLASS[loc.intelligence.risk.level]}`}>
+                        <Pill tone={RISK_CLASS[loc.intelligence.risk.level]}>
                           score {loc.intelligence.economic_score ?? "—"}/100
-                        </span>
+                        </Pill>
                       )}
                       <button className="btn secondary" onClick={() => onDeleteLocation(loc)}>Delete</button>
                     </>
@@ -382,13 +387,12 @@ export default function CustomerData() {
                 />
               ))}
             </DataList>
-          </AsyncBoundary>
+            </AsyncBoundary>
+          </div>
 
           {locations !== null && locations.length > 0 && (
             <div className="card" style={{ marginTop: 24 }}>
-              <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--mono)", letterSpacing: ".06em", textTransform: "uppercase" }}>
-                What drives your stores?
-              </p>
+              <p className="kicker" style={{ marginBottom: 14 }}>What drives your stores?</p>
               <AsyncBoundary
                 loading={drivers === null && !driversError}
                 error={driversError}
@@ -411,9 +415,9 @@ export default function CustomerData() {
                         title={d.label}
                         subtitle={`based on ${d.sample_size} of your stores`}
                         trailing={
-                          <span className={`pill ${d.direction === "positive" ? "delta-pos" : "delta-neg"}`}>
+                          <Pill tone={d.direction === "positive" ? "delta-pos" : "delta-neg"}>
                             {d.direction === "positive" ? "+" : "−"}{Math.abs(d.correlation).toFixed(2)}
-                          </span>
+                          </Pill>
                         }
                       />
                     ))}
@@ -426,9 +430,7 @@ export default function CustomerData() {
 
           {locations !== null && locations.length > 0 && (
             <div className="card" style={{ marginTop: 24 }}>
-              <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--mono)", letterSpacing: ".06em", textTransform: "uppercase" }}>
-                Plan your next stores
-              </p>
+              <p className="kicker" style={{ marginBottom: 14 }}>Plan your next stores</p>
               <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
                 <label style={{ flex: "0 0 220px" }}>
                   Budget (₹)
@@ -452,11 +454,11 @@ export default function CustomerData() {
                     <p style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 12 }}>{recommendation.detail}</p>
                   )}
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                    <span className="pill shortlist">{recommendation.portfolio.length} sites recommended</span>
+                    <Pill tone="shortlist">{recommendation.portfolio.length} sites recommended</Pill>
                     {recommendation.total_estimated_capex != null && (
-                      <span className="pill delta-pos">{money(recommendation.total_estimated_capex)} of {money(recommendation.budget)}</span>
+                      <Pill tone="delta-pos">{money(recommendation.total_estimated_capex)} of {money(recommendation.budget)}</Pill>
                     )}
-                    {recommendation.driver_weighted && <span className="pill reviewing">weighted by your own drivers</span>}
+                    {recommendation.driver_weighted && <Pill tone="reviewing">weighted by your own drivers</Pill>}
                   </div>
                   {recommendation.portfolio.length === 0 ? (
                     <EmptyState icon="🔍" title="No sites fit" description="Nothing met the quality bar within this budget — try a larger budget." bare />
@@ -472,7 +474,7 @@ export default function CustomerData() {
                               {c.estimated_capex != null && ` · est. CapEx ${money(c.estimated_capex)}`}
                             </>
                           }
-                          trailing={<span className={`pill ${RISK_CLASS[c.risk.level]}`}>{c.risk.level} risk</span>}
+                          trailing={<Pill tone={RISK_CLASS[c.risk.level]}>{c.risk.level} risk</Pill>}
                         />
                       ))}
                     </DataList>
@@ -484,9 +486,7 @@ export default function CustomerData() {
 
           {locations !== null && locations.length > 0 && (
             <div className="card" style={{ marginTop: 24 }}>
-              <p style={{ margin: "0 0 4px", fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--mono)", letterSpacing: ".06em", textTransform: "uppercase" }}>
-                Digital signal by store
-              </p>
+              <p className="kicker" style={{ marginBottom: 4 }}>Digital signal by store</p>
               <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-soft)" }}>
                 Best-effort match of each store's city against your connected Google Analytics traffic — approximate,
                 not a guaranteed match (GA4 has no pincode data).
@@ -516,9 +516,9 @@ export default function CustomerData() {
                           </>
                         }
                         trailing={
-                          <span className={`pill ${t.matched ? "delta-pos" : "shortlist"}`}>
+                          <Pill tone={t.matched ? "delta-pos" : "shortlist"}>
                             {t.matched ? "matched" : "no GA4 data"}
-                          </span>
+                          </Pill>
                         }
                       />
                     ))}
@@ -529,10 +529,8 @@ export default function CustomerData() {
           )}
 
           {pastUploads.length > 0 && (
-            <div style={{ marginTop: 24 }}>
-              <p style={{ fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--mono)", letterSpacing: ".06em", textTransform: "uppercase" }}>
-                Past uploads
-              </p>
+            <div className="card" style={{ marginTop: 24 }}>
+              <p className="kicker" style={{ marginBottom: 14 }}>Past uploads</p>
               <DataList>
                 {pastUploads.filter((u) => !isPendingUpload(u.id)).map((u) => (
                   <DataRow
@@ -541,10 +539,10 @@ export default function CustomerData() {
                     subtitle={`${u.row_count} rows`}
                     trailing={
                       <>
-                        <span className={`pill ${u.status === "ready" ? "delta-pos" : u.status === "failed" ? "rejected" : "reviewing"}`}>
+                        <Pill tone={u.status === "ready" ? "delta-pos" : u.status === "failed" ? "rejected" : "reviewing"}>
                           {u.status}
-                        </span>
-                        <span className="meta">{new Date(u.created_at).toLocaleDateString()}</span>
+                        </Pill>
+                        <StatChip icon="ti ti-calendar">{new Date(u.created_at).toLocaleDateString()}</StatChip>
                         <button className="btn secondary" onClick={() => onDeleteUpload(u)}>Delete</button>
                       </>
                     }
