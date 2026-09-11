@@ -101,6 +101,13 @@ export interface Project {
   // undefined on the single-project create/update/get responses.
   location_count?: number;
   report_count?: number;
+  // Phase D2: the caller's effective role on this project (owner if you
+  // created it or own the company; admin/member if you reach it via
+  // company membership) — present on every list/get response. Not yet
+  // used to conditionally hide UI (e.g. Delete for a plain member) since
+  // there's no second real member to verify that against; the backend
+  // already enforces it either way.
+  role?: "owner" | "admin" | "member";
 }
 
 export interface ProjectFields {

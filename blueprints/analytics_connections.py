@@ -481,6 +481,10 @@ def get_location_tags(user_id, project_id):
 def disconnect(user_id, project_id, provider):
     if provider not in PROVIDERS:
         return jsonify({"error": "unknown_provider"}), 404
+    # Disconnecting is delete-tier (Phase D2: member creates/edits, can't
+    # delete). Same non-disclosure convention as get_project/delete_project
+    # elsewhere: a 404 either way, not a 403 that would confirm to a non-member
+    # that a connection exists here to be denied access to.
     result = _auth_db.disconnect_project_connection(project_id, user_id, provider)
     if result is None:
         return jsonify({"error": "not_found"}), 404

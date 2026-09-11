@@ -867,6 +867,57 @@ def get_org_role(org_id, user_id):
     return row.role if row else None
 
 
+def list_member_org_ids(user_id):
+    """Every org this user belongs to, any role — used to scope "everything
+    my company can see" queries (list_projects and anything gated through
+    project access below)."""
+    engine = _require_engine()
+    tables = _get_tables()
+    members = tables["org_members"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        rows = conn.execute(select(members.c.org_id).where(members.c.user_id == user_id)).scalars().all()
+    return list(rows)
+
+
+def _project_role(project, user_id):
+    """Phase D2: the caller's effective permission level on an already-loaded
+    project row — 'owner' if they're the literal creator (kept at owner-tier
+    regardless of their org role, so today's single-owner behavior never
+    regresses) or if they're the org's own owner; otherwise their real org
+    role ('admin'/'member'); None if they have no relationship to it at all.
+    Read + write are anything-but-None; delete requires 'owner'/'admin' —
+    see PROJECT_DELETE_ROLES below (member creates/edits, can't delete)."""
+    if project is None:
+        return None
+    if project["user_id"] == user_id:
+        return "owner"
+    if project.get("org_id") is not None:
+        return get_org_role(project["org_id"], user_id)
+    return None
+
+
+PROJECT_DELETE_ROLES = ("owner", "admin")
+
+
+def _load_project_row(project_id):
+    engine = _require_engine()
+    tables = _get_tables()
+    projects = tables["projects"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(select(projects).where(projects.c.id == project_id)).mappings().first()
+    return dict(row) if row else None
+
+
+def get_project_role(project_id, user_id):
+    """Public version of _project_role for callers (blueprints) that need to
+    know *which* role applies, not just whether access exists — e.g. to show
+    or hide a Delete button. Loads the row itself; prefer _project_role when
+    you already have the row (avoids a second query)."""
+    return _project_role(_load_project_row(project_id), user_id)
+
+
 def list_organizations(user_id):
     """Orgs the caller is a member of, with their role in each."""
     engine = _require_engine()
@@ -1184,13 +1235,16 @@ def list_projects(user_id):
     """Includes location_count/report_count via correlated subqueries — cheap
     (indexed FK, a handful of projects per user) and lets the workspace show
     real "12 locations · 3 reports" context on the project list instead of a
-    bare name (dashboard audit finding C5)."""
+    bare name (dashboard audit finding C5). Phase D2: also includes every
+    project belonging to any company this user is a member of, not just ones
+    they personally created — the whole point of a shared company."""
     engine = _require_engine()
     tables = _get_tables()
     projects = tables["projects"]
     locs = tables["saved_locations"]
     reports = tables["reports"]
-    from sqlalchemy import select, func
+    from sqlalchemy import select, func, or_
+    org_ids = list_member_org_ids(user_id)
     location_count = (
         select(func.count(locs.c.id))
         .where(locs.c.project_id == projects.c.id)
@@ -1201,6 +1255,9 @@ def list_projects(user_id):
         .where(reports.c.project_id == projects.c.id)
         .scalar_subquery()
     )
+    cond = projects.c.user_id == user_id
+    if org_ids:
+        cond = or_(cond, projects.c.org_id.in_(org_ids))
     with engine.connect() as conn:
         rows = conn.execute(
             select(
@@ -1208,28 +1265,36 @@ def list_projects(user_id):
                 location_count.label("location_count"),
                 report_count.label("report_count"),
             )
-            .where(projects.c.user_id == user_id)
+            .where(cond)
             .order_by(projects.c.updated_at.desc())
         ).mappings().all()
-    return [dict(r) for r in rows]
+    out = [dict(r) for r in rows]
+    for p in out:
+        p["role"] = _project_role(p, user_id)
+    return out
 
 
 def get_project(project_id, user_id):
-    """Ownership-scoped — returns None if the project doesn't exist or isn't owned
-    by user_id (never distinguishes the two to the caller, so a 404 doesn't leak
-    which other users have which project ids)."""
-    engine = _require_engine()
-    tables = _get_tables()
-    projects = tables["projects"]
-    from sqlalchemy import select
-    with engine.connect() as conn:
-        row = conn.execute(
-            select(projects).where(projects.c.id == project_id, projects.c.user_id == user_id)
-        ).mappings().first()
-    return dict(row) if row else None
+    """Phase D2: read access for the creator OR any member of the project's
+    company (any role) — never distinguishes "doesn't exist" from "no
+    access" to the caller, so a 404 doesn't leak which other companies have
+    which project ids. Includes the caller's effective `role` on the
+    returned dict (like list_projects/get_organization already do) so the
+    frontend can eventually hide e.g. Delete for a plain member."""
+    project = _load_project_row(project_id)
+    role = _project_role(project, user_id)
+    if role is None:
+        return None
+    project["role"] = role
+    return project
 
 
 def update_project(project_id, user_id, **fields):
+    """Phase D2: write access for the creator or any org member (member/
+    admin/owner) — editing is not restricted to admin+, only deleting is."""
+    project = _load_project_row(project_id)
+    if _project_role(project, user_id) is None:
+        return None
     allowed = {k: v for k, v in fields.items() if k in PROJECT_EDITABLE_FIELDS and v is not None}
     if not allowed:
         return get_project(project_id, user_id)
@@ -1238,22 +1303,22 @@ def update_project(project_id, user_id, **fields):
     projects = tables["projects"]
     allowed["updated_at"] = _now()
     with engine.begin() as conn:
-        conn.execute(
-            projects.update()
-            .where(projects.c.id == project_id, projects.c.user_id == user_id)
-            .values(**allowed)
-        )
+        conn.execute(projects.update().where(projects.c.id == project_id).values(**allowed))
     return get_project(project_id, user_id)
 
 
 def delete_project(project_id, user_id):
+    """Phase D2: owner/admin only (of the project's company) — or the
+    literal creator, always. A plain member can create and edit but not
+    delete, per the permission policy this phase locked in."""
+    project = _load_project_row(project_id)
+    if _project_role(project, user_id) not in PROJECT_DELETE_ROLES:
+        return False
     engine = _require_engine()
     tables = _get_tables()
     projects = tables["projects"]
     with engine.begin() as conn:
-        result = conn.execute(
-            projects.delete().where(projects.c.id == project_id, projects.c.user_id == user_id)
-        )
+        result = conn.execute(projects.delete().where(projects.c.id == project_id))
     return result.rowcount > 0
 
 
@@ -1285,14 +1350,42 @@ def create_saved_location(user_id, project_id, pincode, name=None, lat=None, lng
     return get_saved_location(new_id, user_id), True
 
 
+def _accessible_project_ids(user_id):
+    """Every project_id this user can read — their own + every project
+    belonging to any company they're a member of (Phase D2). Used to scope
+    "everything across every project I can see" listings that take no
+    single project_id (e.g. Saved Locations' all-projects view)."""
+    engine = _require_engine()
+    tables = _get_tables()
+    projects = tables["projects"]
+    from sqlalchemy import select, or_
+    org_ids = list_member_org_ids(user_id)
+    cond = projects.c.user_id == user_id
+    if org_ids:
+        cond = or_(cond, projects.c.org_id.in_(org_ids))
+    with engine.connect() as conn:
+        rows = conn.execute(select(projects.c.id).where(cond)).scalars().all()
+    return list(rows)
+
+
 def list_saved_locations(user_id, project_id=None):
+    """Phase D2: project_id given → any org member of that one project can
+    read it. No project_id → every location across every project this user
+    can see (their own + every company they belong to), not just ones they
+    personally saved — a teammate's save shows up here too."""
     engine = _require_engine()
     tables = _get_tables()
     locs = tables["saved_locations"]
     from sqlalchemy import select
-    conds = [locs.c.user_id == user_id]
     if project_id is not None:
-        conds.append(locs.c.project_id == project_id)
+        if get_project(project_id, user_id) is None:
+            return []
+        conds = [locs.c.project_id == project_id]
+    else:
+        accessible = _accessible_project_ids(user_id)
+        if not accessible:
+            return []
+        conds = [locs.c.project_id.in_(accessible)]
     with engine.connect() as conn:
         rows = conn.execute(
             select(locs).where(*conds).order_by(locs.c.updated_at.desc())
@@ -1301,45 +1394,61 @@ def list_saved_locations(user_id, project_id=None):
 
 
 def get_saved_location(location_id, user_id):
+    """Phase D2: read access via the owning project's role, not a bare
+    user_id match — a teammate can look up a location a colleague saved."""
     engine = _require_engine()
     tables = _get_tables()
     locs = tables["saved_locations"]
     from sqlalchemy import select
     with engine.connect() as conn:
-        row = conn.execute(
-            select(locs).where(locs.c.id == location_id, locs.c.user_id == user_id)
-        ).mappings().first()
-    return dict(row) if row else None
+        row = conn.execute(select(locs).where(locs.c.id == location_id)).mappings().first()
+    if row is None:
+        return None
+    row = dict(row)
+    if get_project(row["project_id"], user_id) is None:
+        return None
+    return row
 
 
 LOCATION_EDITABLE_FIELDS = ("status", "tags", "notes", "allocated_investment")
 
 
 def update_saved_location(location_id, user_id, **fields):
+    """Phase D2: any org member (member/admin/owner) can edit — see
+    get_saved_location for the access check this reuses."""
+    current = get_saved_location(location_id, user_id)
+    if current is None:
+        return None
     allowed = {k: v for k, v in fields.items() if k in LOCATION_EDITABLE_FIELDS and v is not None}
     if not allowed:
-        return get_saved_location(location_id, user_id)
+        return current
     engine = _require_engine()
     tables = _get_tables()
     locs = tables["saved_locations"]
     allowed["updated_at"] = _now()
     with engine.begin() as conn:
-        conn.execute(
-            locs.update()
-            .where(locs.c.id == location_id, locs.c.user_id == user_id)
-            .values(**allowed)
-        )
+        conn.execute(locs.update().where(locs.c.id == location_id).values(**allowed))
     return get_saved_location(location_id, user_id)
 
 
 def delete_saved_location(location_id, user_id):
+    """Phase D2: owner/admin of the owning project's company only (or its
+    literal creator) — a plain member can't delete, per policy."""
     engine = _require_engine()
     tables = _get_tables()
     locs = tables["saved_locations"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(locs.c.project_id).where(locs.c.id == location_id)
+        ).first()
+    if row is None:
+        return False
+    project = _load_project_row(row.project_id)
+    if _project_role(project, user_id) not in PROJECT_DELETE_ROLES:
+        return False
     with engine.begin() as conn:
-        result = conn.execute(
-            locs.delete().where(locs.c.id == location_id, locs.c.user_id == user_id)
-        )
+        result = conn.execute(locs.delete().where(locs.c.id == location_id))
     return result.rowcount > 0
 
 
@@ -1371,13 +1480,19 @@ def list_credit_ledger(user_id, limit=50):
 
 
 def list_reports(user_id):
+    """Phase D2: every report across every project this user can see (their
+    own + every company they belong to) — a teammate's generated report
+    shows up here too."""
     engine = _require_engine()
     tables = _get_tables()
     reports = tables["reports"]
     from sqlalchemy import select
+    accessible = _accessible_project_ids(user_id)
+    if not accessible:
+        return []
     with engine.connect() as conn:
         rows = conn.execute(
-            select(reports).where(reports.c.user_id == user_id)
+            select(reports).where(reports.c.project_id.in_(accessible))
             .order_by(reports.c.created_at.desc())
         ).mappings().all()
     return [dict(r) for r in rows]
@@ -1402,49 +1517,58 @@ def create_report(user_id, project_id, title, format="pdf", status="pending",
 
 
 def get_report(report_id, user_id):
-    """Ownership-scoped, same convention as get_project/get_saved_location."""
+    """Phase D2: read access via the owning project's role, same convention
+    as get_saved_location."""
     engine = _require_engine()
     tables = _get_tables()
     reports = tables["reports"]
     from sqlalchemy import select
     with engine.connect() as conn:
-        row = conn.execute(
-            select(reports).where(reports.c.id == report_id, reports.c.user_id == user_id)
-        ).mappings().first()
-    return dict(row) if row else None
+        row = conn.execute(select(reports).where(reports.c.id == report_id)).mappings().first()
+    if row is None:
+        return None
+    row = dict(row)
+    if get_project(row["project_id"], user_id) is None:
+        return None
+    return row
 
 
 def update_report(report_id, user_id, **fields):
+    """Phase D2: any org member can update (e.g. the status transitions
+    report generation itself makes) — see get_report for the access check."""
+    current = get_report(report_id, user_id)
+    if current is None:
+        return None
     allowed = {k: v for k, v in fields.items() if v is not None}
     if not allowed:
-        return get_report(report_id, user_id)
+        return current
     if allowed.get("status") == "ready" and "completed_at" not in allowed:
         allowed["completed_at"] = _now()
     engine = _require_engine()
     tables = _get_tables()
     reports = tables["reports"]
     with engine.begin() as conn:
-        conn.execute(
-            reports.update()
-            .where(reports.c.id == report_id, reports.c.user_id == user_id)
-            .values(**allowed)
-        )
+        conn.execute(reports.update().where(reports.c.id == report_id).values(**allowed))
     return get_report(report_id, user_id)
 
 
 def set_report_share_token(report_id, user_id, token):
-    """Ownership-scoped, like update_report — but unlike it, explicitly writes
-    NULL when token=None (revoking a share), which update_report's "drop None
-    values" filter can't express."""
+    """Phase D2: same access check as update_report — but unlike it,
+    explicitly writes NULL when token=None (revoking a share), which
+    update_report's "drop None values" filter can't express.
+
+    Pre-existing bug fixed in passing: this never returned the updated row
+    (fell through to an implicit None) even though both blueprint callers
+    (share_report/unshare_report) assign it straight to a `report` they then
+    jsonify — /api/reports/<id>/share and .../unshare had always responded
+    with {"report": null}, a real client-visible bug this touched anyway."""
+    if get_report(report_id, user_id) is None:
+        return None
     engine = _require_engine()
     tables = _get_tables()
     reports = tables["reports"]
     with engine.begin() as conn:
-        conn.execute(
-            reports.update()
-            .where(reports.c.id == report_id, reports.c.user_id == user_id)
-            .values(share_token=token)
-        )
+        conn.execute(reports.update().where(reports.c.id == report_id).values(share_token=token))
     return get_report(report_id, user_id)
 
 
@@ -1489,15 +1613,21 @@ def create_customer_upload(user_id, project_id, filename, format, headers, raw_r
 
 
 def get_customer_upload(upload_id, user_id):
+    """Phase D2: read access via the owning project's role — store data is
+    company-shared (Phase C5), so a teammate can look up an upload a
+    colleague made under a different project in the same company."""
     engine = _require_engine()
     tables = _get_tables()
     uploads = tables["customer_uploads"]
     from sqlalchemy import select
     with engine.connect() as conn:
-        row = conn.execute(
-            select(uploads).where(uploads.c.id == upload_id, uploads.c.user_id == user_id)
-        ).mappings().first()
-    return dict(row) if row else None
+        row = conn.execute(select(uploads).where(uploads.c.id == upload_id)).mappings().first()
+    if row is None:
+        return None
+    row = dict(row)
+    if get_project(row["project_id"], user_id) is None:
+        return None
+    return row
 
 
 def list_customer_uploads(user_id, project_id=None):
@@ -1530,32 +1660,38 @@ def update_customer_upload(upload_id, user_id, **fields):
     """Same "drop None values" convention as update_report/update_project —
     fine here since every field this is called with (status/mapping/
     quality_report/error) is always set to a real value, never explicitly
-    cleared back to NULL."""
+    cleared back to NULL. Phase D2: any org member can update (this is also
+    how the upload's own commit/geocode pipeline advances its status)."""
+    current = get_customer_upload(upload_id, user_id)
+    if current is None:
+        return None
     allowed = {k: v for k, v in fields.items() if v is not None}
     if not allowed:
-        return get_customer_upload(upload_id, user_id)
+        return current
     allowed["updated_at"] = _now()
     engine = _require_engine()
     tables = _get_tables()
     uploads = tables["customer_uploads"]
     with engine.begin() as conn:
-        conn.execute(
-            uploads.update()
-            .where(uploads.c.id == upload_id, uploads.c.user_id == user_id)
-            .values(**allowed)
-        )
+        conn.execute(uploads.update().where(uploads.c.id == upload_id).values(**allowed))
     return get_customer_upload(upload_id, user_id)
 
 
 def delete_customer_upload(upload_id, user_id):
-    """Cascades to customer_locations via the FK's ondelete=CASCADE."""
+    """Cascades to customer_locations via the FK's ondelete=CASCADE. Phase
+    D2: owner/admin of the owning project's company only — a plain member
+    can upload/edit but not delete, per policy."""
+    current = get_customer_upload(upload_id, user_id)
+    if current is None:
+        return False
+    project = _load_project_row(current["project_id"])
+    if _project_role(project, user_id) not in PROJECT_DELETE_ROLES:
+        return False
     engine = _require_engine()
     tables = _get_tables()
     uploads = tables["customer_uploads"]
     with engine.begin() as conn:
-        result = conn.execute(
-            uploads.delete().where(uploads.c.id == upload_id, uploads.c.user_id == user_id)
-        )
+        result = conn.execute(uploads.delete().where(uploads.c.id == upload_id))
     return result.rowcount > 0
 
 
@@ -1615,7 +1751,14 @@ def count_unresolved_locations(upload_id, user_id):
     """Rows from this upload with no resolved pincode (geocode_status in
     failed/unresolvable/still-pending) — these can't be joined to the signals
     dataset, so they're silently excluded from forecast/expansion/intelligence.
-    Surfaced so that exclusion is visible instead of silent."""
+    Surfaced so that exclusion is visible instead of silent. Phase D2:
+    access-checked via the upload itself (not a separate user_id filter on
+    the locations, since a bulk upload's rows always share the upload's
+    single creator anyway) — needed once list_customer_uploads started
+    surfacing a teammate's uploads too, or this would silently under-count
+    (0) for anyone but the original uploader."""
+    if get_customer_upload(upload_id, user_id) is None:
+        return 0
     engine = _require_engine()
     tables = _get_tables()
     locs = tables["customer_locations"]
@@ -1623,51 +1766,59 @@ def count_unresolved_locations(upload_id, user_id):
     with engine.connect() as conn:
         return conn.execute(
             select(func.count()).select_from(locs).where(
-                locs.c.upload_id == upload_id, locs.c.user_id == user_id,
-                locs.c.pincode.is_(None),
+                locs.c.upload_id == upload_id, locs.c.pincode.is_(None),
             )
         ).scalar_one()
 
 
 def list_pending_geocode_locations(upload_id, user_id):
+    """Phase D2: same access-via-upload reasoning as count_unresolved_locations."""
+    if get_customer_upload(upload_id, user_id) is None:
+        return []
     engine = _require_engine()
     tables = _get_tables()
     locs = tables["customer_locations"]
     from sqlalchemy import select
     with engine.connect() as conn:
         rows = conn.execute(
-            select(locs).where(
-                locs.c.upload_id == upload_id, locs.c.user_id == user_id,
-                locs.c.geocode_status == "pending",
-            )
+            select(locs).where(locs.c.upload_id == upload_id, locs.c.geocode_status == "pending")
         ).mappings().all()
     return [dict(r) for r in rows]
 
 
 def update_customer_location(location_id, user_id, **fields):
+    """Phase D2: any org member can update — access via the owning project's role."""
+    engine = _require_engine()
+    tables = _get_tables()
+    locs = tables["customer_locations"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(select(locs.c.project_id).where(locs.c.id == location_id)).first()
+    if row is None or get_project(row.project_id, user_id) is None:
+        return None
     allowed = {k: v for k, v in fields.items() if v is not None}
     if not allowed:
         return None
     allowed["updated_at"] = _now()
-    engine = _require_engine()
-    tables = _get_tables()
-    locs = tables["customer_locations"]
     with engine.begin() as conn:
-        conn.execute(
-            locs.update()
-            .where(locs.c.id == location_id, locs.c.user_id == user_id)
-            .values(**allowed)
-        )
+        conn.execute(locs.update().where(locs.c.id == location_id).values(**allowed))
 
 
 def delete_customer_location(location_id, user_id):
+    """Phase D2: owner/admin of the owning project's company only."""
     engine = _require_engine()
     tables = _get_tables()
     locs = tables["customer_locations"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(select(locs.c.project_id).where(locs.c.id == location_id)).first()
+    if row is None:
+        return False
+    project = _load_project_row(row.project_id)
+    if _project_role(project, user_id) not in PROJECT_DELETE_ROLES:
+        return False
     with engine.begin() as conn:
-        result = conn.execute(
-            locs.delete().where(locs.c.id == location_id, locs.c.user_id == user_id)
-        )
+        result = conn.execute(locs.delete().where(locs.c.id == location_id))
     return result.rowcount > 0
 
 
@@ -1887,7 +2038,14 @@ def disconnect_project_connection(project_id, user_id, provider):
     unusable) and tokens are returned for revocation at Google. If another
     project is still using it (real company-level sharing), it's left alone
     for them — this project just goes back to "not connected", no tokens
-    returned (there's nothing to revoke, the connection lives on)."""
+    returned (there's nothing to revoke, the connection lives on).
+
+    Phase D2: owner/admin only, even for the unlink-only case — disconnecting
+    is destructive-flavored (may revoke real tokens), same delete tier as
+    deleting a project/location/upload."""
+    project = _load_project_row(project_id)
+    if _project_role(project, user_id) not in PROJECT_DELETE_ROLES:
+        return None
     conn_row = get_connection_for_project(project_id, user_id, provider, include_tokens=True)
     if conn_row is None:
         return None
