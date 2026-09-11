@@ -568,11 +568,18 @@ export interface OAuthConnection {
   last_error: string | null;
   connected_at: string;
   updated_at: string;
+  // Only present on list_org_connections (the pool) — which project's
+  // Connect flow originally created this one, for display in the picker.
+  created_by_project_name?: string;
 }
 
 export interface ConnectionsResponse {
   analytics_consent_at: string | null;
   connections: OAuthConnection[];
+  // Phase C5: this project's resolved connection per provider, and the
+  // company's whole pool per provider to pick a different one from.
+  active_by_provider: Partial<Record<ConnectionProvider, OAuthConnection>>;
+  pool_by_provider: Record<ConnectionProvider, OAuthConnection[]>;
 }
 
 export interface ConnectionProperty {
@@ -808,6 +815,10 @@ export const api = {
   selectConnectionProperty: (projectId: number, provider: ConnectionProvider, externalRef: string) =>
     request(`/api/projects/${projectId}/connections/${provider}/select`, {
       method: "POST", body: JSON.stringify({ external_ref: externalRef }),
+    }) as Promise<{ connection: OAuthConnection }>,
+  useOrgConnection: (projectId: number, provider: ConnectionProvider, oauthConnectionId: number) =>
+    request(`/api/projects/${projectId}/connections/${provider}/use`, {
+      method: "POST", body: JSON.stringify({ oauth_connection_id: oauthConnectionId }),
     }) as Promise<{ connection: OAuthConnection }>,
   getConnectionReport: (projectId: number, provider: ConnectionProvider) =>
     request(`/api/projects/${projectId}/connections/${provider}/report`) as Promise<{

@@ -254,8 +254,11 @@ def _get_tables():
         Column("id", Integer, primary_key=True, autoincrement=True),
         Column("project_id", Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
         Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-        # Phase C, staged: NULL until connections sharing across a company's
-        # projects actually cuts over — see the Organizations section above.
+        # Phase C5: a connection belongs to the company, not any one project —
+        # project_id above is now just "which project's Connect flow created
+        # this row" (kept for the picker's "connected via <project>" display),
+        # not an access-control boundary. See project_connection_selections
+        # below for which connection(s) each project actually uses.
         Column("org_id", Integer, ForeignKey("organizations.id")),
         Column("provider", Text, nullable=False),
         Column("status", Text, nullable=False, server_default="connected"),
@@ -272,6 +275,23 @@ def _get_tables():
         CheckConstraint("provider IN ('google_analytics','search_console')",
                          name="ck_oauth_connections_provider"),
         CheckConstraint("status IN ('connected','error')", name="ck_oauth_connections_status"),
+    )
+
+    # Phase C5: which oauth_connection a project actually uses, per provider —
+    # decoupled from "who created it" (oauth_connections.project_id above) so
+    # a company's projects can each pick from the same shared pool of
+    # connections instead of every project needing its own. Always written
+    # explicitly (at connect time, and whenever a project switches which
+    # connection it uses) — no implicit/legacy fallback, so resolution is a
+    # single lookup, not a two-path "selection row, else guess from project_id".
+    project_connection_selections = Table(
+        "project_connection_selections", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("project_id", Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        Column("provider", Text, nullable=False),
+        Column("oauth_connection_id", Integer, ForeignKey("oauth_connections.id", ondelete="CASCADE"), nullable=False),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        UniqueConstraint("project_id", "provider", name="uq_project_connection_selections_project_provider"),
     )
 
     orders = Table(
@@ -349,6 +369,7 @@ def _get_tables():
         "credits_ledger": credits_ledger, "activity_log": activity_log,
         "customer_uploads": customer_uploads, "customer_locations": customer_locations,
         "oauth_connections": oauth_connections,
+        "project_connection_selections": project_connection_selections,
         "orders": orders, "invoices": invoices,
         "api_keys": api_keys,
     }
@@ -370,7 +391,7 @@ def init_schema():
         tables["projects"], tables["saved_locations"], tables["reports"],
         tables["credits_ledger"], tables["activity_log"],
         tables["customer_uploads"], tables["customer_locations"],
-        tables["oauth_connections"],
+        tables["oauth_connections"], tables["project_connection_selections"],
         tables["orders"], tables["invoices"],
         tables["api_keys"],
     ])
@@ -1444,14 +1465,21 @@ def get_report_by_share_token(token):
 
 # ── Customer data upload (Phase 05) ─────────────────────────────────────────
 def create_customer_upload(user_id, project_id, filename, format, headers, raw_rows):
+    """Phase C5: stamped with the project's org_id at creation — store data
+    is shared across a company's projects (unlike connections, kept
+    per-project — see the Organizations section for why these two data
+    types ended up with different sharing rules)."""
     engine = _require_engine()
     tables = _get_tables()
     uploads = tables["customer_uploads"]
+    projects = tables["projects"]
+    from sqlalchemy import select
     now = _now()
     with engine.begin() as conn:
+        org_id = conn.execute(select(projects.c.org_id).where(projects.c.id == project_id)).scalar()
         result = conn.execute(
             uploads.insert().values(
-                user_id=user_id, project_id=project_id, filename=filename, format=format,
+                user_id=user_id, project_id=project_id, org_id=org_id, filename=filename, format=format,
                 status="pending_mapping", headers=headers, raw_rows=raw_rows,
                 created_at=now, updated_at=now,
             )
@@ -1473,13 +1501,24 @@ def get_customer_upload(upload_id, user_id):
 
 
 def list_customer_uploads(user_id, project_id=None):
+    """Phase C5: given a project_id, returns every upload belonging to that
+    project's whole company (org_id), not just this one project or this one
+    user — store data is shared across a company's projects. Ownership of
+    the *requesting* project is still checked (get_project, user_id-scoped —
+    real cross-member access control is Phase D, not built yet); the
+    returned rows themselves are org-scoped, which may include uploads a
+    teammate made under a different project."""
     engine = _require_engine()
     tables = _get_tables()
     uploads = tables["customer_uploads"]
     from sqlalchemy import select
-    clauses = [uploads.c.user_id == user_id]
     if project_id is not None:
-        clauses.append(uploads.c.project_id == project_id)
+        project = get_project(project_id, user_id)
+        if project is None or project.get("org_id") is None:
+            return []
+        clauses = [uploads.c.org_id == project["org_id"]]
+    else:
+        clauses = [uploads.c.user_id == user_id]
     with engine.connect() as conn:
         rows = conn.execute(
             select(uploads).where(*clauses).order_by(uploads.c.created_at.desc())
@@ -1523,38 +1562,48 @@ def delete_customer_upload(upload_id, user_id):
 def create_customer_locations_bulk(user_id, project_id, upload_id, rows):
     """rows: list of dicts with keys store_name/raw_address/pincode/lat/lng/
     geocode_status/revenue/rent/capex/extra_fields (all optional except
-    geocode_status). Returns the count inserted."""
+    geocode_status). Returns the count inserted. Phase C5: stamped with the
+    project's org_id, same reasoning as create_customer_upload."""
     if not rows:
         return 0
     engine = _require_engine()
     tables = _get_tables()
     locs = tables["customer_locations"]
+    projects = tables["projects"]
+    from sqlalchemy import select
     now = _now()
-    values = [
-        dict(
-            user_id=user_id, project_id=project_id, upload_id=upload_id,
-            store_name=r.get("store_name"), raw_address=r.get("raw_address"),
-            pincode=r.get("pincode"), lat=r.get("lat"), lng=r.get("lng"),
-            geocode_status=r.get("geocode_status", "pending"),
-            revenue=r.get("revenue"), rent=r.get("rent"), capex=r.get("capex"),
-            extra_fields=r.get("extra_fields"),
-            created_at=now, updated_at=now,
-        )
-        for r in rows
-    ]
     with engine.begin() as conn:
+        org_id = conn.execute(select(projects.c.org_id).where(projects.c.id == project_id)).scalar()
+        values = [
+            dict(
+                user_id=user_id, project_id=project_id, org_id=org_id, upload_id=upload_id,
+                store_name=r.get("store_name"), raw_address=r.get("raw_address"),
+                pincode=r.get("pincode"), lat=r.get("lat"), lng=r.get("lng"),
+                geocode_status=r.get("geocode_status", "pending"),
+                revenue=r.get("revenue"), rent=r.get("rent"), capex=r.get("capex"),
+                extra_fields=r.get("extra_fields"),
+                created_at=now, updated_at=now,
+            )
+            for r in rows
+        ]
         conn.execute(locs.insert(), values)
     return len(values)
 
 
 def list_customer_locations(user_id, project_id=None):
+    """Phase C5: org-scoped when a project_id is given — see
+    list_customer_uploads' docstring, same reasoning applies here."""
     engine = _require_engine()
     tables = _get_tables()
     locs = tables["customer_locations"]
     from sqlalchemy import select
-    clauses = [locs.c.user_id == user_id]
     if project_id is not None:
-        clauses.append(locs.c.project_id == project_id)
+        project = get_project(project_id, user_id)
+        if project is None or project.get("org_id") is None:
+            return []
+        clauses = [locs.c.org_id == project["org_id"]]
+    else:
+        clauses = [locs.c.user_id == user_id]
     with engine.connect() as conn:
         rows = conn.execute(
             select(locs).where(*clauses).order_by(locs.c.created_at.desc())
@@ -1647,36 +1696,6 @@ def has_analytics_consent(project_id, user_id):
     return bool(project and project.get("analytics_consent_at"))
 
 
-def list_oauth_connections(project_id, user_id):
-    """Ownership-scoped via a join against projects rather than trusting a
-    bare project_id — same reasoning as every other project-scoped list here."""
-    if get_project(project_id, user_id) is None:
-        return []
-    engine = _require_engine()
-    tables = _get_tables()
-    conns = tables["oauth_connections"]
-    from sqlalchemy import select
-    cols = [c for c in conns.c if c.name not in ("access_token_encrypted", "refresh_token_encrypted")]
-    with engine.connect() as conn:
-        rows = conn.execute(select(*cols).where(conns.c.project_id == project_id)).mappings().all()
-    return [dict(r) for r in rows]
-
-
-def get_oauth_connection(project_id, provider, user_id, include_tokens=False):
-    if get_project(project_id, user_id) is None:
-        return None
-    engine = _require_engine()
-    tables = _get_tables()
-    conns = tables["oauth_connections"]
-    from sqlalchemy import select
-    cols = list(conns.c) if include_tokens else [
-        c for c in conns.c if c.name not in ("access_token_encrypted", "refresh_token_encrypted")
-    ]
-    with engine.connect() as conn:
-        row = conn.execute(
-            select(*cols).where(conns.c.project_id == project_id, conns.c.provider == provider)
-        ).mappings().first()
-    return dict(row) if row else None
 
 
 def upsert_oauth_connection(project_id, user_id, provider, external_account_email, scopes,
@@ -1685,18 +1704,27 @@ def upsert_oauth_connection(project_id, user_id, provider, external_account_emai
     revoked refresh token) should overwrite the old row, not accumulate a second
     one, hence the unique constraint + explicit update-if-exists here rather than
     a DB-level ON CONFLICT (kept portable across the Postgres/SQLite dialects
-    this module already supports, same as grant_credits' plain select-then-write)."""
+    this module already supports, same as grant_credits' plain select-then-write).
+
+    Phase C5: also stamps org_id (from the project) and writes/updates this
+    project's selection row so it immediately uses the connection it just
+    created — connecting always makes it your active choice for this
+    provider, even if you were previously using a company teammate's."""
     engine = _require_engine()
     tables = _get_tables()
     conns = tables["oauth_connections"]
+    selections = tables["project_connection_selections"]
+    projects = tables["projects"]
     from sqlalchemy import select
     now = _now()
     with engine.begin() as conn:
+        org_id = conn.execute(select(projects.c.org_id).where(projects.c.id == project_id)).scalar()
         existing = conn.execute(
             select(conns.c.id).where(conns.c.project_id == project_id, conns.c.provider == provider)
         ).first()
         values = dict(
-            user_id=user_id, status="connected", external_account_email=external_account_email,
+            user_id=user_id, org_id=org_id, status="connected",
+            external_account_email=external_account_email,
             scopes=scopes, access_token_encrypted=access_token_encrypted,
             last_error=None, updated_at=now,
         )
@@ -1709,74 +1737,220 @@ def upsert_oauth_connection(project_id, user_id, provider, external_account_emai
         if token_expiry is not None:
             values["token_expiry"] = token_expiry
         if existing:
-            conn.execute(conns.update().where(conns.c.id == existing.id).values(**values))
+            connection_id = existing.id
+            conn.execute(conns.update().where(conns.c.id == connection_id).values(**values))
         else:
             values.update(project_id=project_id, provider=provider, connected_at=now)
-            conn.execute(conns.insert().values(**values))
-    return get_oauth_connection(project_id, provider, user_id)
+            result = conn.execute(conns.insert().values(**values))
+            connection_id = result.inserted_primary_key[0]
+        conn.execute(
+            selections.delete().where(selections.c.project_id == project_id, selections.c.provider == provider)
+        )
+        conn.execute(
+            selections.insert().values(
+                project_id=project_id, provider=provider, oauth_connection_id=connection_id, created_at=now,
+            )
+        )
+    return get_connection_for_project(project_id, user_id, provider)
 
 
-def update_oauth_connection_ref(project_id, provider, user_id, external_ref):
+def get_connection_for_project(project_id, user_id, provider, include_tokens=False):
+    """Resolves via project_connection_selections only (Phase C5) — every
+    connection gets an explicit selection row the moment it's created or
+    switched to (see upsert_oauth_connection / select_org_connection_for_project),
+    so there's no separate legacy/implicit fallback path to keep in sync."""
+    if get_project(project_id, user_id) is None:
+        return None
+    engine = _require_engine()
+    tables = _get_tables()
+    conns = tables["oauth_connections"]
+    selections = tables["project_connection_selections"]
+    from sqlalchemy import select
+    cols = list(conns.c) if include_tokens else [
+        c for c in conns.c if c.name not in ("access_token_encrypted", "refresh_token_encrypted")
+    ]
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(*cols)
+            .select_from(selections.join(conns, conns.c.id == selections.c.oauth_connection_id))
+            .where(selections.c.project_id == project_id, selections.c.provider == provider)
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+def list_org_connections(project_id, user_id, provider=None):
+    """The company's whole pool of connections for a provider (or all
+    providers) — every project's Connections page can offer this as
+    "use a different one", not just what it created itself. Each row is
+    annotated with which project originally created it, for display."""
+    project = get_project(project_id, user_id)
+    if project is None or project.get("org_id") is None:
+        return []
+    engine = _require_engine()
+    tables = _get_tables()
+    conns = tables["oauth_connections"]
+    projects = tables["projects"]
+    from sqlalchemy import select
+    cols = [c for c in conns.c if c.name not in ("access_token_encrypted", "refresh_token_encrypted")]
+    clauses = [conns.c.org_id == project["org_id"]]
+    if provider is not None:
+        clauses.append(conns.c.provider == provider)
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(*cols, projects.c.name.label("created_by_project_name"))
+            .select_from(conns.join(projects, projects.c.id == conns.c.project_id))
+            .where(*clauses)
+            .order_by(conns.c.connected_at.desc())
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+def select_org_connection_for_project(project_id, user_id, provider, oauth_connection_id):
+    """Points this project at an existing connection from its company's pool
+    instead of its own. Refuses (returns None) if the connection isn't
+    actually in the same org — never trust a bare id across a company
+    boundary, even though only a signed-in member of *some* company could
+    have supplied one at all."""
+    project = get_project(project_id, user_id)
+    if project is None or project.get("org_id") is None:
+        return None
+    engine = _require_engine()
+    tables = _get_tables()
+    conns = tables["oauth_connections"]
+    selections = tables["project_connection_selections"]
+    from sqlalchemy import select
+    now = _now()
+    with engine.begin() as conn:
+        conn_org_id = conn.execute(
+            select(conns.c.org_id).where(conns.c.id == oauth_connection_id, conns.c.provider == provider)
+        ).scalar()
+        if conn_org_id is None or conn_org_id != project["org_id"]:
+            return None
+        conn.execute(
+            selections.delete().where(selections.c.project_id == project_id, selections.c.provider == provider)
+        )
+        conn.execute(
+            selections.insert().values(
+                project_id=project_id, provider=provider, oauth_connection_id=oauth_connection_id, created_at=now,
+            )
+        )
+    return get_connection_for_project(project_id, user_id, provider)
+
+
+def update_oauth_connection_ref(connection_id, external_ref):
     """Stores the chosen GA4 property id / GSC site URL after the user picks one
-    from the list fetched with the connection's access token."""
+    from the list fetched with the connection's access token. Keyed by the
+    connection's own id (Phase C5) rather than (project_id, provider) — every
+    project sharing this connection sees the same chosen property, which is
+    the correct behaviour for one real underlying GA4/GSC account."""
     engine = _require_engine()
     tables = _get_tables()
     conns = tables["oauth_connections"]
     with engine.begin() as conn:
         conn.execute(
-            conns.update()
-            .where(conns.c.project_id == project_id, conns.c.provider == provider)
+            conns.update().where(conns.c.id == connection_id)
             .values(external_ref=external_ref, updated_at=_now())
         )
-    return get_oauth_connection(project_id, provider, user_id)
 
 
-def mark_oauth_connection_tokens(project_id, provider, access_token_encrypted, token_expiry):
+def mark_oauth_connection_tokens(connection_id, access_token_encrypted, token_expiry):
     """Refresh-only update — leaves refresh_token/external_ref/status untouched."""
     engine = _require_engine()
     tables = _get_tables()
     conns = tables["oauth_connections"]
     with engine.begin() as conn:
         conn.execute(
-            conns.update()
-            .where(conns.c.project_id == project_id, conns.c.provider == provider)
+            conns.update().where(conns.c.id == connection_id)
             .values(access_token_encrypted=access_token_encrypted, token_expiry=token_expiry,
                     status="connected", last_error=None, updated_at=_now())
         )
 
 
-def mark_oauth_connection_error(project_id, provider, error_message):
+def mark_oauth_connection_error(connection_id, error_message):
     engine = _require_engine()
     tables = _get_tables()
     conns = tables["oauth_connections"]
     with engine.begin() as conn:
         conn.execute(
-            conns.update()
-            .where(conns.c.project_id == project_id, conns.c.provider == provider)
+            conns.update().where(conns.c.id == connection_id)
             .values(status="error", last_error=error_message[:500], updated_at=_now())
         )
 
 
-def delete_oauth_connection(project_id, provider, user_id):
-    """A real DELETE, not a status flip — the DPDP framing this phase was built
-    under (see the Phase 05B review) commits to an actual delete on disconnect,
-    not just token revocation, since a lingering encrypted-token row is still
-    personal/business data at rest even if it can no longer be used."""
-    if get_project(project_id, user_id) is None:
+def disconnect_project_connection(project_id, user_id, provider):
+    """Removes this project's use of a connection for this provider.
+
+    If nothing else in the company is using that same connection afterward,
+    it's a real DELETE (not a status flip — the DPDP framing this phase was
+    built under commits to an actual delete on disconnect, since a lingering
+    encrypted-token row is still personal/business data at rest even once
+    unusable) and tokens are returned for revocation at Google. If another
+    project is still using it (real company-level sharing), it's left alone
+    for them — this project just goes back to "not connected", no tokens
+    returned (there's nothing to revoke, the connection lives on)."""
+    conn_row = get_connection_for_project(project_id, user_id, provider, include_tokens=True)
+    if conn_row is None:
         return None
     engine = _require_engine()
     tables = _get_tables()
     conns = tables["oauth_connections"]
-    from sqlalchemy import select
+    selections = tables["project_connection_selections"]
+    from sqlalchemy import select, func
     with engine.begin() as conn:
-        row = conn.execute(
-            select(conns.c.access_token_encrypted, conns.c.refresh_token_encrypted)
-            .where(conns.c.project_id == project_id, conns.c.provider == provider)
-        ).first()
         conn.execute(
-            conns.delete().where(conns.c.project_id == project_id, conns.c.provider == provider)
+            selections.delete().where(selections.c.project_id == project_id, selections.c.provider == provider)
         )
-    return dict(row._mapping) if row else None
+        remaining = conn.execute(
+            select(func.count(selections.c.id)).where(selections.c.oauth_connection_id == conn_row["id"])
+        ).scalar()
+        if remaining > 0:
+            return {"unlinked_only": True}
+        conn.execute(conns.delete().where(conns.c.id == conn_row["id"]))
+    return {
+        "access_token_encrypted": conn_row.get("access_token_encrypted"),
+        "refresh_token_encrypted": conn_row.get("refresh_token_encrypted"),
+    }
+
+
+def backfill_connection_selections():
+    """One-time (and safely re-runnable) migration for connections created
+    before Phase C5 introduced project_connection_selections: gives every
+    oauth_connections row without one an explicit selection linking it back
+    to the project that originally created it — exactly the behavior those
+    projects already had, just made explicit instead of implicit. Also
+    stamps org_id on any connection that predates that column. Returns a
+    summary dict."""
+    engine = _require_engine()
+    tables = _get_tables()
+    conns = tables["oauth_connections"]
+    selections = tables["project_connection_selections"]
+    projects = tables["projects"]
+    from sqlalchemy import select
+    counts = {"org_id_stamped": 0, "selections_created": 0}
+    with engine.connect() as conn:
+        rows = conn.execute(select(conns.c.id, conns.c.project_id, conns.c.provider, conns.c.org_id)).mappings().all()
+    now = _now()
+    for r in rows:
+        with engine.begin() as conn:
+            if r["org_id"] is None:
+                proj_org_id = conn.execute(select(projects.c.org_id).where(projects.c.id == r["project_id"])).scalar()
+                if proj_org_id is not None:
+                    conn.execute(conns.update().where(conns.c.id == r["id"]).values(org_id=proj_org_id))
+                    counts["org_id_stamped"] += 1
+            existing = conn.execute(
+                select(selections.c.id).where(
+                    selections.c.project_id == r["project_id"], selections.c.provider == r["provider"]
+                )
+            ).first()
+            if existing is None:
+                conn.execute(
+                    selections.insert().values(
+                        project_id=r["project_id"], provider=r["provider"],
+                        oauth_connection_id=r["id"], created_at=now,
+                    )
+                )
+                counts["selections_created"] += 1
+    return counts
 
 
 # ── API keys (Track 1 — B2B data-API product) ───────────────────────────────

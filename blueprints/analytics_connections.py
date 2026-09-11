@@ -26,7 +26,14 @@ provider — it's one business relationship's data-processing agreement,
 regardless of how many Google products end up connected under it. See the
 Phase 05B privacy/OAuth review for why: PaisaMap is a data *processor* here,
 and a real delete-on-disconnect (not just token revocation) is part of that
-review's own recommendation — see delete_oauth_connection's docstring.
+review's own recommendation — see disconnect_project_connection's docstring.
+
+Phase C5: a connection belongs to the company (org_id), not any one project —
+projects each pick which of the company's connections they use via
+project_connection_selections (see _auth_db.py's Organizations section).
+"project's own" everywhere below now means "whichever connection this
+project currently has selected," which may have been created by a
+teammate's project.
 """
 
 import secrets
@@ -76,7 +83,7 @@ def _get_valid_access_token(project_id, provider, user_id):
     tz-naive from SQLite (the same class of bug the Phase 05 upload work hit
     with geocoding timestamps), so naive values are treated as UTC rather than
     compared directly against an aware `now`."""
-    conn = _auth_db.get_oauth_connection(project_id, provider, user_id, include_tokens=True)
+    conn = _auth_db.get_connection_for_project(project_id, user_id, provider, include_tokens=True)
     if conn is None:
         return None, None
     now = datetime.now(timezone.utc)
@@ -87,7 +94,7 @@ def _get_valid_access_token(project_id, provider, user_id):
     refresh_enc = conn.get("refresh_token_encrypted")
     if not refresh_enc:
         _auth_db.mark_oauth_connection_error(
-            project_id, provider, "Access token expired and no refresh token was stored — reconnect required."
+            conn["id"], "Access token expired and no refresh token was stored — reconnect required."
         )
         return None, conn
     try:
@@ -95,11 +102,11 @@ def _get_valid_access_token(project_id, provider, user_id):
         token_resp = _google_oauth.refresh_access_token(refresh_token)
         access_token = token_resp["access_token"]
     except (GoogleOAuthError, KeyError) as e:
-        _auth_db.mark_oauth_connection_error(project_id, provider, str(e))
+        _auth_db.mark_oauth_connection_error(conn["id"], str(e))
         return None, conn
 
     new_expiry = now + timedelta(seconds=token_resp.get("expires_in", 3600))
-    _auth_db.mark_oauth_connection_tokens(project_id, provider, _token_crypto.encrypt(access_token), new_expiry)
+    _auth_db.mark_oauth_connection_tokens(conn["id"], _token_crypto.encrypt(access_token), new_expiry)
     return access_token, conn
 
 
@@ -164,9 +171,20 @@ def list_connections(user_id, project_id):
     project = _auth_db.get_project(project_id, user_id)
     if project is None:
         return jsonify({"error": "not_found"}), 404
+    # This project's own connection per provider (may be one it selected from
+    # a teammate project rather than created itself), plus the company's
+    # whole pool per provider so the frontend can offer "use a different one"
+    # — see the Organizations/C5 sections of _auth_db.py.
+    active = {
+        p: _connection_public(_auth_db.get_connection_for_project(project_id, user_id, p))
+        for p in PROVIDERS
+    }
+    pool = {p: _auth_db.list_org_connections(project_id, user_id, p) for p in PROVIDERS}
     return jsonify({
         "analytics_consent_at": project.get("analytics_consent_at"),
-        "connections": _auth_db.list_oauth_connections(project_id, user_id),
+        "connections": [c for c in active.values() if c is not None],
+        "active_by_provider": active,
+        "pool_by_provider": pool,
     })
 
 
@@ -276,13 +294,35 @@ def list_properties(user_id, project_id, provider):
 def select_property(user_id, project_id, provider):
     if provider not in PROVIDERS:
         return jsonify({"error": "unknown_provider"}), 404
-    if _auth_db.get_oauth_connection(project_id, provider, user_id) is None:
+    conn = _auth_db.get_connection_for_project(project_id, user_id, provider)
+    if conn is None:
         return jsonify({"error": "not_connected"}), 404
     body = request.get_json(silent=True) or {}
     external_ref = (body.get("external_ref") or "").strip()
     if not external_ref:
         return jsonify({"error": "external_ref is required"}), 400
-    conn = _auth_db.update_oauth_connection_ref(project_id, provider, user_id, external_ref)
+    # Updates the underlying connection by id, not (project_id, provider) —
+    # if this is a shared company connection, every project using it sees
+    # the same newly-chosen property/site, which is correct: one Google
+    # account, one selected property, shared by whoever points at it.
+    _auth_db.update_oauth_connection_ref(conn["id"], external_ref)
+    return jsonify({"connection": _connection_public(_auth_db.get_connection_for_project(project_id, user_id, provider))})
+
+
+@analytics_bp.route("/<provider>/use", methods=["POST"])
+@require_login
+def use_connection(user_id, project_id, provider):
+    """Points this project at a different connection from its company's pool
+    (see GET .../connections' pool_by_provider) instead of its own."""
+    if provider not in PROVIDERS:
+        return jsonify({"error": "unknown_provider"}), 404
+    body = request.get_json(silent=True) or {}
+    oauth_connection_id = body.get("oauth_connection_id")
+    if not isinstance(oauth_connection_id, int):
+        return jsonify({"error": "oauth_connection_id is required"}), 400
+    conn = _auth_db.select_org_connection_for_project(project_id, user_id, provider, oauth_connection_id)
+    if conn is None:
+        return jsonify({"error": "not_found"}), 404
     return jsonify({"connection": _connection_public(conn)})
 
 
@@ -441,17 +481,20 @@ def get_location_tags(user_id, project_id):
 def disconnect(user_id, project_id, provider):
     if provider not in PROVIDERS:
         return jsonify({"error": "unknown_provider"}), 404
-    tokens = _auth_db.delete_oauth_connection(project_id, provider, user_id)
-    if tokens is None:
+    result = _auth_db.disconnect_project_connection(project_id, user_id, provider)
+    if result is None:
         return jsonify({"error": "not_found"}), 404
-    # Best-effort revoke at Google, then the row is already gone regardless —
-    # a real delete, not a soft-disable, per the Phase 05B DPDP framing.
-    for enc in (tokens.get("access_token_encrypted"), tokens.get("refresh_token_encrypted")):
-        if enc:
-            try:
-                _google_oauth.revoke_token(_token_crypto.decrypt(enc))
-            except Exception:
-                pass
+    # Only revoke at Google + hard-delete the row when nothing else in the
+    # company is still using this exact connection — see
+    # disconnect_project_connection's docstring. Otherwise this project just
+    # unlinked from a still-shared connection; there's nothing to revoke.
+    if not result.get("unlinked_only"):
+        for enc in (result.get("access_token_encrypted"), result.get("refresh_token_encrypted")):
+            if enc:
+                try:
+                    _google_oauth.revoke_token(_token_crypto.decrypt(enc))
+                except Exception:
+                    pass
     _auth_db.log_activity(user_id, "connection_disconnected", target_type="project", target_id=project_id,
                            metadata={"provider": provider})
     return jsonify({"status": "ok"})

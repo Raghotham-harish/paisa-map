@@ -31,7 +31,8 @@ export default function Connections() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { projects, activeProjectId: projectId, loadError: projectsError, reload: loadProjects } = useWorkspace();
   const [consentAt, setConsentAt] = useState<string | null>(null);
-  const [connections, setConnections] = useState<OAuthConnection[]>([]);
+  const [activeByProvider, setActiveByProvider] = useState<Partial<Record<ConnectionProvider, OAuthConnection>>>({});
+  const [poolByProvider, setPoolByProvider] = useState<Partial<Record<ConnectionProvider, OAuthConnection[]>>>({});
   const [consentChecked, setConsentChecked] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [banner, setBanner] = useState<{ kind: "success" | "error"; text: string } | null>(null);
@@ -56,7 +57,8 @@ export default function Connections() {
   const load = (pid: number) => {
     api.getConnections(pid).then((data) => {
       setConsentAt(data.analytics_consent_at);
-      setConnections(data.connections);
+      setActiveByProvider(data.active_by_provider);
+      setPoolByProvider(data.pool_by_provider);
     }).catch(() => setError("Couldn't load this project's connections — try again."));
   };
 
@@ -148,7 +150,11 @@ export default function Connections() {
 
   const onDisconnect = async (provider: ConnectionProvider) => {
     if (projectId == null) return;
-    if (!confirm("Disconnect and permanently delete the stored access tokens for this connection?")) return;
+    // If a teammate project is also using this connection, disconnecting
+    // here only unlinks this project from it — the shared tokens stay
+    // intact for them. Wording stays general since we don't know which
+    // case applies until the request actually runs.
+    if (!confirm("Stop using this connection for this project? If no other project in your company uses it, its stored access is permanently deleted.")) return;
     setBusy(`disconnect:${provider}`);
     setError(null);
     try {
@@ -159,6 +165,23 @@ export default function Connections() {
       load(projectId);
     } catch {
       setError("Couldn't disconnect — try again.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onUseConnection = async (provider: ConnectionProvider, oauthConnectionId: number) => {
+    if (projectId == null || !oauthConnectionId) return;
+    setBusy(`use:${provider}`);
+    setError(null);
+    try {
+      await api.useOrgConnection(projectId, provider, oauthConnectionId);
+      setReportByProvider((prev) => ({ ...prev, [provider]: undefined }));
+      setPropertiesByProvider((prev) => ({ ...prev, [provider]: undefined }));
+      if (provider === "google_analytics") setEcommerce(null);
+      load(projectId);
+    } catch {
+      setError("Couldn't switch to that connection — try again.");
     } finally {
       setBusy(null);
     }
@@ -231,7 +254,9 @@ export default function Connections() {
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               {PROVIDERS.map(({ id, label, description }) => {
-                const conn = connections.find((c) => c.provider === id);
+                const conn = activeByProvider[id];
+                const pool = poolByProvider[id] ?? [];
+                const otherPoolOptions = pool.filter((c) => c.id !== conn?.id);
                 const properties = propertiesByProvider[id];
                 const report = reportByProvider[id];
                 return (
@@ -251,9 +276,27 @@ export default function Connections() {
                     </div>
 
                     {!conn && (
-                      <button className="btn" style={{ marginTop: 14 }} onClick={() => onConnect(id)}>
-                        Connect
-                      </button>
+                      <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                        <button className="btn" onClick={() => onConnect(id)}>Connect</button>
+                        {otherPoolOptions.length > 0 && (
+                          <>
+                            <span style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>or use one already connected in your company:</span>
+                            <select
+                              defaultValue=""
+                              disabled={busy === `use:${id}`}
+                              style={{ width: "auto" }}
+                              onChange={(e) => e.target.value && onUseConnection(id, Number(e.target.value))}
+                            >
+                              <option value="" disabled>Select…</option>
+                              {otherPoolOptions.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.created_by_project_name} — {c.external_ref || c.external_account_email || "no property picked yet"}
+                                </option>
+                              ))}
+                            </select>
+                          </>
+                        )}
+                      </div>
                     )}
 
                     {conn && (
@@ -408,6 +451,25 @@ export default function Connections() {
                                 </table>
                               </div>
                             )}
+                          </div>
+                        )}
+
+                        {otherPoolOptions.length > 0 && (
+                          <div style={{ marginTop: 14, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>Use a different company connection:</span>
+                            <select
+                              defaultValue=""
+                              disabled={busy === `use:${id}`}
+                              style={{ width: "auto" }}
+                              onChange={(e) => e.target.value && onUseConnection(id, Number(e.target.value))}
+                            >
+                              <option value="" disabled>Select…</option>
+                              {otherPoolOptions.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.created_by_project_name} — {c.external_ref || c.external_account_email || "no property picked yet"}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                         )}
 
