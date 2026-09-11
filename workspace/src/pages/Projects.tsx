@@ -9,6 +9,7 @@ import { UndoToastStack } from "../components/UndoToast";
 import { usePendingDelete } from "../lib/undo";
 import { StatChip } from "../components/StatChip";
 import { MiniMap } from "../components/MiniMap";
+import { useWorkspace } from "../lib/workspace";
 
 const EMPTY_FIELDS: ProjectFields = {
   name: "", description: "", business_type: "", target_segment: "", avg_ticket: "", website_url: "",
@@ -76,6 +77,7 @@ export default function Projects() {
   const nameInputRef = useRef<HTMLInputElement>(null);
   const { pending, remove, undo, isPending } = usePendingDelete();
   const navigate = useNavigate();
+  const { activeOrgId } = useWorkspace();
 
   const load = () => {
     setLoadError(null);
@@ -97,7 +99,7 @@ export default function Projects() {
     setCreating(true);
     setError(null);
     try {
-      await api.createProject({ ...newFields, name: newFields.name.trim() });
+      await api.createProject({ ...newFields, name: newFields.name.trim(), org_id: activeOrgId ?? undefined });
       setNewFields(EMPTY_FIELDS);
       load();
     } catch {

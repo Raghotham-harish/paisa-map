@@ -2,6 +2,7 @@ import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom"
 import { useAuth } from "./lib/auth";
 import { WorkspaceProvider, useSyncProjectFromUrl } from "./lib/workspace";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
+import { CompanySwitcher } from "./components/CompanySwitcher";
 import SignIn from "./pages/SignIn";
 import Dashboard from "./pages/Dashboard";
 import MapWorkspace from "./pages/MapWorkspace";
@@ -16,6 +17,7 @@ import CustomerData from "./pages/CustomerData";
 import Connections from "./pages/Connections";
 import Forecast from "./pages/Forecast";
 import ApiKeys from "./pages/ApiKeys";
+import CompanySettings from "./pages/CompanySettings";
 
 function WorkspaceUrlSync() {
   useSyncProjectFromUrl();
@@ -48,6 +50,7 @@ const NAV_SECTIONS: { label: string; items: { to: string; label: string; end?: b
   {
     label: "Account",
     items: [
+      { to: "/company", label: "Company", icon: "ti-building" },
       { to: "/activity", label: "Activity", icon: "ti-activity" },
       { to: "/billing", label: "Billing", icon: "ti-receipt" },
       { to: "/api-keys", label: "API Keys", icon: "ti-key" },
@@ -117,6 +120,7 @@ export default function App() {
         <div className="workspace-col">
           {!bleed && (
             <header className="topbar">
+              <CompanySwitcher />
               <ProjectSwitcher />
             </header>
           )}
@@ -132,6 +136,7 @@ export default function App() {
               <Route path="/forecast" element={<Forecast />} />
               <Route path="/connections" element={<Connections />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/company" element={<CompanySettings />} />
               <Route path="/activity" element={<Activity />} />
               <Route path="/credits" element={<Navigate to="/billing" replace />} />
               <Route path="/billing" element={<Billing />} />

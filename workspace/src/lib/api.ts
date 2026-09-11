@@ -53,9 +53,34 @@ export interface MeResponse {
 export type OutcomeGoal = "revenue_reach" | "store_count" | "balanced";
 export type RevenuePeriod = "monthly" | "annual";
 
+export type OrgRole = "owner" | "admin" | "member";
+
+export interface Organization {
+  id: number;
+  name: string;
+  owner_user_id: number;
+  plan: string;
+  website_url: string | null;
+  created_at: string;
+  // Only present on responses scoped to the calling user (list/get/create) —
+  // their own role in this org.
+  role?: OrgRole;
+}
+
+export interface OrgMember {
+  id: number;
+  user_id: number;
+  email: string;
+  name: string | null;
+  picture_url: string | null;
+  role: OrgRole;
+  created_at: string;
+}
+
 export interface Project {
   id: number;
   name: string;
+  org_id: number | null;
   description: string | null;
   business_type: string | null;
   target_segment: string | null;
@@ -80,6 +105,7 @@ export interface Project {
 
 export interface ProjectFields {
   name?: string;
+  org_id?: number;
   description?: string;
   business_type?: string;
   target_segment?: string;
@@ -666,6 +692,21 @@ export const api = {
   updateProject: (id: number, fields: ProjectFields) =>
     request(`/api/projects/${id}`, { method: "PUT", body: JSON.stringify(fields) }) as Promise<{ project: Project }>,
   deleteProject: (id: number) => request(`/api/projects/${id}`, { method: "DELETE" }),
+
+  listOrganizations: () => request("/api/organizations") as Promise<{ organizations: Organization[] }>,
+  createOrganization: (name: string) =>
+    request("/api/organizations", { method: "POST", body: JSON.stringify({ name }) }) as Promise<{ organization: Organization }>,
+  getOrganization: (id: number) => request(`/api/organizations/${id}`) as Promise<{ organization: Organization }>,
+  updateOrganization: (id: number, fields: { name?: string; website_url?: string }) =>
+    request(`/api/organizations/${id}`, { method: "PUT", body: JSON.stringify(fields) }) as Promise<{ organization: Organization }>,
+  deleteOrganization: (id: number) => request(`/api/organizations/${id}`, { method: "DELETE" }),
+  listOrgMembers: (id: number) => request(`/api/organizations/${id}/members`) as Promise<{ members: OrgMember[] }>,
+  addOrgMember: (id: number, email: string, role: OrgRole = "member") =>
+    request(`/api/organizations/${id}/members`, { method: "POST", body: JSON.stringify({ email, role }) }) as Promise<{ members: OrgMember[] }>,
+  updateOrgMemberRole: (id: number, memberUserId: number, role: OrgRole) =>
+    request(`/api/organizations/${id}/members/${memberUserId}`, { method: "PUT", body: JSON.stringify({ role }) }) as Promise<{ members: OrgMember[] }>,
+  removeOrgMember: (id: number, memberUserId: number) =>
+    request(`/api/organizations/${id}/members/${memberUserId}`, { method: "DELETE" }),
 
   listLocations: (projectId?: number) =>
     request(`/api/locations${projectId ? `?project_id=${projectId}` : ""}`) as Promise<{ locations: SavedLocation[] }>,

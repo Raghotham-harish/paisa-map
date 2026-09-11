@@ -148,8 +148,10 @@ def create_project(user_id):
     if not name:
         return jsonify({"error": "name is required"}), 400
     description = (body.get("description") or "").strip() or None
+    org_id = body.get("org_id")
+    org_id = int(org_id) if isinstance(org_id, (int, float, str)) and str(org_id).strip().isdigit() else None
     project = _auth_db.create_project(
-        user_id, name, description,
+        user_id, name, description, org_id=org_id,
         business_type=(body.get("business_type") or "").strip() or None,
         target_segment=(body.get("target_segment") or "").strip() or None,
         avg_ticket=_parse_avg_ticket(body),

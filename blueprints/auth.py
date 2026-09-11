@@ -64,6 +64,13 @@ def google_signin():
 
     if result["created"]:
         _auth_db.grant_credits(result["id"], SIGNUP_BONUS_CREDITS, "signup_bonus")
+        # Phase C: every account gets a default company from day one — matches
+        # the pricing model (every tier includes 1 company) and C3's backfill,
+        # which did the same for pre-existing accounts. A display name isn't
+        # known yet this early for some providers, so fall back to the email
+        # local-part exactly like the backfill does.
+        display = payload.get("name") or payload["email"].split("@")[0]
+        _auth_db.create_default_organization_for_user(result["id"], f"{display}'s Workspace")
 
     _auth_db.log_activity(result["id"], "login")
 

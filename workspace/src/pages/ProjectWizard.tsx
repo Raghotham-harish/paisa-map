@@ -15,6 +15,7 @@ import { MultiSelect, Option, SingleSelect } from "../components/MultiSelect";
 import { fuzzyBestMatch } from "../lib/fuzzyMatch";
 import { ReturnToLink } from "../components/ReturnTo";
 import { Pill } from "../components/Pill";
+import { useWorkspace } from "../lib/workspace";
 
 const INDUSTRIES = [
   "Apparel & Footwear", "Jewellery & Accessories", "Food & Beverage / QSR", "Grocery & Kirana",
@@ -41,6 +42,7 @@ export default function ProjectWizard() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const editId = Number(params.get("edit")) || null;
+  const { activeOrgId } = useWorkspace();
 
   const [step, setStep] = useState(0);
   const [catalog, setCatalog] = useState<SignalCatalogItem[]>([]);
@@ -109,6 +111,7 @@ export default function ProjectWizard() {
 
   const buildFields = (): ProjectFields => ({
     name: name.trim(),
+    org_id: activeOrgId ?? undefined,
     website_url: website || undefined,
     industry: industry || undefined,
     business_type: industry || undefined,

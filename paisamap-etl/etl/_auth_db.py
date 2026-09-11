@@ -808,6 +808,31 @@ def create_organization(user_id, name):
     return get_organization(new_id, user_id)
 
 
+def create_default_organization_for_user(user_id, name, plan="free"):
+    """Like create_organization, but also stamps users.org_id — for the one
+    org that's this user's *primary* company (their first one, created for
+    them rather than by them: at signup, or by C3's backfill for pre-existing
+    accounts). A user later creating an additional company via
+    create_organization deliberately does NOT touch users.org_id — that stays
+    pointing at their original primary org."""
+    engine = _require_engine()
+    tables = _get_tables()
+    orgs = tables["organizations"]
+    members = tables["org_members"]
+    users = tables["users"]
+    now = _now()
+    with engine.begin() as conn:
+        result = conn.execute(
+            orgs.insert().values(name=name, owner_user_id=user_id, plan=plan, created_at=now)
+        )
+        new_id = result.inserted_primary_key[0]
+        conn.execute(
+            members.insert().values(org_id=new_id, user_id=user_id, role="owner", created_at=now)
+        )
+        conn.execute(users.update().where(users.c.id == user_id).values(org_id=new_id))
+    return get_organization(new_id, user_id)
+
+
 def get_org_role(org_id, user_id):
     """The caller's role in this org, or None if they're not a member."""
     engine = _require_engine()
@@ -1014,7 +1039,6 @@ def backfill_organizations():
     tables = _get_tables()
     users = tables["users"]
     orgs = tables["organizations"]
-    members = tables["org_members"]
     projects = tables["projects"]
     connections = tables["oauth_connections"]
     uploads = tables["customer_uploads"]
@@ -1038,19 +1062,8 @@ def backfill_organizations():
         org_id = u["org_id"]
         if org_id is None:
             display = u["name"] or (u["email"].split("@")[0] if u["email"] else "My")
-            now = _now()
-            with engine.begin() as conn:
-                result = conn.execute(
-                    orgs.insert().values(
-                        name=f"{display}'s Workspace", owner_user_id=u["id"],
-                        plan=u["plan"], created_at=now,
-                    )
-                )
-                org_id = result.inserted_primary_key[0]
-                conn.execute(
-                    members.insert().values(org_id=org_id, user_id=u["id"], role="owner", created_at=now)
-                )
-                conn.execute(users.update().where(users.c.id == u["id"]).values(org_id=org_id))
+            org = create_default_organization_for_user(u["id"], f"{display}'s Workspace", plan=u["plan"])
+            org_id = org["id"]
             counts["orgs_created"] += 1
 
         with engine.begin() as conn:
@@ -1086,22 +1099,38 @@ PROJECT_EDITABLE_FIELDS = ("name", "description", "business_type", "target_segme
 
 
 # ── Projects ─────────────────────────────────────────────────────────────────
-def create_project(user_id, name, description=None, **fields):
+def create_project(user_id, name, description=None, org_id=None, **fields):
     """`fields` accepts any of PROJECT_EDITABLE_FIELDS (business_type,
     target_segment, avg_ticket, website_url, and the wizard fields industry/
     signals/target_pincodes/catchment_km/total_investment/outcome_goal/
     time_horizon_months) — None values are dropped so the column keeps its
-    default rather than being written as NULL explicitly."""
+    default rather than being written as NULL explicitly.
+
+    org_id (Phase C, staged): when given, the caller must actually be a
+    member of that org, or it's silently ignored rather than raising — a
+    stale/tampered org_id shouldn't fail project creation, it should just
+    fall through to the default below. When not given (every call site
+    before this parameter existed, e.g. get_or_create_default_project),
+    falls back to the caller's own primary org (users.org_id, set by C3's
+    backfill) so existing behavior is unchanged."""
     extra = {k: v for k, v in fields.items()
              if k in PROJECT_EDITABLE_FIELDS and k != "name" and v is not None}
     engine = _require_engine()
     tables = _get_tables()
     projects = tables["projects"]
+    if org_id is not None and get_org_role(org_id, user_id) is None:
+        org_id = None
+    if org_id is None:
+        from sqlalchemy import select
+        with engine.connect() as conn:
+            org_id = conn.execute(
+                select(tables["users"].c.org_id).where(tables["users"].c.id == user_id)
+            ).scalar()
     now = _now()
     with engine.begin() as conn:
         result = conn.execute(
             projects.insert().values(
-                user_id=user_id, name=name, description=description,
+                user_id=user_id, org_id=org_id, name=name, description=description,
                 created_at=now, updated_at=now, **extra,
             )
         )
