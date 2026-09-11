@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { ApiError, Forecast as ForecastResult, ForecastResponse, PricingConfig, Project, api } from "../lib/api";
+import { Link } from "react-router-dom";
+import { ApiError, Forecast as ForecastResult, ForecastResponse, ForecastSite, PricingConfig, api } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { ForecastPreview } from "../components/ForecastPreview";
+import { DataList, DataRow } from "../components/DataList";
+import { AsyncBoundary } from "../components/AsyncBoundary";
+import { StatChip } from "../components/StatChip";
+import { MicroBar } from "../components/MicroViz";
+import { RUPEE } from "../components/chartTheme";
 import { illustrations } from "../lib/illustrations";
+import { useWorkspace } from "../lib/workspace";
 import {
   ConfidenceMeter, CurveDrivers, ForecastSummaryCard, HotspotBubbles, KpiStrip, LeverSplitRadar,
   LocationCompareRadar, LocationFactorTable, LocationSwotTable, money, ReachCurve, SignalRevenuePanel, SplitBars,
@@ -23,51 +29,38 @@ const pctDelta = (now: number, was: number | undefined | null) =>
   was == null || was === 0 ? null : ((now - was) / Math.abs(was)) * 100;
 
 export default function Forecast() {
-  const [params, setParams] = useSearchParams();
-  const [projects, setProjects] = useState<Project[] | null>(null);
-  const [projectId, setProjectId] = useState<number | null>(null);
+  const { projects, activeProjectId: projectId, loadError: projectsError, reload: loadProjects } = useWorkspace();
   const [budget, setBudget] = useState("");
   const [pricing, setPricing] = useState<PricingConfig | null>(null);
   const [result, setResult] = useState<ForecastResponse | null>(null);
   const [resultBudget, setResultBudget] = useState<number | null>(null);
   const [prev, setPrev] = useState<PrevCurve | null>(null);
   const [running, setRunning] = useState(false);
+  const [showMoreSites, setShowMoreSites] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api.getPricing().then(setPricing).catch(() => setPricing(null));
-    api.listProjects().then((d) => {
-      setProjects(d.projects);
-      const fromUrl = Number(params.get("project_id"));
-      const initial = d.projects.find((p) => p.id === fromUrl) ?? d.projects[0];
-      if (initial) {
-        setProjectId(initial.id);
-        if (initial.total_investment != null) setBudget(String(initial.total_investment));
-        try {
-          const raw = localStorage.getItem(prevKey(initial.id));
-          if (raw) setPrev(JSON.parse(raw));
-        } catch { /* ignore */ }
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const project = useMemo(() => projects?.find((p) => p.id === projectId) ?? null, [projects, projectId]);
   const cost = pricing?.credit_costs?.forecast;
 
-  const onProject = (id: number) => {
-    setProjectId(id);
+  // Re-syncs whenever the shared active project changes — including on first
+  // load, when `projectId` may already be set from localStorage before the
+  // matching `project` object has arrived, hence depending on both.
+  useEffect(() => {
+    if (projectId == null) return;
     setResult(null);
     setResultBudget(null);
     setError(null);
     try {
-      const raw = localStorage.getItem(prevKey(id));
+      const raw = localStorage.getItem(prevKey(projectId));
       setPrev(raw ? JSON.parse(raw) : null);
     } catch { setPrev(null); }
-    const p = projects?.find((x) => x.id === id);
-    setBudget(p?.total_investment != null ? String(p.total_investment) : "");
-    setParams((prevP) => { const n = new URLSearchParams(prevP); n.set("project_id", String(id)); return n; }, { replace: true });
-  };
+    setBudget(project?.total_investment != null ? String(project.total_investment) : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, project]);
 
   const run = async () => {
     if (projectId == null) return;
@@ -124,22 +117,21 @@ export default function Forecast() {
         assumptions at the bottom.
       </p>
 
-      {projects === null ? (
-        <div className="loading">Loading…</div>
-      ) : projects.length === 0 ? (
-        <EmptyState illustration={illustrations.dataTrends} title="Forecast needs a project"
-          description="Create a project, upload your store data, then forecast where the next stores should go."
-          primaryAction={{ label: "Create a project", to: "/projects/new" }} />
-      ) : (
+      <AsyncBoundary
+        loading={projects === null && !projectsError}
+        error={projectsError}
+        onRetry={loadProjects}
+        empty={projects?.length === 0}
+        emptyState={
+          <EmptyState illustration={illustrations.dataTrends} title="Forecast needs a project"
+            description="Every project gets a benchmark forecast automatically — sharper once you upload your own store data."
+            dependency="You don't have a project yet — create one to unlock forecasting."
+            primaryAction={{ label: "Create a project", to: "/projects/new" }} />
+        }
+      >
         <>
           <div className="card fc-controls" style={{ marginBottom: 24 }}>
             <div className="fc-controls-row">
-              <label className="fc-control-project">
-                Project
-                <select value={projectId ?? ""} onChange={(e) => onProject(Number(e.target.value))}>
-                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              </label>
               <label className="fc-control-budget">
                 Budget (₹)
                 <input type="number" min="1" placeholder="e.g. 20000000" value={budget}
@@ -394,35 +386,72 @@ export default function Forecast() {
                 </div>
               )}
 
-              {rp.sites.length > 0 && (
-                <div className="card">
-                  <div className="fc-card-head">
-                    <span className="kicker">Which locations yield well</span>
-                    <span className="wiz-hint">ranked best-first &mdash; not all may fit your current budget</span>
-                  </div>
-                  <ul className="list" style={{ marginTop: 10 }}>
-                    {rp.sites.map((s) => (
-                      <li key={s.pincode}>
-                        <div>
-                          <div className="primary">{s.name} &middot; {s.pincode}</div>
-                          <div className="secondary">
-                            {s.state} &middot; PPI pct {s.ppi_percentile}
-                            {s.capex != null ? ` · CapEx ${money(s.capex, true)}` : ""}
-                            {s.cannibalisation_discount < 0.98 ? ` · overlap −${Math.round((1 - s.cannibalisation_discount) * 100)}%` : ""}
-                            {s.revenue_clamped ? " · revenue capped" : ""}
-                          </div>
-                        </div>
-                        <div className="row-actions">
+              {rp.sites.length > 0 && (() => {
+                const withinBudget = rp.sites.filter((s) => s.within_budget);
+                const overBudget = rp.sites.filter((s) => !s.within_budget);
+                const maxRevenue = Math.max(...rp.sites.map((s) => s.monthly_revenue), 1);
+
+                const renderSite = (s: ForecastSite) => {
+                  const caveat = s.revenue_clamped
+                    ? "Revenue capped — this site's modelled demand exceeds what the capture-rate model trusts without more store data."
+                    : s.cannibalisation_discount < 0.98
+                    ? `Catchment overlaps another recommended site — revenue discounted ${Math.round((1 - s.cannibalisation_discount) * 100)}%.`
+                    : null;
+                  return (
+                    <DataRow
+                      key={s.pincode}
+                      title={`${s.name} · ${s.pincode}`}
+                      subtitle={s.state}
+                      chips={[
+                        <StatChip key="ppi" icon="ti ti-chart-bar">PPI {s.ppi_percentile}</StatChip>,
+                        <StatChip key="capex" icon="ti ti-currency-rupee">
+                          {s.capex != null ? `CapEx ${money(s.capex, true)}` : "CapEx —"}
+                        </StatChip>,
+                        <StatChip key="payback" icon="ti ti-hourglass">
+                          {s.payback_months != null ? `${s.payback_months} mo payback` : "payback —"}
+                        </StatChip>,
+                        <span
+                          key="caveat"
+                          className={`fc-site-caveat${caveat ? " on" : ""}`}
+                          title={caveat ?? undefined}
+                        >
+                          <i className="ti ti-alert-triangle" aria-hidden="true" />
+                        </span>,
+                      ]}
+                      trailing={
+                        <>
+                          <MicroBar value={s.monthly_revenue} max={maxRevenue} color={RUPEE} />
                           <span className={`pill ${s.within_budget ? "delta-pos" : "shortlist"}`}>
                             {s.within_budget ? `+${money(s.monthly_revenue, true)}/mo` : "needs bigger budget"}
                           </span>
-                          {s.payback_months != null && <span className="pill shortlist">{s.payback_months} mo payback</span>}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+                        </>
+                      }
+                    />
+                  );
+                };
+
+                return (
+                  <div className="card">
+                    <div className="fc-card-head">
+                      <span className="kicker">Which locations yield well</span>
+                      <span className="wiz-hint">ranked best-first &mdash; bar shows reachable revenue relative to the top site</span>
+                    </div>
+                    {withinBudget.length > 0 && <DataList>{withinBudget.map(renderSite)}</DataList>}
+                    {overBudget.length > 0 && (
+                      <div style={{ marginTop: 10 }}>
+                        <button
+                          type="button"
+                          className="fc-stale-link"
+                          onClick={() => setShowMoreSites((v) => !v)}
+                        >
+                          {showMoreSites ? "Hide" : `Show ${overBudget.length} more`} — need a bigger budget
+                        </button>
+                        {showMoreSites && <DataList>{overBudget.map(renderSite)}</DataList>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               <ForecastSummaryCard
                 headline={fundsNothing
@@ -456,7 +485,7 @@ export default function Forecast() {
             </>
           )}
         </>
-      )}
+      </AsyncBoundary>
     </>
   );
 }

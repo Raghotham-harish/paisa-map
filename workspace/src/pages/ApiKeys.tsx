@@ -1,16 +1,22 @@
 import { useEffect, useState } from "react";
 import { ApiKey, api } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
+import { DataList, DataRow } from "../components/DataList";
+import { AsyncBoundary } from "../components/AsyncBoundary";
 
 export default function ApiKeys() {
   const [keys, setKeys] = useState<ApiKey[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [label, setLabel] = useState("");
   const [creating, setCreating] = useState(false);
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = () => api.listApiKeys().then((d) => setKeys(d.api_keys));
+  const load = () => {
+    setLoadError(null);
+    api.listApiKeys().then((d) => setKeys(d.api_keys)).catch(() => setLoadError("Couldn't load your API keys — try again."));
+  };
 
   useEffect(() => {
     load();
@@ -44,8 +50,12 @@ export default function ApiKeys() {
 
   const onRevoke = async (id: number) => {
     if (!confirm("Revoke this key? Anything using it will immediately lose access.")) return;
-    await api.revokeApiKey(id);
-    load();
+    try {
+      await api.revokeApiKey(id);
+      load();
+    } catch {
+      setError("Couldn't revoke that key — try again.");
+    }
   };
 
   const active = (keys ?? []).filter((k) => !k.revoked_at);
@@ -100,46 +110,48 @@ export default function ApiKeys() {
         {error && <p style={{ color: "var(--flame)", fontSize: 13, marginTop: 10 }}>{error}</p>}
       </div>
 
-      {keys === null ? (
-        <div className="loading">Loading…</div>
-      ) : active.length === 0 ? (
-        <EmptyState icon="🔑" title="No API keys yet" description="Create one above to start calling /api/export programmatically." bare />
-      ) : (
-        <ul className="list">
+      <AsyncBoundary
+        loading={keys === null && !loadError}
+        error={loadError}
+        onRetry={load}
+        empty={active.length === 0}
+        emptyState={
+          <EmptyState icon="🔑" title="No API keys yet" description="Create one above to start calling /api/export programmatically." bare />
+        }
+      >
+        <DataList>
           {active.map((k) => (
-            <li key={k.id}>
-              <div>
-                <div className="primary">{k.label || "Untitled key"}</div>
-                <div className="secondary">
+            <DataRow
+              key={k.id}
+              title={k.label || "Untitled key"}
+              subtitle={
+                <>
                   <code>{k.key_prefix}…</code>
                   {" · "}
                   {k.last_used_at ? `last used ${new Date(k.last_used_at).toLocaleDateString()}` : "never used"}
                   {" · "}
                   {k.usage_count_today} request{k.usage_count_today === 1 ? "" : "s"} today
-                </div>
-              </div>
-              <div className="row-actions">
-                <button className="btn secondary" onClick={() => onRevoke(k.id)}>Revoke</button>
-              </div>
-            </li>
+                </>
+              }
+              trailing={<button className="btn secondary" onClick={() => onRevoke(k.id)}>Revoke</button>}
+            />
           ))}
-        </ul>
-      )}
+        </DataList>
+      </AsyncBoundary>
 
       {revoked.length > 0 && (
         <div style={{ marginTop: 24 }}>
           <p className="kicker" style={{ marginBottom: 10 }}>Revoked</p>
-          <ul className="list">
+          <DataList>
             {revoked.map((k) => (
-              <li key={k.id}>
-                <div>
-                  <div className="primary">{k.label || "Untitled key"}</div>
-                  <div className="secondary"><code>{k.key_prefix}…</code></div>
-                </div>
-                <span className="pill rejected">Revoked</span>
-              </li>
+              <DataRow
+                key={k.id}
+                title={k.label || "Untitled key"}
+                subtitle={<code>{k.key_prefix}…</code>}
+                trailing={<span className="pill rejected">Revoked</span>}
+              />
             ))}
-          </ul>
+          </DataList>
         </div>
       )}
     </>

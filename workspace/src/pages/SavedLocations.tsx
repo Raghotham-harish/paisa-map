@@ -3,16 +3,24 @@ import { api, LocationStatus, SavedLocation } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { illustrations } from "../lib/illustrations";
 import { SearchInput } from "../components/SearchInput";
+import { DataList, DataRow } from "../components/DataList";
+import { AsyncBoundary } from "../components/AsyncBoundary";
+import { UndoToastStack } from "../components/UndoToast";
+import { usePendingDelete } from "../lib/undo";
 
 const STATUS_OPTIONS: LocationStatus[] = ["shortlist", "reviewing", "approved", "rejected"];
 
 export default function SavedLocations() {
   const [locations, setLocations] = useState<SavedLocation[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [noteDrafts, setNoteDrafts] = useState<Record<number, string>>({});
   const [scores, setScores] = useState<Record<string, number | null>>({});
   const [query, setQuery] = useState("");
+  const { pending, remove, undo, isPending } = usePendingDelete();
 
   const load = () => {
+    setLoadError(null);
     api.listLocations().then((data) => {
       setLocations(data.locations);
       const drafts: Record<number, string> = {};
@@ -26,69 +34,89 @@ export default function SavedLocations() {
           .then((s) => setScores((prev) => ({ ...prev, [l.pincode]: s.economic_score })))
           .catch(() => setScores((prev) => ({ ...prev, [l.pincode]: null })));
       });
-    });
+    }).catch(() => setLoadError("Couldn't load your saved locations — try again."));
   };
 
   useEffect(load, []);
 
   const onStatusChange = async (id: number, status: LocationStatus) => {
-    await api.updateLocation(id, { status });
-    load();
+    try {
+      await api.updateLocation(id, { status });
+      load();
+    } catch {
+      setActionError("Couldn't update that status — try again.");
+    }
   };
 
   const onNotesBlur = async (id: number) => {
     const current = locations?.find((l) => l.id === id);
     if (!current || (current.notes || "") === noteDrafts[id]) return;
-    await api.updateLocation(id, { notes: noteDrafts[id] });
-    load();
+    try {
+      await api.updateLocation(id, { notes: noteDrafts[id] });
+      load();
+    } catch {
+      setActionError("Couldn't save that note — try again.");
+    }
   };
 
-  const onDelete = async (id: number) => {
-    await api.deleteLocation(id);
-    load();
+  const onDelete = (loc: SavedLocation) => {
+    remove(loc.id, `“${loc.name || loc.pincode}” removed`, async () => {
+      try {
+        await api.deleteLocation(loc.id);
+      } catch {
+        setActionError(`Couldn't remove “${loc.name || loc.pincode}” — try again.`);
+      }
+      load();
+    });
   };
 
   const q = query.trim().toLowerCase();
   const filtered = locations?.filter(
-    (l) => !q || l.pincode.includes(q) || (l.name || "").toLowerCase().includes(q)
+    (l) => !isPending(l.id) && (!q || l.pincode.includes(q) || (l.name || "").toLowerCase().includes(q))
   ) ?? [];
 
   return (
     <>
       <h1 className="page-title">Saved Locations</h1>
       <p className="page-sub">Locations you've saved from the map — tag them as you evaluate.</p>
+      {actionError && <p style={{ color: "var(--flame)", fontSize: 13, marginBottom: 18 }}>{actionError}</p>}
 
-      {locations === null ? (
-        <div className="loading">Loading…</div>
-      ) : locations.length === 0 ? (
-        <EmptyState
-          illustration={illustrations.locationSearch}
-          title="No saved locations yet"
-          description="Save a pincode from the map to start building your shortlist — you'll be able to tag, note, and score each one here."
-          primaryAction={{ label: "Open the map", href: "/" }}
-        />
-      ) : (
+      <AsyncBoundary
+        loading={locations === null && !loadError}
+        error={loadError}
+        onRetry={load}
+        empty={locations?.length === 0}
+        emptyState={
+          <EmptyState
+            illustration={illustrations.locationSearch}
+            title="No saved locations yet"
+            description="Save a pincode from the map to start building your shortlist — you'll be able to tag, note, and score each one here."
+            primaryAction={{ label: "Open the map", href: "/" }}
+          />
+        }
+      >
         <>
         <SearchInput value={query} onChange={setQuery} placeholder="Search by name or pincode…" />
         {filtered.length === 0 ? (
           <EmptyState icon="🔍" title="No matches" description={`Nothing matches "${query}".`} />
         ) : (
-        <ul className="list">
+        <DataList>
           {filtered.map((loc) => (
-            <li key={loc.id} style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <div>
-                  <div className="primary">{loc.name || loc.pincode}</div>
-                  <div className="secondary">
-                    {loc.pincode}
-                    {loc.pincode in scores && scores[loc.pincode] !== null && (
-                      <span style={{ marginLeft: 8, fontFamily: "var(--mono)", color: "var(--rupee-deep)" }}>
-                        Economic score {scores[loc.pincode]}/100
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="row-actions">
+            <DataRow
+              key={loc.id}
+              title={loc.name || loc.pincode}
+              subtitle={
+                <>
+                  {loc.pincode}
+                  {loc.pincode in scores && scores[loc.pincode] !== null && (
+                    <span style={{ marginLeft: 8, fontFamily: "var(--mono)", color: "var(--rupee-deep)" }}>
+                      Economic score {scores[loc.pincode]}/100
+                    </span>
+                  )}
+                </>
+              }
+              trailing={
+                <>
                   <select value={loc.status} onChange={(e) => onStatusChange(loc.id, e.target.value as LocationStatus)}>
                     {STATUS_OPTIONS.map((s) => (
                       <option key={s} value={s}>
@@ -96,25 +124,28 @@ export default function SavedLocations() {
                       </option>
                     ))}
                   </select>
-                  <button className="btn secondary" onClick={() => onDelete(loc.id)}>
+                  <button className="btn secondary" onClick={() => onDelete(loc)}>
                     Remove
                   </button>
-                </div>
-              </div>
-              <input
-                type="text"
-                className="notes-input"
-                placeholder="Notes — e.g. rent, competition, availability…"
-                value={noteDrafts[loc.id] ?? ""}
-                onChange={(e) => setNoteDrafts({ ...noteDrafts, [loc.id]: e.target.value })}
-                onBlur={() => onNotesBlur(loc.id)}
-              />
-            </li>
+                </>
+              }
+              footer={
+                <input
+                  type="text"
+                  className="notes-input"
+                  placeholder="Notes — e.g. rent, competition, availability…"
+                  value={noteDrafts[loc.id] ?? ""}
+                  onChange={(e) => setNoteDrafts({ ...noteDrafts, [loc.id]: e.target.value })}
+                  onBlur={() => onNotesBlur(loc.id)}
+                />
+              }
+            />
           ))}
-        </ul>
+        </DataList>
         )}
         </>
-      )}
+      </AsyncBoundary>
+      <UndoToastStack toasts={pending ? [{ key: "location", label: pending.label, onUndo: undo }] : []} />
     </>
   );
 }

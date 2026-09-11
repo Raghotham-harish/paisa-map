@@ -40,7 +40,13 @@ body{
   display:block; margin-bottom:28px; text-decoration:none; line-height:0;
 }
 .sidenav .brand img{ display:block; }
-.sidenav nav{ display:flex; flex-direction:column; gap:2px; }
+.sidenav nav{ display:flex; flex-direction:column; }
+.sidenav-section{ display:flex; flex-direction:column; gap:2px; margin-top:16px; }
+.sidenav-section:first-child{ margin-top:0; }
+.sidenav-section-label{
+  font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--ink-soft); opacity:.75; padding:0 10px 5px;
+}
 .sidenav nav a{
   display:flex; align-items:center; gap:10px;
   padding:9px 10px; border-radius:var(--radius); color:var(--ink-soft);
@@ -85,6 +91,26 @@ body{
 .sidenav .back i{ font-size:14px; width:14px; text-align:center; }
 .sidenav .back:hover{ color:var(--ink); }
 
+.workspace-col{ flex:1; display:flex; flex-direction:column; min-width:0; }
+
+.topbar{
+  display:flex; align-items:center; justify-content:flex-end; gap:14px;
+  padding:10px 40px; border-bottom:1px solid var(--border); background:var(--paper);
+}
+.topbar-switcher{ display:flex; align-items:center; gap:9px; }
+.topbar-switcher-label{
+  font-family:var(--mono); font-size:10.5px; font-weight:700; letter-spacing:.06em;
+  text-transform:uppercase; color:var(--ink-soft);
+}
+.topbar-switcher select{ font-size:13px; padding:5px 9px; border-radius:7px; width:auto; min-width:170px; }
+.topbar-switcher-meta{ font-size:11.5px; color:var(--ink-soft); white-space:nowrap; }
+.topbar-switcher-loading{ display:inline-block; width:180px; height:14px; margin:0; }
+.topbar-new-project{
+  display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:var(--rupee-deep);
+  text-decoration:none; background:var(--paper-2); border:1px solid var(--border); border-radius:999px; padding:6px 13px;
+}
+.topbar-new-project:hover{ background:#E1EFD9; }
+
 main.content{ flex:1; padding:36px 40px; max-width:880px; }
 main.content.content-wide{ max-width:1240px; }
 /* Body-text links (wiz hints, empty-state copy, callouts) — brand green, not
@@ -94,6 +120,26 @@ main.content a:not(.btn):hover{ text-decoration:underline; }
 
 h1.page-title{ font-size:22px; font-weight:700; margin:0 0 4px; }
 p.page-sub{ color:var(--ink-soft); font-size:13.5px; margin:0 0 28px; }
+
+.undo-toast-stack{
+  position:fixed; left:50%; bottom:24px; transform:translateX(-50%); z-index:70;
+  display:flex; flex-direction:column; align-items:center; gap:8px;
+}
+.undo-toast{
+  display:flex; align-items:center; gap:14px; background:var(--ink); color:#fff;
+  border-radius:var(--radius-lg); box-shadow:var(--shadow-1); padding:11px 14px 11px 18px; font-size:13.5px;
+}
+.undo-toast .btn.secondary{
+  background:transparent; color:#fff; border-color:rgba(255,255,255,.35); padding:6px 12px; font-size:12.5px;
+}
+.undo-toast .btn.secondary:hover{ background:rgba(255,255,255,.12); }
+
+.return-banner{
+  display:inline-flex; align-items:center; gap:7px; font-size:12.5px; font-weight:600;
+  color:var(--rupee-deep); text-decoration:none; margin-bottom:12px;
+}
+.return-banner:hover{ text-decoration:underline; }
+.return-banner i{ font-size:13px; }
 
 .card{
   background:#fff; border:1px solid var(--border); border-radius:var(--radius-lg);
@@ -133,29 +179,72 @@ input:focus, textarea:focus, select:focus{ outline:2px solid var(--amber); outli
   display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--ink-soft); font-weight:500;
 }
 
-.project-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
-.project-list li{
-  display:flex; align-items:center; justify-content:space-between; gap:12px;
-  background:#fff; border:1px solid var(--border); border-radius:var(--radius);
-  padding:13px 16px;
-}
-.project-list .name{ font-weight:600; font-size:14px; }
-.project-list .meta{ font-size:12px; color:var(--ink-soft); }
-.project-list .desc{ font-size:12.5px; color:var(--ink-soft); margin-top:2px; }
-
 .new-project-form{ display:flex; gap:10px; margin-bottom:14px; flex-wrap:wrap; align-items:flex-start; }
 .new-project-form input:not(.field-grid input){ flex:1; min-width:200px; }
 .new-project-form .field-grid{ flex:1 1 100%; }
 .new-project-form .btn{ align-self:flex-start; }
 
-.project-list li{ flex-direction:column; align-items:stretch; gap:8px; }
-.project-list .row-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; cursor:pointer; }
-.project-list .biz-meta{ display:flex; gap:12px; flex-wrap:wrap; font-size:12px; color:var(--ink-soft); }
-.project-list .biz-meta b{ color:var(--ink); font-weight:600; }
-.project-list .biz-meta a{ color:var(--rupee-deep); text-decoration:none; }
-.project-list .biz-meta a:hover{ text-decoration:underline; }
-.project-list .edit-panel{
+/* ───────────────────────── Shared list/row primitives ─────────────────────────
+   One row shape for every list in the workspace (was a `.project-list` vs
+   `.list` split with near-duplicate CSS) — fixed min-height, consistent
+   title/subtitle/chips/trailing/footer/expanded slots. See DataList.tsx. */
+.data-list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
+.data-row{
+  background:#fff; border:1px solid var(--border); border-radius:var(--radius);
+  padding:13px 16px; display:flex; flex-direction:column; gap:8px;
+}
+.data-row-top{
+  display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  min-height:28px;
+}
+.data-row-top.clickable{ cursor:pointer; }
+.data-row-main{ min-width:0; flex:1; }
+.data-row-title{ font-weight:600; font-size:14px; }
+.data-row-subtitle{ font-size:12.5px; color:var(--ink-soft); margin-top:2px; }
+.data-row-chips{ display:flex; gap:12px; flex-wrap:wrap; font-size:12px; color:var(--ink-soft); margin-top:6px; }
+.data-row-chips b{ color:var(--ink); font-weight:600; }
+.data-row-chips a{ color:var(--rupee-deep); text-decoration:none; }
+.data-row-chips a:hover{ text-decoration:underline; }
+.data-row-trailing{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.data-row-expanded{
   border-top:1px solid var(--border); padding-top:10px; display:flex; flex-direction:column; gap:8px;
+}
+/* row-level ".meta" (a plain date/fact, not a chip) keeps the old look for trailing content */
+.data-row .meta{ font-size:12px; color:var(--ink-soft); white-space:nowrap; }
+
+.stat-chip{
+  display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:600;
+  color:var(--ink-soft); background:var(--paper-2); border:1px solid var(--border);
+  border-radius:999px; padding:3px 9px;
+}
+.stat-chip i{ font-size:11px; }
+.stat-chip.tone-pos{ color:var(--rupee-deep); background:#E1EFD9; border-color:#CBDDBE; }
+.stat-chip.tone-neg{ color:var(--flame); background:#F6DEDE; border-color:#EAC5C5; }
+.stat-chip.tone-warn{ color:#8A5A00; background:#FCF0D6; border-color:#E6D3A0; }
+
+.micro-bar{
+  display:inline-block; width:64px; height:6px; border-radius:3px; background:var(--paper-3);
+  overflow:hidden; vertical-align:middle;
+}
+.micro-bar-fill{ display:block; height:100%; border-radius:3px; }
+
+.sparkline{ display:inline-block; vertical-align:middle; }
+
+/* ───────────────────────── Async loading/error/empty (AsyncBoundary) ───────────────────────── */
+@keyframes skeleton-shimmer{ 0%{ background-position:-120px 0; } 100%{ background-position:120px 0; } }
+.skeleton-line{
+  height:12px; border-radius:4px; margin:5px 0; width:70%;
+  background:linear-gradient(90deg, var(--paper-3) 25%, var(--paper-2) 37%, var(--paper-3) 63%);
+  background-size:240px 100%; animation:skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-row .skeleton-line-title{ width:45%; height:14px; }
+.skeleton-row .skeleton-line-subtitle{ width:30%; }
+.skeleton-card .skeleton-line:first-child{ margin-top:0; }
+
+.async-error{
+  display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  background:#F6DEDE; border:1px solid #EAC5C5; color:var(--flame);
+  border-radius:var(--radius); padding:12px 14px; font-size:13px;
 }
 
 .empty-state{
@@ -175,16 +264,6 @@ input:focus, textarea:focus, select:focus{ outline:2px solid var(--amber); outli
 .empty-state .actions{ display:flex; gap:10px; margin-top:4px; flex-wrap:wrap; justify-content:center; }
 
 .search-input{ max-width:320px; margin-bottom:14px; }
-
-.list{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
-.list li{
-  background:#fff; border:1px solid var(--border); border-radius:var(--radius);
-  padding:13px 16px; display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
-}
-.list .primary{ font-weight:600; font-size:14px; }
-.list .secondary{ font-size:12px; color:var(--ink-soft); margin-top:2px; }
-.list .meta{ font-size:12px; color:var(--ink-soft); white-space:nowrap; }
-.list .row-actions{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
 
 .pill{
   font-family:var(--mono); font-size:10.5px; letter-spacing:.03em; text-transform:uppercase;
@@ -256,7 +335,6 @@ input:focus, textarea:focus, select:focus{ outline:2px solid var(--amber); outli
 }
 /* ── forecast controls ── */
 .fc-controls-row{ display:flex; gap:14px; align-items:flex-end; flex-wrap:wrap; }
-.fc-control-project{ flex:1 1 260px; max-width:420px; display:flex; flex-direction:column; gap:5px; font-size:11.5px; color:var(--ink-soft); font-weight:600; }
 .fc-control-budget{ flex:0 0 190px; display:flex; flex-direction:column; gap:5px; font-size:11.5px; color:var(--ink-soft); font-weight:600; }
 .fc-control-cost{ padding-bottom:9px; }
 .fc-stale{
@@ -286,6 +364,11 @@ input:focus, textarea:focus, select:focus{ outline:2px solid var(--amber); outli
 .fc-chart-card > svg{ display:block; width:100%; height:auto; }
 .fc-nudge svg{ width:15px; height:15px; flex:none; }
 .fc-chart-note{ font-size:12px; color:var(--ink-soft); line-height:1.55; margin:12px 0 0; }
+
+/* Fixed-size slot in the site list's chip row — present on every row so row
+   height never depends on whether a site happens to have a caveat (E3). */
+.fc-site-caveat{ display:inline-flex; align-items:center; justify-content:center; width:16px; color:transparent; }
+.fc-site-caveat.on{ color:#8A5A00; cursor:help; }
 .fc-chart-legend{ display:flex; flex-wrap:wrap; gap:16px; margin:2px 0 14px; }
 .fc-chart-legend-item{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--ink); }
 .fc-chart-legend-item i{ width:11px; height:11px; border-radius:3px; flex:none; }

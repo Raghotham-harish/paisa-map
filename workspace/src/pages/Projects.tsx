@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, Project, ProjectFields } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { SearchInput } from "../components/SearchInput";
+import { DataList, DataRow } from "../components/DataList";
+import { AsyncBoundary } from "../components/AsyncBoundary";
+import { UndoToastStack } from "../components/UndoToast";
+import { usePendingDelete } from "../lib/undo";
 
 const EMPTY_FIELDS: ProjectFields = {
   name: "", description: "", business_type: "", target_segment: "", avg_ticket: "", website_url: "",
@@ -59,6 +63,7 @@ function BusinessFields({
 
 export default function Projects() {
   const [projects, setProjects] = useState<Project[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [newFields, setNewFields] = useState<ProjectFields>(EMPTY_FIELDS);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,9 +71,13 @@ export default function Projects() {
   const [editFields, setEditFields] = useState<ProjectFields>(EMPTY_FIELDS);
   const [query, setQuery] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
+  const { pending, remove, undo, isPending } = usePendingDelete();
 
   const load = () => {
-    api.listProjects().then((data) => setProjects(data.projects));
+    setLoadError(null);
+    api.listProjects()
+      .then((data) => setProjects(data.projects))
+      .catch(() => setLoadError("Couldn't load your projects — try again."));
   };
 
   useEffect(load, []);
@@ -89,9 +98,15 @@ export default function Projects() {
     }
   };
 
-  const onDelete = async (id: number) => {
-    await api.deleteProject(id);
-    load();
+  const onDelete = (p: Project) => {
+    remove(p.id, `“${p.name}” deleted`, async () => {
+      try {
+        await api.deleteProject(p.id);
+      } catch {
+        setError(`Couldn't delete “${p.name}” — try again.`);
+      }
+      load();
+    });
   };
 
   const startEdit = (p: Project) => {
@@ -138,84 +153,94 @@ export default function Projects() {
       </form>
       {error && <p style={{ color: "var(--flame)", fontSize: 13, marginBottom: 18 }}>{error}</p>}
 
-      {projects === null ? (
-        <div className="loading">Loading projects…</div>
-      ) : projects.length === 0 ? (
-        <EmptyState
-          icon="🗂️"
-          title="Create your first project"
-          description="A project groups saved locations, comparisons, and reports for one expansion effort — e.g. one city or one business line."
-          primaryAction={{ label: "Get started", onClick: () => nameInputRef.current?.focus() }}
-        />
-      ) : (
+      <AsyncBoundary
+        loading={projects === null && !loadError}
+        error={loadError}
+        onRetry={load}
+        empty={projects?.length === 0}
+        emptyState={
+          <EmptyState
+            icon="🗂️"
+            title="Create your first project"
+            description="A project groups saved locations, comparisons, and reports for one expansion effort — e.g. one city or one business line."
+            primaryAction={{ label: "Get started", onClick: () => nameInputRef.current?.focus() }}
+          />
+        }
+      >
         <>
         <SearchInput value={query} onChange={setQuery} placeholder="Search projects…" />
         {(() => {
           const q = query.trim().toLowerCase();
-          const filtered = projects.filter(
-            (p) => !q || p.name.toLowerCase().includes(q) || (p.business_type || "").toLowerCase().includes(q)
+          const filtered = (projects ?? []).filter(
+            (p) => !isPending(p.id) && (!q || p.name.toLowerCase().includes(q) || (p.business_type || "").toLowerCase().includes(q))
           );
           if (filtered.length === 0) {
             return <EmptyState icon="🔍" title="No matches" description={`Nothing matches "${query}".`} />;
           }
           return (
-        <ul className="project-list">
-          {filtered.map((p) => (
-            <li key={p.id}>
-              <div className="row-top" onClick={() => (editingId === p.id ? setEditingId(null) : startEdit(p))}>
-                <div>
-                  <div className="name">{p.name}</div>
-                  {p.description && <div className="desc">{p.description}</div>}
-                  {(p.business_type || p.target_segment || p.avg_ticket || p.website_url) && (
-                    <div className="biz-meta">
-                      {p.business_type && <span><b>{p.business_type}</b></span>}
-                      {p.target_segment && <span>{p.target_segment}</span>}
-                      {p.avg_ticket != null && <span>avg ticket ₹{p.avg_ticket}</span>}
-                      {p.website_url && (
-                        <a
-                          href={p.website_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {p.website_url.replace(/^https?:\/\//, "")}
-                        </a>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <span className="meta">{new Date(p.updated_at).toLocaleDateString()}</span>
-                  <button
-                    className="btn secondary"
-                    onClick={(e) => { e.stopPropagation(); onDelete(p.id); }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-              {editingId === p.id && (
-                <div className="edit-panel" onClick={(e) => e.stopPropagation()}>
-                  <input
-                    type="text"
-                    placeholder="Description"
-                    value={editFields.description || ""}
-                    onChange={(e) => setEditFields({ ...editFields, description: e.target.value })}
-                  />
-                  <BusinessFields fields={editFields} onChange={setEditFields} />
-                  <div style={{ display: "flex", gap: 10 }}>
-                    <button className="btn" onClick={() => onSaveEdit(p.id)}>Save</button>
-                    <button className="btn secondary" onClick={() => setEditingId(null)}>Cancel</button>
-                  </div>
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
+        <DataList>
+          {filtered.map((p) => {
+            const chips: ReactNode[] = [];
+            if (p.business_type) chips.push(<b key="bt">{p.business_type}</b>);
+            if (p.target_segment) chips.push(<span key="ts">{p.target_segment}</span>);
+            if (p.avg_ticket != null) chips.push(<span key="at">avg ticket ₹{p.avg_ticket}</span>);
+            if (p.website_url) {
+              chips.push(
+                <a
+                  key="url"
+                  href={p.website_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {p.website_url.replace(/^https?:\/\//, "")}
+                </a>
+              );
+            }
+            return (
+              <DataRow
+                key={p.id}
+                title={p.name}
+                subtitle={p.description}
+                chips={chips}
+                onToggle={() => (editingId === p.id ? setEditingId(null) : startEdit(p))}
+                trailing={
+                  <>
+                    <span className="meta">{new Date(p.updated_at).toLocaleDateString()}</span>
+                    <button
+                      className="btn secondary"
+                      onClick={(e) => { e.stopPropagation(); onDelete(p); }}
+                    >
+                      Delete
+                    </button>
+                  </>
+                }
+                expanded={
+                  editingId === p.id ? (
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Description"
+                        value={editFields.description || ""}
+                        onChange={(e) => setEditFields({ ...editFields, description: e.target.value })}
+                      />
+                      <BusinessFields fields={editFields} onChange={setEditFields} />
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <button className="btn" onClick={() => onSaveEdit(p.id)}>Save</button>
+                        <button className="btn secondary" onClick={() => setEditingId(null)}>Cancel</button>
+                      </div>
+                    </>
+                  ) : undefined
+                }
+              />
+            );
+          })}
+        </DataList>
           );
         })()}
         </>
-      )}
+      </AsyncBoundary>
+      <UndoToastStack toasts={pending ? [{ key: "project", label: pending.label, onUndo: undo }] : []} />
     </>
   );
 }

@@ -2,9 +2,12 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   ApiError, api, ConnectionProperty, ConnectionProvider, EcommerceSummary, GA4ReportRow, GSCReportRow,
-  OAuthConnection, Project,
+  OAuthConnection,
 } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
+import { AsyncBoundary } from "../components/AsyncBoundary";
+import { ReturnBanner } from "../components/ReturnTo";
+import { useWorkspace } from "../lib/workspace";
 
 const PROVIDERS: { id: ConnectionProvider; label: string; description: string }[] = [
   {
@@ -25,8 +28,7 @@ function isGA4Row(row: GA4ReportRow | GSCReportRow): row is GA4ReportRow {
 
 export default function Connections() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [projects, setProjects] = useState<Project[] | null>(null);
-  const [projectId, setProjectId] = useState<number | null>(null);
+  const { projects, activeProjectId: projectId, loadError: projectsError, reload: loadProjects } = useWorkspace();
   const [consentAt, setConsentAt] = useState<string | null>(null);
   const [connections, setConnections] = useState<OAuthConnection[]>([]);
   const [consentChecked, setConsentChecked] = useState(false);
@@ -37,19 +39,6 @@ export default function Connections() {
   const [ecommerce, setEcommerce] = useState<EcommerceSummary | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.listProjects().then((data) => {
-      setProjects(data.projects);
-      const fromUrl = Number(searchParams.get("project_id"));
-      if (fromUrl && data.projects.some((p) => p.id === fromUrl)) {
-        setProjectId(fromUrl);
-      } else if (data.projects.length > 0) {
-        setProjectId(data.projects[0].id);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     const connected = searchParams.get("connected");
@@ -67,7 +56,7 @@ export default function Connections() {
     api.getConnections(pid).then((data) => {
       setConsentAt(data.analytics_consent_at);
       setConnections(data.connections);
-    });
+    }).catch(() => setError("Couldn't load this project's connections — try again."));
   };
 
   useEffect(() => {
@@ -78,9 +67,12 @@ export default function Connections() {
   const onAcceptConsent = async () => {
     if (projectId == null) return;
     setAccepting(true);
+    setError(null);
     try {
       await api.acceptConnectionsConsent(projectId);
       load(projectId);
+    } catch {
+      setError("Couldn't save your consent — try again.");
     } finally {
       setAccepting(false);
     }
@@ -114,9 +106,12 @@ export default function Connections() {
   const onSelectProperty = async (provider: ConnectionProvider, ref: string) => {
     if (projectId == null || !ref) return;
     setBusy(`select:${provider}`);
+    setError(null);
     try {
       await api.selectConnectionProperty(projectId, provider, ref);
       load(projectId);
+    } catch {
+      setError("Couldn't select that property — try again.");
     } finally {
       setBusy(null);
     }
@@ -154,12 +149,15 @@ export default function Connections() {
     if (projectId == null) return;
     if (!confirm("Disconnect and permanently delete the stored access tokens for this connection?")) return;
     setBusy(`disconnect:${provider}`);
+    setError(null);
     try {
       await api.disconnectConnection(projectId, provider);
       setReportByProvider((prev) => ({ ...prev, [provider]: undefined }));
       setPropertiesByProvider((prev) => ({ ...prev, [provider]: undefined }));
       if (provider === "google_analytics") setEcommerce(null);
       load(projectId);
+    } catch {
+      setError("Couldn't disconnect — try again.");
     } finally {
       setBusy(null);
     }
@@ -167,6 +165,7 @@ export default function Connections() {
 
   return (
     <>
+      <ReturnBanner />
       <h1 className="page-title">Connections</h1>
       <p className="page-sub">
         Link a project's own Google Analytics and Search Console data so PaisaMap can blend your real traffic and
@@ -183,28 +182,22 @@ export default function Connections() {
       )}
       {error && <p style={{ color: "var(--flame)", fontSize: 13, marginBottom: 18 }}>{error}</p>}
 
-      {projects === null ? (
-        <div className="loading">Loading…</div>
-      ) : projects.length === 0 ? (
-        <EmptyState
-          icon="🔗"
-          title="Connections need a project first"
-          description="Create a project, then connect its Google Analytics or Search Console account here."
-          primaryAction={{ label: "Create a project", to: "/projects" }}
-        />
-      ) : (
+      <AsyncBoundary
+        loading={projects === null && !projectsError}
+        error={projectsError}
+        onRetry={loadProjects}
+        empty={projects?.length === 0}
+        emptyState={
+          <EmptyState
+            icon="🔗"
+            title="Connections need a project first"
+            description="Link a project's own Google Analytics and Search Console data so PaisaMap can blend your real traffic and search-intent data with its own pincode-level signals."
+            dependency="You don't have a project yet — create one to unlock connections."
+            primaryAction={{ label: "Create a project", to: "/projects" }}
+          />
+        }
+      >
         <>
-          <div className="card" style={{ marginBottom: 24 }}>
-            <label>
-              Project
-              <select value={projectId ?? ""} onChange={(e) => setProjectId(Number(e.target.value))}>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-
           {!consentAt ? (
             <div className="card">
               <h3 style={{ marginTop: 0 }}>Data-processing consent</h3>
@@ -433,7 +426,7 @@ export default function Connections() {
             </div>
           )}
         </>
-      )}
+      </AsyncBoundary>
     </>
   );
 }

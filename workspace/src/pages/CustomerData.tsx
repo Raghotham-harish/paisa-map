@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import {
   ApiError, api, CanonicalField, CustomerLocation, CustomerUpload,
-  DriverAnalysis, ExpansionRecommendation, LocationTagsResponse, Project,
+  DriverAnalysis, ExpansionRecommendation, LocationTagsResponse,
 } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { illustrations } from "../lib/illustrations";
+import { DataList, DataRow } from "../components/DataList";
+import { AsyncBoundary } from "../components/AsyncBoundary";
+import { ReturnBanner } from "../components/ReturnTo";
+import { UndoToastStack } from "../components/UndoToast";
+import { useWorkspace } from "../lib/workspace";
+import { usePendingDelete } from "../lib/undo";
 
 const DRIVER_MIN_SAMPLES = 5;
 
@@ -33,8 +39,9 @@ function money(n: number | null) {
 }
 
 export default function CustomerData() {
-  const [projects, setProjects] = useState<Project[] | null>(null);
-  const [projectId, setProjectId] = useState<number | null>(null);
+  const { projects, activeProjectId: projectId, loadError: projectsError, reload: loadProjects } = useWorkspace();
+  const { pending: pendingLocation, remove: removeLocation, undo: undoLocation, isPending: isPendingLocation } = usePendingDelete();
+  const { pending: pendingUpload, remove: removeUpload, undo: undoUpload, isPending: isPendingUpload } = usePendingDelete();
   const [upload, setUpload] = useState<CustomerUpload | null>(null);
   const [mapping, setMapping] = useState<Partial<Record<CanonicalField, string>>>({});
   const [locations, setLocations] = useState<CustomerLocation[] | null>(null);
@@ -50,25 +57,23 @@ export default function CustomerData() {
   const [locationTags, setLocationTags] = useState<LocationTagsResponse | null>(null);
   const [locationTagsLoading, setLocationTagsLoading] = useState(false);
   const [locationTagsMessage, setLocationTagsMessage] = useState<string | null>(null);
+  const [locationsError, setLocationsError] = useState<string | null>(null);
+  const [driversError, setDriversError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    api.listProjects().then((data) => {
-      setProjects(data.projects);
-      if (data.projects.length > 0) setProjectId(data.projects[0].id);
-    });
-  }, []);
-
   const loadForProject = (pid: number) => {
-    api.listCustomerLocations(pid).then((data) => setLocations(data.locations));
-    api.listCustomerUploads(pid).then((data) => setPastUploads(data.uploads));
-    api.getDriverAnalysis(pid).then(setDrivers);
+    setLocationsError(null);
+    setDriversError(null);
+    api.listCustomerLocations(pid).then((data) => setLocations(data.locations)).catch(() => setLocationsError("Couldn't load your store data — try again."));
+    api.listCustomerUploads(pid).then((data) => setPastUploads(data.uploads)).catch(() => {});
+    api.getDriverAnalysis(pid).then(setDrivers).catch(() => setDriversError("Couldn't load driver analysis — try again."));
   };
 
   useEffect(() => {
     if (projectId != null) {
       loadForProject(projectId);
+      setUpload(null);
       setRecommendation(null);
       setBudget("");
       setLocationTags(null);
@@ -115,11 +120,16 @@ export default function CustomerData() {
   const startPolling = (uploadId: number) => {
     stopPolling();
     pollRef.current = window.setInterval(async () => {
-      const { upload: updated } = await api.getCustomerUpload(uploadId);
-      setUpload(updated);
-      if (updated.status !== "geocoding") {
+      try {
+        const { upload: updated } = await api.getCustomerUpload(uploadId);
+        setUpload(updated);
+        if (updated.status !== "geocoding") {
+          stopPolling();
+          if (projectId != null) loadForProject(projectId);
+        }
+      } catch {
         stopPolling();
-        if (projectId != null) loadForProject(projectId);
+        setError("Lost track of that import's progress — refresh to check its status.");
       }
     }, 2000);
   };
@@ -159,15 +169,28 @@ export default function CustomerData() {
     }
   };
 
-  const onDeleteUpload = async (id: number) => {
-    await api.deleteCustomerUpload(id);
-    if (upload?.id === id) setUpload(null);
-    if (projectId != null) loadForProject(projectId);
+  const onDeleteUpload = (u: CustomerUpload) => {
+    removeUpload(u.id, `“${u.filename}” deleted`, async () => {
+      try {
+        await api.deleteCustomerUpload(u.id);
+        if (upload?.id === u.id) setUpload(null);
+      } catch {
+        setError(`Couldn't delete “${u.filename}” — try again.`);
+      }
+      if (projectId != null) loadForProject(projectId);
+    });
   };
 
-  const onDeleteLocation = async (id: number) => {
-    await api.deleteCustomerLocation(id);
-    setLocations((prev) => prev && prev.filter((l) => l.id !== id));
+  const onDeleteLocation = (loc: CustomerLocation) => {
+    const label = loc.store_name || loc.pincode || loc.raw_address || `Location #${loc.id}`;
+    removeLocation(loc.id, `“${label}” deleted`, async () => {
+      try {
+        await api.deleteCustomerLocation(loc.id);
+        setLocations((prev) => prev && prev.filter((l) => l.id !== loc.id));
+      } catch {
+        setError(`Couldn't delete “${label}” — try again.`);
+      }
+    });
   };
 
   const onRecommend = async () => {
@@ -191,33 +214,29 @@ export default function CustomerData() {
 
   return (
     <>
+      <ReturnBanner />
       <h1 className="page-title">Store Data</h1>
       <p className="page-sub">
         Upload your own store performance (revenue, rent, CapEx) and see it joined against PaisaMap's signals.
       </p>
 
-      {projects === null ? (
-        <div className="loading">Loading…</div>
-      ) : projects.length === 0 ? (
-        <EmptyState
-          illustration={illustrations.folderFiles}
-          title="Store data needs a project first"
-          description="Upload your stores' address and revenue data into a project to see it enriched with location intelligence."
-          dependency="You don't have a project yet — create one to unlock uploads."
-          primaryAction={{ label: "Create a project", to: "/projects" }}
-        />
-      ) : (
+      <AsyncBoundary
+        loading={projects === null && !projectsError}
+        error={projectsError}
+        onRetry={loadProjects}
+        empty={projects?.length === 0}
+        emptyState={
+          <EmptyState
+            illustration={illustrations.folderFiles}
+            title="Store data needs a project first"
+            description="Upload your stores' address and revenue data into a project to see it enriched with location intelligence."
+            dependency="You don't have a project yet — create one to unlock uploads."
+            primaryAction={{ label: "Create a project", to: "/projects" }}
+          />
+        }
+      >
         <>
           <div className="card" style={{ marginBottom: 24 }}>
-            <label>
-              Project
-              <select value={projectId ?? ""} onChange={(e) => { setProjectId(Number(e.target.value)); setUpload(null); }}>
-                {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </label>
-
             {!upload && (
               <div style={{ marginTop: 14 }}>
                 <input
@@ -319,79 +338,89 @@ export default function CustomerData() {
             )}
           </div>
 
-          {locations === null ? (
-            <div className="loading">Loading…</div>
-          ) : locations.length === 0 ? (
-            <EmptyState illustration={illustrations.folderFiles} title="No store data yet" description="Upload a CSV or Excel file above to get started." bare />
-          ) : (
-            <ul className="list">
-              {locations.map((loc) => (
-                <li key={loc.id} style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                    <div>
-                      <div className="primary">{loc.store_name || loc.pincode || loc.raw_address || `Location #${loc.id}`}</div>
-                      <div className="secondary">
-                        {[loc.pincode, loc.raw_address].filter(Boolean).join(" · ") || "No location resolved"}
-                        {" · "}Revenue {money(loc.revenue)} · Rent {money(loc.rent)} · CapEx {money(loc.capex)}
-                      </div>
+          <AsyncBoundary
+            loading={locations === null && !locationsError}
+            error={locationsError}
+            onRetry={() => projectId != null && loadForProject(projectId)}
+            empty={locations?.length === 0}
+            emptyState={
+              <EmptyState illustration={illustrations.folderFiles} title="No store data yet" description="Upload a CSV or Excel file above to get started." bare />
+            }
+          >
+            <DataList>
+              {(locations ?? []).filter((loc) => !isPendingLocation(loc.id)).map((loc) => (
+                <DataRow
+                  key={loc.id}
+                  title={loc.store_name || loc.pincode || loc.raw_address || `Location #${loc.id}`}
+                  subtitle={
+                    <>
+                      {[loc.pincode, loc.raw_address].filter(Boolean).join(" · ") || "No location resolved"}
+                      {" · "}Revenue {money(loc.revenue)} · Rent {money(loc.rent)} · CapEx {money(loc.capex)}
                       {loc.extra_fields && Object.keys(loc.extra_fields).length > 0 && (
                         <details style={{ marginTop: 4 }}>
                           <summary style={{ fontSize: 11.5, color: "var(--ink-soft)", cursor: "pointer" }}>
                             {Object.keys(loc.extra_fields).length} extra column{Object.keys(loc.extra_fields).length > 1 ? "s" : ""} from your file
                           </summary>
-                          <div className="secondary" style={{ marginTop: 4 }}>
+                          <div style={{ marginTop: 4 }}>
                             {Object.entries(loc.extra_fields).map(([k, v]) => `${k}: ${v}`).join(" · ")}
                           </div>
                         </details>
                       )}
-                    </div>
-                    <div className="row-actions">
+                    </>
+                  }
+                  trailing={
+                    <>
                       <span className={`pill ${GEOCODE_CLASS[loc.geocode_status]}`}>{loc.geocode_status}</span>
                       {loc.intelligence && (
                         <span className={`pill ${RISK_CLASS[loc.intelligence.risk.level]}`}>
                           score {loc.intelligence.economic_score ?? "—"}/100
                         </span>
                       )}
-                      <button className="btn secondary" onClick={() => onDeleteLocation(loc.id)}>Delete</button>
-                    </div>
-                  </div>
-                </li>
+                      <button className="btn secondary" onClick={() => onDeleteLocation(loc)}>Delete</button>
+                    </>
+                  }
+                />
               ))}
-            </ul>
-          )}
+            </DataList>
+          </AsyncBoundary>
 
           {locations !== null && locations.length > 0 && (
             <div className="card" style={{ marginTop: 24 }}>
               <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--mono)", letterSpacing: ".06em", textTransform: "uppercase" }}>
                 What drives your stores?
               </p>
-              {drivers === null ? (
-                <div className="loading">Loading…</div>
-              ) : !drivers.sufficient_data ? (
-                <EmptyState
-                  icon="📈"
-                  title="Not enough data yet"
-                  description={`Driver analysis needs at least ${DRIVER_MIN_SAMPLES} stores with both a resolved location and revenue — you have ${drivers.sample_size} so far.`}
-                  bare
-                />
-              ) : (
+              <AsyncBoundary
+                loading={drivers === null && !driversError}
+                error={driversError}
+                onRetry={() => projectId != null && loadForProject(projectId)}
+                empty={drivers != null && !drivers.sufficient_data}
+                emptyState={
+                  <EmptyState
+                    icon="📈"
+                    title="Not enough data yet"
+                    description={`Driver analysis needs at least ${DRIVER_MIN_SAMPLES} stores with both a resolved location and revenue — you have ${drivers?.sample_size ?? 0} so far.`}
+                    bare
+                  />
+                }
+              >
                 <>
-                  <ul className="list">
-                    {drivers.drivers.map((d) => (
-                      <li key={d.signal}>
-                        <div>
-                          <div className="primary">{d.label}</div>
-                          <div className="secondary">based on {d.sample_size} of your stores</div>
-                        </div>
-                        <span className={`pill ${d.direction === "positive" ? "delta-pos" : "delta-neg"}`}>
-                          {d.direction === "positive" ? "+" : "−"}{Math.abs(d.correlation).toFixed(2)}
-                        </span>
-                      </li>
+                  <DataList>
+                    {(drivers?.drivers ?? []).map((d) => (
+                      <DataRow
+                        key={d.signal}
+                        title={d.label}
+                        subtitle={`based on ${d.sample_size} of your stores`}
+                        trailing={
+                          <span className={`pill ${d.direction === "positive" ? "delta-pos" : "delta-neg"}`}>
+                            {d.direction === "positive" ? "+" : "−"}{Math.abs(d.correlation).toFixed(2)}
+                          </span>
+                        }
+                      />
                     ))}
-                  </ul>
-                  {drivers.note && <p style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 10 }}>{drivers.note}</p>}
+                  </DataList>
+                  {drivers?.note && <p style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 10 }}>{drivers.note}</p>}
                 </>
-              )}
+              </AsyncBoundary>
             </div>
           )}
 
@@ -432,20 +461,21 @@ export default function CustomerData() {
                   {recommendation.portfolio.length === 0 ? (
                     <EmptyState icon="🔍" title="No sites fit" description="Nothing met the quality bar within this budget — try a larger budget." bare />
                   ) : (
-                    <ul className="list">
+                    <DataList>
                       {recommendation.portfolio.map((c) => (
-                        <li key={c.pincode}>
-                          <div>
-                            <div className="primary">{c.name} · {c.pincode}</div>
-                            <div className="secondary">
+                        <DataRow
+                          key={c.pincode}
+                          title={`${c.name} · ${c.pincode}`}
+                          subtitle={
+                            <>
                               opportunity {c.opportunity_score ?? "—"}/100
                               {c.estimated_capex != null && ` · est. CapEx ${money(c.estimated_capex)}`}
-                            </div>
-                          </div>
-                          <span className={`pill ${RISK_CLASS[c.risk.level]}`}>{c.risk.level} risk</span>
-                        </li>
+                            </>
+                          }
+                          trailing={<span className={`pill ${RISK_CLASS[c.risk.level]}`}>{c.risk.level} risk</span>}
+                        />
                       ))}
-                    </ul>
+                    </DataList>
                   )}
                 </div>
               )}
@@ -472,24 +502,27 @@ export default function CustomerData() {
                   <p style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 10 }}>
                     Matched {locationTags.matched_count} of {locationTags.total_count} stores, last {locationTags.window_days} days.
                   </p>
-                  <ul className="list">
+                  <DataList>
                     {locationTags.locations.map((t) => (
-                      <li key={t.id}>
-                        <div>
-                          <div className="primary">{t.store_name || t.pincode}</div>
-                          <div className="secondary">
+                      <DataRow
+                        key={t.id}
+                        title={t.store_name || t.pincode}
+                        subtitle={
+                          <>
                             {t.resolved_city || "city unknown"}
                             {t.matched && t.digital_signal && (
                               ` · ${t.digital_signal.sessions} sessions · ${t.digital_signal.conversions} conversions`
                             )}
-                          </div>
-                        </div>
-                        <span className={`pill ${t.matched ? "delta-pos" : "shortlist"}`}>
-                          {t.matched ? "matched" : "no GA4 data"}
-                        </span>
-                      </li>
+                          </>
+                        }
+                        trailing={
+                          <span className={`pill ${t.matched ? "delta-pos" : "shortlist"}`}>
+                            {t.matched ? "matched" : "no GA4 data"}
+                          </span>
+                        }
+                      />
                     ))}
-                  </ul>
+                  </DataList>
                 </div>
               )}
             </div>
@@ -500,27 +533,34 @@ export default function CustomerData() {
               <p style={{ fontSize: 12.5, color: "var(--ink-soft)", fontFamily: "var(--mono)", letterSpacing: ".06em", textTransform: "uppercase" }}>
                 Past uploads
               </p>
-              <ul className="list">
-                {pastUploads.map((u) => (
-                  <li key={u.id}>
-                    <div>
-                      <div className="primary">{u.filename}</div>
-                      <div className="secondary">{u.row_count} rows</div>
-                    </div>
-                    <div className="row-actions">
-                      <span className={`pill ${u.status === "ready" ? "delta-pos" : u.status === "failed" ? "rejected" : "reviewing"}`}>
-                        {u.status}
-                      </span>
-                      <span className="meta">{new Date(u.created_at).toLocaleDateString()}</span>
-                      <button className="btn secondary" onClick={() => onDeleteUpload(u.id)}>Delete</button>
-                    </div>
-                  </li>
+              <DataList>
+                {pastUploads.filter((u) => !isPendingUpload(u.id)).map((u) => (
+                  <DataRow
+                    key={u.id}
+                    title={u.filename}
+                    subtitle={`${u.row_count} rows`}
+                    trailing={
+                      <>
+                        <span className={`pill ${u.status === "ready" ? "delta-pos" : u.status === "failed" ? "rejected" : "reviewing"}`}>
+                          {u.status}
+                        </span>
+                        <span className="meta">{new Date(u.created_at).toLocaleDateString()}</span>
+                        <button className="btn secondary" onClick={() => onDeleteUpload(u)}>Delete</button>
+                      </>
+                    }
+                  />
                 ))}
-              </ul>
+              </DataList>
             </div>
           )}
         </>
-      )}
+      </AsyncBoundary>
+      <UndoToastStack
+        toasts={[
+          ...(pendingLocation ? [{ key: "location", label: pendingLocation.label, onUndo: undoLocation }] : []),
+          ...(pendingUpload ? [{ key: "upload", label: pendingUpload.label, onUndo: undoUpload }] : []),
+        ]}
+      />
     </>
   );
 }

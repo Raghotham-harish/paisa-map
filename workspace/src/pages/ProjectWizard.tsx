@@ -13,6 +13,7 @@ import {
 } from "../lib/api";
 import { MultiSelect, Option, SingleSelect } from "../components/MultiSelect";
 import { fuzzyBestMatch } from "../lib/fuzzyMatch";
+import { ReturnToLink } from "../components/ReturnTo";
 
 const INDUSTRIES = [
   "Apparel & Footwear", "Jewellery & Accessories", "Food & Beverage / QSR", "Grocery & Kirana",
@@ -344,10 +345,10 @@ function IntegrationCard({ title, desc, conn }: { title: string; desc: string; c
               ? `Linked${conn.external_account_email ? " · " + conn.external_account_email : ""}`
               : `Reconnect ${PROVIDER_LABEL[conn.provider]}`}
           </span>
-          <Link className="btn secondary" to="/connections">Manage</Link>
+          <ReturnToLink className="btn secondary" to="/connections" fromLabel="project setup">Manage</ReturnToLink>
         </>
       ) : (
-        <Link className="btn secondary" to="/connections">Connect</Link>
+        <ReturnToLink className="btn secondary" to="/connections" fromLabel="project setup">Connect</ReturnToLink>
       )}
     </div>
   );
@@ -373,10 +374,10 @@ function UploadCard({ uploads }: { uploads: CustomerUpload[] }) {
           <span className={`pill ${UPLOAD_STATUS_PILL[latest.status]}`}>
             {latest.status === "ready" ? `Linked · ${latest.row_count} rows` : latest.status.replace("_", " ")}
           </span>
-          <Link className="btn secondary" to="/customer-data">Manage</Link>
+          <ReturnToLink className="btn secondary" to="/customer-data" fromLabel="project setup">Manage</ReturnToLink>
         </>
       ) : (
-        <Link className="btn secondary" to="/customer-data">Upload</Link>
+        <ReturnToLink className="btn secondary" to="/customer-data" fromLabel="project setup">Upload</ReturnToLink>
       )}
     </div>
   );

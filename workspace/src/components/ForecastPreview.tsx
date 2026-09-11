@@ -1,5 +1,5 @@
-import { Link } from "react-router-dom";
 import { illustrations } from "../lib/illustrations";
+import { ReturnToLink } from "./ReturnTo";
 import {
   ConfidenceMeter, CurveDrivers, ForecastSummaryCard, HotspotBubbles, KpiStrip, LeverSplitRadar,
   LocationCompareRadar, LocationFactorTable, LocationSwotTable, ReachCurve, SignalRevenuePanel, SplitBars,
@@ -72,7 +72,7 @@ export function ForecastPreview({ detail }: { detail?: string | null }) {
             {detail ||
               "Every project already gets a benchmark forecast. Upload at least 3 of your existing stores (with monthly revenue) and PaisaMap calibrates the model on how your own locations actually perform. Everything below is illustrative sample data."}
           </p>
-          <Link className="btn" to="/customer-data">Upload store data</Link>
+          <ReturnToLink className="btn" to="/customer-data" fromLabel="your forecast">Upload store data</ReturnToLink>
         </div>
       </div>
 

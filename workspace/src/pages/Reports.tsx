@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api, LocationScore, Project, Report } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { illustrations } from "../lib/illustrations";
 import { useAuth } from "../lib/auth";
 import { openCheckout } from "../lib/razorpay";
+import { DataList, DataRow } from "../components/DataList";
+import { AsyncBoundary } from "../components/AsyncBoundary";
 
 const RISK_CLASS: Record<string, string> = {
   Low: "delta-pos",
@@ -41,19 +43,24 @@ export default function Reports() {
   const { user } = useAuth();
   const [reports, setReports] = useState<Report[] | null>(null);
   const [projects, setProjects] = useState<Project[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [generating, setGenerating] = useState<number | null>(null);
   const [errors, setErrors] = useState<Record<number, string>>({});
   const [insufficientFor, setInsufficientFor] = useState<Record<number, InsufficientCredits>>({});
   const [buying, setBuying] = useState<number | null>(null);
   const [sharing, setSharing] = useState<number | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
 
   const loadReports = () => api.listReports().then((data) => setReports(data.reports));
 
-  useEffect(() => {
-    loadReports();
-    api.listProjects().then((data) => setProjects(data.projects));
-  }, []);
+  const loadAll = () => {
+    setLoadError(null);
+    Promise.all([loadReports(), api.listProjects().then((data) => setProjects(data.projects))])
+      .catch(() => setLoadError("Couldn't load your reports — try again."));
+  };
+
+  useEffect(loadAll, []);
 
   const onGenerate = async (project: Project) => {
     setGenerating(project.id);
@@ -111,9 +118,12 @@ export default function Reports() {
 
   const onShare = async (report: Report) => {
     setSharing(report.id);
+    setShareError(null);
     try {
       const { report: updated } = await api.shareReport(report.id);
       setReports((prev) => prev && prev.map((r) => (r.id === updated.id ? updated : r)));
+    } catch {
+      setShareError("Couldn't share that report — try again.");
     } finally {
       setSharing(null);
     }
@@ -121,9 +131,12 @@ export default function Reports() {
 
   const onUnshare = async (report: Report) => {
     setSharing(report.id);
+    setShareError(null);
     try {
       const { report: updated } = await api.unshareReport(report.id);
       setReports((prev) => prev && prev.map((r) => (r.id === updated.id ? updated : r)));
+    } catch {
+      setShareError("Couldn't stop sharing that report — try again.");
     } finally {
       setSharing(null);
     }
@@ -145,17 +158,21 @@ export default function Reports() {
       <h1 className="page-title">Reports</h1>
       <p className="page-sub">Generate a location intelligence PDF for any project's saved locations.</p>
 
-      {reports === null || projects === null ? (
-        <div className="loading">Loading…</div>
-      ) : projects.length === 0 ? (
-        <EmptyState
-          illustration={illustrations.dataTrends}
-          title="Reports need a project first"
-          description="Reports are generated for a project's saved locations — economic score, opportunity, suitability, and risk for each one, as a downloadable PDF."
-          dependency="You don't have a project yet — create one to unlock report generation."
-          primaryAction={{ label: "Create a project", to: "/projects" }}
-        />
-      ) : (
+      <AsyncBoundary
+        loading={(reports === null || projects === null) && !loadError}
+        error={loadError}
+        onRetry={loadAll}
+        empty={projects?.length === 0}
+        emptyState={
+          <EmptyState
+            illustration={illustrations.dataTrends}
+            title="Reports need a project first"
+            description="Reports are generated for a project's saved locations — economic score, opportunity, suitability, and risk for each one, as a downloadable PDF."
+            dependency="You don't have a project yet — create one to unlock report generation."
+            primaryAction={{ label: "Create a project", to: "/projects" }}
+          />
+        }
+      >
         <>
           <div className="card" style={{ marginBottom: 24 }}>
             <p
@@ -166,45 +183,54 @@ export default function Reports() {
             >
               Generate for a project
             </p>
-            <ul className="project-list">
-              {projects.map((p) => (
-                <li key={p.id} style={{ flexDirection: "row", alignItems: "center" }}>
-                  <div>
-                    <div className="name">{p.name}</div>
-                    {(p.business_type || p.target_segment || p.avg_ticket) && (
-                      <div className="biz-meta">
-                        {p.business_type && <span><b>{p.business_type}</b></span>}
-                        {p.target_segment && <span>{p.target_segment}</span>}
-                        {p.avg_ticket != null && <span>avg ticket ₹{p.avg_ticket}</span>}
-                      </div>
-                    )}
-                    {errors[p.id] && <div style={{ color: "var(--flame)", fontSize: 12, marginTop: 4 }}>{errors[p.id]}</div>}
-                    {insufficientFor[p.id] && (
-                      <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 6 }}>
-                        You have {insufficientFor[p.id].balance} credits, need {insufficientFor[p.id].required}.{" "}
-                        <Link to="/billing">Buy credits</Link> or{" "}
-                        <button
-                          className="btn secondary"
-                          style={{ padding: "2px 8px", fontSize: 12 }}
-                          disabled={buying === p.id}
-                          onClick={() => onBuyThisReport(p)}
-                        >
-                          {buying === p.id
-                            ? "Opening…"
-                            : `Buy this report — ₹${(insufficientFor[p.id].reportPurchasePricePaise / 100).toLocaleString("en-IN")}`}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <button className="btn secondary" disabled={generating === p.id} onClick={() => onGenerate(p)}>
-                    {generating === p.id ? "Generating…" : "Generate report"}
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <DataList>
+              {(projects ?? []).map((p) => {
+                const chips: ReactNode[] = [];
+                if (p.business_type) chips.push(<b key="bt">{p.business_type}</b>);
+                if (p.target_segment) chips.push(<span key="ts">{p.target_segment}</span>);
+                if (p.avg_ticket != null) chips.push(<span key="at">avg ticket ₹{p.avg_ticket}</span>);
+                return (
+                  <DataRow
+                    key={p.id}
+                    title={p.name}
+                    chips={chips}
+                    subtitle={
+                      (errors[p.id] || insufficientFor[p.id]) ? (
+                        <>
+                          {errors[p.id] && <div style={{ color: "var(--flame)" }}>{errors[p.id]}</div>}
+                          {insufficientFor[p.id] && (
+                            <div>
+                              You have {insufficientFor[p.id].balance} credits, need {insufficientFor[p.id].required}.{" "}
+                              <Link to="/billing">Buy credits</Link> or{" "}
+                              <button
+                                className="btn secondary"
+                                style={{ padding: "2px 8px", fontSize: 12 }}
+                                disabled={buying === p.id}
+                                onClick={() => onBuyThisReport(p)}
+                              >
+                                {buying === p.id
+                                  ? "Opening…"
+                                  : `Buy this report — ₹${(insufficientFor[p.id].reportPurchasePricePaise / 100).toLocaleString("en-IN")}`}
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      ) : undefined
+                    }
+                    trailing={
+                      <button className="btn secondary" disabled={generating === p.id} onClick={() => onGenerate(p)}>
+                        {generating === p.id ? "Generating…" : "Generate report"}
+                      </button>
+                    }
+                  />
+                );
+              })}
+            </DataList>
           </div>
 
-          {reports.length === 0 ? (
+          {shareError && <p style={{ color: "var(--flame)", fontSize: 13, marginBottom: 14 }}>{shareError}</p>}
+
+          {(reports ?? []).length === 0 ? (
             <EmptyState
               icon="📄"
               title="No reports yet"
@@ -212,17 +238,16 @@ export default function Reports() {
               bare
             />
           ) : (
-            <ul className="list">
-              {reports.map((r) => {
+            <DataList>
+              {(reports ?? []).map((r) => {
                 const summary = summarize(r.params?.locations);
                 return (
-                  <li key={r.id} style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                      <div>
-                        <div className="primary">{r.title}</div>
-                        {summary && <div className="secondary">{summary}</div>}
-                      </div>
-                      <div className="row-actions">
+                  <DataRow
+                    key={r.id}
+                    title={r.title}
+                    subtitle={summary}
+                    trailing={
+                      <>
                         <span className={`pill ${STATUS_CLASS[r.status]}`}>{r.status}</span>
                         <span className="meta">{new Date(r.created_at).toLocaleDateString()}</span>
                         {r.status === "ready" && (
@@ -241,50 +266,54 @@ export default function Reports() {
                             )}
                           </>
                         )}
-                      </div>
-                    </div>
-                    {r.share_token && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
-                        <span style={{ color: "var(--ink-soft)" }}>No account needed to view:</span>
-                        <code style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>
-                          {api.sharedReportUrl(r.share_token)}
-                        </code>
-                        <button className="btn secondary" style={{ padding: "2px 8px" }} onClick={() => onCopyLink(r)}>
-                          {copied === r.id ? "Copied!" : "Copy link"}
-                        </button>
-                      </div>
-                    )}
-                    {r.params?.digital_baseline && (
-                      <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
-                        Connected GA4: {r.params.digital_baseline.ecommerce.transactions.toLocaleString("en-IN")} transactions ·
-                        {" "}₹{r.params.digital_baseline.ecommerce.purchase_revenue.toLocaleString("en-IN")} revenue (last 28 days)
-                      </div>
-                    )}
-                    {r.params?.locations && r.params.locations.length > 0 && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                        {r.params.locations.map((loc) => (
-                          <span
-                            key={loc.pincode}
-                            className={`pill ${RISK_CLASS[loc.risk.level] || "shortlist"}`}
-                            title={
-                              loc.digital_signal
-                                ? `${loc.risk.note} — GA4: ${loc.digital_signal.sessions} sessions, ${loc.digital_signal.conversions} conversions`
-                                : loc.risk.note
-                            }
-                          >
-                            {loc.name} · {loc.opportunity?.suitability ?? `${loc.economic_score}/100`}
-                            {loc.digital_signal ? " · GA4" : ""}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </li>
+                      </>
+                    }
+                    footer={
+                      <>
+                        {r.share_token && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+                            <span style={{ color: "var(--ink-soft)" }}>No account needed to view:</span>
+                            <code style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 320 }}>
+                              {api.sharedReportUrl(r.share_token)}
+                            </code>
+                            <button className="btn secondary" style={{ padding: "2px 8px" }} onClick={() => onCopyLink(r)}>
+                              {copied === r.id ? "Copied!" : "Copy link"}
+                            </button>
+                          </div>
+                        )}
+                        {r.params?.digital_baseline && (
+                          <div style={{ fontSize: 12.5, color: "var(--ink-soft)" }}>
+                            Connected GA4: {r.params.digital_baseline.ecommerce.transactions.toLocaleString("en-IN")} transactions ·
+                            {" "}₹{r.params.digital_baseline.ecommerce.purchase_revenue.toLocaleString("en-IN")} revenue (last 28 days)
+                          </div>
+                        )}
+                        {r.params?.locations && r.params.locations.length > 0 && (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                            {r.params.locations.map((loc) => (
+                              <span
+                                key={loc.pincode}
+                                className={`pill ${RISK_CLASS[loc.risk.level] || "shortlist"}`}
+                                title={
+                                  loc.digital_signal
+                                    ? `${loc.risk.note} — GA4: ${loc.digital_signal.sessions} sessions, ${loc.digital_signal.conversions} conversions`
+                                    : loc.risk.note
+                                }
+                              >
+                                {loc.name} · {loc.opportunity?.suitability ?? `${loc.economic_score}/100`}
+                                {loc.digital_signal ? " · GA4" : ""}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </>
+                    }
+                  />
                 );
               })}
-            </ul>
+            </DataList>
           )}
         </>
-      )}
+      </AsyncBoundary>
     </>
   );
 }

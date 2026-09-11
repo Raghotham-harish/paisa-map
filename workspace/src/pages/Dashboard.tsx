@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../lib/auth";
-import { api, ActivityEntry, Project, SavedLocation } from "../lib/api";
+import { api, ActivityEntry, SavedLocation } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { illustrations } from "../lib/illustrations";
 import { MapSessionState, readMapSession } from "../lib/mapSession";
+import { useWorkspace } from "../lib/workspace";
 
 const ACTION_LABELS: Record<string, string> = {
   login: "Signed in",
@@ -24,15 +25,14 @@ function describe(entry: ActivityEntry): string {
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const { projects } = useWorkspace();
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
   const [locations, setLocations] = useState<SavedLocation[] | null>(null);
-  const [projects, setProjects] = useState<Project[] | null>(null);
   const [session, setSession] = useState<MapSessionState | null>(null);
 
   useEffect(() => {
     api.listActivity(5).then((data) => setActivity(data.activity));
     api.listLocations().then((data) => setLocations(data.locations));
-    api.listProjects().then((data) => setProjects(data.projects));
     setSession(readMapSession());
   }, []);
 
