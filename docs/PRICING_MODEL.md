@@ -1,6 +1,6 @@
 # PaisaMap pricing & credits model
 
-Owner: Raghotham · Drafted 2026-09-11 · Rev 3 (all decisions locked) · Status: **model agreed — not built**
+Owner: Raghotham · Drafted 2026-09-11 · Rev 6 (all decisions locked) · Status: **model agreed — not built**
 
 The **3-lever model** (plan tier · credits · seats) plus a standalone
 **signal-only** ladder (₹200 / ₹500). Shape and numbers are both settled now;
@@ -26,9 +26,12 @@ built**. Depends on the Company layer — roadmap Phase C
 | 6 | **Pro signals are NOT free with login.** Anonymous + free account see the **3 core** signals only. Pro signals are a paid upgrade — see the signal-only ladder in §2. | 09-11 |
 | 7 | **Signal-only tiers:** **₹200/mo** = 3 core + a ~10-signal pro subset; **₹500/mo** = all 20 pro signals (replaces ₹200, not additive). Neither includes the dashboard or credits. | 09-11 |
 | 8 | Free accounts stay — anyone can sign in free (3-signal map + save locations); everything above is a paid upgrade. | 09-11 |
-| 9 | Trial = **7 days**. Extra-company fee = **flat ₹6,000/mo** (₹5,000 at Pro). | 09-11 |
+| 9 | Trial = **7 days**. Extra-company fee scales with tier — **₹2,500 / ₹2,500 / ₹3,000 / ₹5,000/mo** (Starter/Growth/Scale/Pro) — not a flat ₹6,000; see §3 note. | 09-11 |
 | 10 | **Team viewers are free** and don't count against the seat limit (read-only dashboard, can't spend credits). | 09-11 |
 | 11 | Non-INR pricing uses a **real-time FX rate** at checkout, not a fixed peg. | 09-11 |
+| 12 | **Scale/Pro/Enterprise (and any annual commitment) get a sales-assisted invoice/PO path** — NEFT/RTGS against an invoice, not card-only checkout. Starter/Growth stay self-serve, defaulting to **UPI Autopay**. See §7. | 09-11 |
+| 13 | Billing is **per-account anniversary** (day-N renewal), not calendar-month. Mid-cycle top-ups **grant instantly, bill on the next renewal** — no separate checkout per purchase. No per-cycle overage cap for now. See §8. | 09-11 |
+| 14 | Failed renewal → **3-day dunning** (retry + email) → **soft-lock**: a blurred dashboard with data intact, not a hard account lockout — consistent with the existing trial-fail behavior (#2). New top-ups blocked while an unpaid balance exists. See §8. | 09-11 |
 
 ---
 
@@ -83,7 +86,7 @@ granted monthly (no front-loading a year).
 | **Credits / month** | 500 total | **1,000** | **3,000** | **7,000** | **16,000** | **40,000+** |
 | Implied ₹/credit | — | 5.00 | 4.00 | 3.57 | 3.13 | ≤2.50 |
 | Companies | 1 | 1 | 1 | **3** | **10** | unlimited |
-| Extra company /mo | — | ₹6,000 | ₹6,000 | ₹6,000 | ₹5,000 | negotiated |
+| Extra company /mo | — | ₹2,500 | ₹2,500 | ₹3,000 | ₹5,000 | negotiated |
 | **Seats included** | 2 | **3** | 6 | 12 | 25 | custom |
 | Projects | 1 | soft ~5 active | soft ~15 | soft ~40 | soft ~100 | unlimited |
 | Signals (map + models) | all 20 | all 20 | all 20 | all 20 | all 20 | all 20 |
@@ -98,6 +101,16 @@ locations), **Signals Lite ₹200/mo** (3 core + ~10 pro), **Signals Pro ₹500/
 
 - **Bigger tiers = more credits per rupee** (5.00 → 2.50). Upgrading always beats
   buying top-ups past a threshold — that is the expansion path.
+- **Extra-company pricing must always undercut a fresh account.** At the old flat
+  ₹6,000/mo, a Starter customer with 2 companies paid ₹11,000 (plan + extra
+  company) for one shared setup versus ₹10,000 for two separate Starter
+  accounts with their own credit pools — the fee was *more* than the plan it
+  was attached to, so the rational move was to just sign up twice. Rev 4 fixes
+  this: ₹2,500 / ₹2,500 / ₹3,000 / ₹5,000 across Starter→Pro is 50% → 21% → 12%
+  → 10% of that tier's base price — monotonically cheaper as a share of spend
+  the bigger the account gets (rewards staying consolidated), while staying
+  comfortably below every tier's own base price (never rational to fragment
+  into separate accounts instead).
 - "Projects — soft ~N" means: create freely; the number is a fair-use guideline,
   not a hard block. Enforced only if an account is wildly beyond typical use
   (then: a conversation, or 100 credits per extra project).
@@ -135,7 +148,9 @@ upgrading is the cheaper path past a threshold):
 | 5,000 | ₹22,000 | 4.40 | 60 days |
 
 Plan credits roll **one month** then expire; top-up credits roll **60 days**.
-Two 5,000-packs in a month → a one-click "move up a tier" prompt.
+Two 5,000-packs in a month → a **suggestion banner** offering to move up a tier
+(one click to accept — never automatic; the plan never changes without the
+customer confirming).
 
 ---
 
@@ -173,9 +188,28 @@ Keyword feature itself is unbuilt — roadmap Phase F/G.
 
 ---
 
-## 7. Currency
+## 7. Currency, GST & Indian payment rails
 
-- **INR** reference. **GST 18%** on INR invoices (confirm HSN/SAC with a CA).
+- **INR** reference. **GST 18%** on INR invoices — confirmed current for SaaS/
+  software services regardless of amount, frequency, or customer size. The
+  specific SAC code still needs a CA — sources disagree even on the broad
+  classification (9983 "other professional/technical/business services" per
+  one; 998314 specifically for "SaaS platforms" per another, with 998315/998316
+  for hosting/maintenance) — this is exactly the kind of judgment call that
+  needs a real CA looking at our actual service characterization, not a guess.
+- **Domestic split matters for invoice line items, not the total**: same-state
+  customer → CGST + SGST (9%+9%); different-state → IGST 18%. The invoice
+  generator needs the customer's registered state to pick the right split, not
+  just stamp a flat "GST 18%" line.
+- **Razorpay does not auto-calculate or apply GST on subscription billing.**
+  Checked directly — their own platform *fee* to us carries 18% GST (on the fee,
+  not the transaction), and their separate Invoices product lets you *manually*
+  add a GST line with a calculator, but neither is automatic tax logic wired
+  into a Subscriptions billing cycle, and their auto-GST-payment feature (for
+  paying our *own* GST liability) has been discontinued. **GST computation
+  (CGST/SGST vs IGST, zero-rating for verified export) has to be built into our
+  own invoice generation** (`_pricing.py` / billing-v2, not assumed free from
+  the payment processor).
 - Non-INR customers are charged in their own currency, converted at a
   **real-time FX rate** fetched at checkout (a rate provider — or Razorpay
   International's own conversion — cached ~60 min). No fixed peg. Indicative USD
@@ -186,9 +220,83 @@ Keyword feature itself is unbuilt — roadmap Phase F/G.
   what they pay.
 - International invoices = **export of service, zero-rated** — confirm with a CA.
 
+**Payment methods — recurring billing in India:**
+
+- **UPI Autopay is the default self-serve method for Starter/Growth.** Under
+  the RBI's 2026 e-mandate framework, recurring UPI (and card) payments up to
+  **₹15,000 per cycle** can auto-debit silently after a one-time mandate setup
+  — no OTP every month. Starter (₹5,000) and Growth (₹12,000) both fit
+  comfortably under that cap, so UPI Autopay gives Indian SMB buyers a
+  save-a-card-free "set and forget" option — genuinely smoother than requiring
+  a corporate card, which many smaller buyers here don't have.
+- **Scale/Pro/Enterprise (₹25,000–₹1,00,000+) and any annual charge exceed
+  ₹15,000/cycle — silent autopay isn't available at all above that on either
+  UPI or cards** (the 2026 framework applies the same ₹15k general cap and
+  ₹1L enhanced cap to both rails, and SaaS subscriptions aren't in the
+  enhanced-cap category — that's reserved for insurance/SIPs/credit-card
+  bills). So above ₹15,000/cycle, the choices are: re-authenticate (OTP) every
+  billing cycle, or the sales-assisted invoice/NEFT path (decision #12) — this
+  isn't just a UX preference for those tiers, it's a real payment-rail
+  constraint, which is exactly why Scale+ needs "talk to sales" rather than
+  pure self-serve.
+
 ---
 
-## 8. What has to be built (sequenced)
+## 8. Billing cycle, deferred top-ups & failed-payment lock
+
+**Billing cycle is per-account anniversary, not calendar-month.** Trial
+converts (or a fresh subscription starts) on day N of some month → renewal
+auto-charges on day N of every month after. No proration math for whatever
+day someone happens to sign up — Razorpay Subscriptions does this natively.
+
+**Mid-cycle credit top-ups are deferred, not charged as a separate
+transaction.** Buying credits mid-cycle shouldn't mean a checkout redirect
+every time — that's the exact friction usage-based billing (AWS, Twilio) is
+built to avoid. Split *granting* from *collecting*:
+- Clicking "add N credits" grants them to the account **instantly** — no
+  checkout page, no separate payment event, no interruption.
+- It's recorded as an accrued charge against the account.
+- The **next scheduled renewal** fires one combined auto-debit: base plan fee
+  + everything accrued since the last renewal, via the payment method already
+  on file (UPI Autopay mandate or card).
+- Once granted, top-up credits behave exactly as before (60-day rollover) —
+  deferring *when money changes hands* doesn't change the credit ledger.
+- **No cap on accrued overage per cycle for now** — simpler, and unlikely to
+  bite often at Starter/Growth spend levels. The one edge case: if base +
+  accrued overage crosses ₹15,000 in a heavy month, that renewal exceeds the
+  silent-autopay ceiling (§7) and needs an OTP that cycle, or falls back to
+  the sales-assisted path. Revisit adding a per-cycle cap only if this turns
+  out to be common in practice, not pre-emptively.
+
+**Failed renewal → 3-day dunning → soft-lock, not hard lockout.** Consistent
+with the trial-failure behavior already decided (§1 #2: a failed card drops
+the account to Free, never fully locked out) rather than a harsher rule just
+because it's a renewal:
+- Day 0 (renewal date): auto-charge attempt. If it fails, retry over **3
+  days**, with an email notification on each attempt.
+- Still unpaid after day 3 → **soft-lock**: a blur overlay over dashboard
+  content (numbers, charts, tables) with a clear, unblurred "Your account is
+  locked — update payment to restore access" CTA. Page chrome/nav stays
+  visible so it's obvious their account and data still exist, nothing was
+  wiped — only Billing/account-settings stay fully interactive, since they
+  need an unobstructed path to actually fix it.
+- **The blur must be paired with a real backend gate — it's cosmetic on its
+  own and trivially bypassed** (open dev tools' network tab, or call
+  `/api/export` / a report's PDF URL directly, and you'd get full data despite
+  the blurred UI). Every data-serving endpoint — PDF/CSV downloads,
+  `/api/export`, forecast/report generation, the map's signal API — has to
+  independently check subscription status server-side and refuse (402/403)
+  during lock, not rely on the frontend simply not rendering it.
+- Saved data (projects, saved locations, past reports, uploaded store data) is
+  **never deleted** while locked — paying reactivates instantly, nothing lost.
+- **New top-up purchases are blocked while there's an unpaid balance from a
+  previous failed cycle** — even the instant-grant kind — otherwise a broken
+  payment method lets an account accrue free credits indefinitely, since
+  nothing actually gets collected until the next successful charge.
+
+---
+
+## 9. What has to be built (sequenced)
 
 | # | Needs | Depends on |
 |---|---|---|
@@ -203,13 +311,15 @@ Keyword feature itself is unbuilt — roadmap Phase F/G.
 | P9 | **Multi-currency** — real-time FX at checkout, per-currency invoicing, export-of-service handling | P2 |
 | P10 | **Annual billing** — the −20% SKU, +5% monthly grant on an annual term | P2, P3 |
 | P11 | `_pricing.py` — every number placeholder → decided; add `PLANS`, `SIGNAL_TIERS` (₹200/₹500 + allow-lists), keyword cost, top-up packs | all |
+| P12 | **India payment rails** — UPI Autopay as the default Starter/Growth recurring method (≤₹15,000/cycle, silent after one-time mandate); a sales-assisted invoice/NEFT path for Scale/Pro/Enterprise + annual (can't silently autopay above ₹15k/cycle under the 2026 RBI e-mandate framework — not just a UX choice, a real rail constraint); our own GST computation (CGST+SGST vs IGST by customer state, zero-rating for verified export) since **Razorpay does not auto-apply GST on subscription billing** | P2 |
+| P13 | **Deferred top-up billing + dunning/soft-lock** (§8) — a running "accrued charge" ledger per account so mid-cycle top-ups grant instantly and bill on the next renewal instead of a separate checkout; the 3-day retry-then-lock flow; a server-side subscription-status check on every data-serving endpoint (`/api/export`, PDF/report generation, the map's signal API) so the frontend blur overlay isn't the only thing standing between a lapsed account and real data; the "block new top-ups while an unpaid balance exists" guard | P2, P3 |
 
 **P1–P4 + P6 ≈ one focused billing-v2 milestone** (the dashboard paywall + trial
-+ monthly credits). P7 (signal tiers) is a small standalone add. P5, P8–P11 layer on.
++ monthly credits). P7 (signal tiers) is a small standalone add. P5, P8–P13 layer on.
 
 ---
 
-## 9. Still open
+## 10. Still open
 
 Only one shape question left, plus the fine print:
 
@@ -217,7 +327,9 @@ Only one shape question left, plus the fine print:
    confirm or swap.
 2. Top-up pack prices (₹3,000 / ₹10,000 / ₹22,000) — validate once real usage
    data exists.
-3. GST HSN/SAC code + the export-of-service zero-rating — confirm with a CA.
+3. GST SAC code — narrowed to the 9983-family (998314 SaaS-platform / 998315
+   hosting / 998316 maintenance are the commonly-cited splits, sources vary) —
+   and the export-of-service zero-rating; both need a real CA, not a guess.
 4. Self-intelligence credit cost (15/run) — set properly once Phase G scopes the
    real per-run compute/LLM cost.
 
@@ -230,3 +342,6 @@ Only one shape question left, plus the fine print:
 | 2026-09-11 | First draft from the high-level intent (full 8-dimension model). |
 | 2026-09-11 | Rev 2 — collapsed to the 3-lever model; access ladder; dropped the pro-signal credit-unlock. |
 | 2026-09-11 | Rev 3 — all decisions locked. Pro signals are **paid, not free with login**: added the standalone **₹200 / ₹500 signal-only ladder**; free account = 3 core signals + save-locations; real-time FX (no peg); viewers free; trial 7 days; extra-company flat ₹6,000. |
+| 2026-09-11 | Rev 4 — caught and fixed a real pricing bug: flat ₹6,000/mo extra-company fee exceeded the ₹5,000 Starter base price, so a 2-company customer paid *more* to stay in one account than to just open a second one. Replaced with a per-tier schedule (₹2,500 / ₹2,500 / ₹3,000 / ₹5,000, Starter→Pro) that's always below that tier's base price and shrinks as a % of spend the bigger the account (50%→10%) — see §3 note. |
+| 2026-09-11 | Rev 5 — decision #12: Scale/Pro/Enterprise + annual get a sales-assisted invoice/NEFT path, not card-only checkout. Web-researched and rewrote §7: confirmed Razorpay does **not** auto-apply GST on subscription billing (has to be built into our own invoicing, CGST/SGST vs IGST by customer state); confirmed the 2026 RBI e-mandate framework caps silent UPI/card autopay at ₹15,000/cycle (no SaaS enhanced-cap exemption) — UPI Autopay set as the default for Starter/Growth (both fit under the cap), which is also why Scale+/annual structurally need decision #12, not just as a preference. Clarified the top-up→tier-upgrade nudge is a suggestion banner, never an automatic plan change. |
+| 2026-09-11 | Rev 6 — new §8 (billing cycle, deferred top-ups, failed-payment lock), decisions #13–14: per-account anniversary billing; mid-cycle top-ups grant instantly and bill on the next renewal instead of a separate checkout (no per-cycle cap for now); failed renewal → 3-day dunning → soft-lock as a blurred dashboard (data intact, consistent with the existing trial-fail philosophy) rather than a hard lockout, paired with a real backend subscription check on every data-serving endpoint so the blur isn't just cosmetic; new top-ups blocked while an unpaid balance exists. Added as build item P13. |
