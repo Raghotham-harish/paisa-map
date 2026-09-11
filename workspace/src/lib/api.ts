@@ -72,6 +72,10 @@ export interface Project {
   revenue_period: RevenuePeriod | null;
   created_at: string;
   updated_at: string;
+  // Only populated by listProjects() (a cheap correlated-subquery count) —
+  // undefined on the single-project create/update/get responses.
+  location_count?: number;
+  report_count?: number;
 }
 
 export interface ProjectFields {

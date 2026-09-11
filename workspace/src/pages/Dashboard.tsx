@@ -44,6 +44,13 @@ export default function Dashboard() {
   const sessionProject = session?.projectId != null ? (projects?.find((p) => p.id === session.projectId) ?? null) : null;
   const activeProject = sessionProject ?? projects?.[0] ?? null;
 
+  // Real "added this week" counts from data already on hand — not a fabricated
+  // trend, just a client-side filter on created_at (no history endpoint exists
+  // or is needed for this).
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const newLocations = locations?.filter((l) => new Date(l.created_at).getTime() > weekAgo).length ?? 0;
+  const newProjects = projects?.filter((p) => new Date(p.created_at).getTime() > weekAgo).length ?? 0;
+
   // Every project can get a real forecast now (a benchmark one by default,
   // sharper once store data is uploaded) — no more "not enough data" wall.
   const forecastReady = activeProject != null;
@@ -119,10 +126,12 @@ export default function Dashboard() {
         <div className="stat-tile">
           <div className="label">Saved locations</div>
           <div className="value">{locations === null ? "—" : locations.length}</div>
+          {newLocations > 0 && <div className="stat-tile-delta">+{newLocations} this week</div>}
         </div>
         <div className="stat-tile">
           <div className="label">Projects</div>
           <div className="value">{projects === null ? "—" : projects.length}</div>
+          {newProjects > 0 && <div className="stat-tile-delta">+{newProjects} this week</div>}
         </div>
       </div>
 

@@ -157,6 +157,7 @@ p.page-sub{ color:var(--ink-soft); font-size:13.5px; margin:0 0 28px; }
 }
 .stat-tile .value{ font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; }
 .stat-tile .value.plan{ text-transform:capitalize; color:var(--rupee-deep); }
+.stat-tile-delta{ font-size:10.5px; font-weight:700; color:var(--rupee-deep); margin-top:4px; }
 
 .btn{
   font-family:var(--sans); font-size:13.5px; font-weight:600; border-radius:var(--radius);

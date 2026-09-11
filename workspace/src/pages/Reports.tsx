@@ -7,6 +7,7 @@ import { useAuth } from "../lib/auth";
 import { openCheckout } from "../lib/razorpay";
 import { DataList, DataRow } from "../components/DataList";
 import { AsyncBoundary } from "../components/AsyncBoundary";
+import { StatChip } from "../components/StatChip";
 
 const RISK_CLASS: Record<string, string> = {
   Low: "delta-pos",
@@ -185,7 +186,11 @@ export default function Reports() {
             </p>
             <DataList>
               {(projects ?? []).map((p) => {
-                const chips: ReactNode[] = [];
+                const chips: ReactNode[] = [
+                  <StatChip key="locs" icon="ti ti-map-pin">
+                    {p.location_count ?? 0} location{(p.location_count ?? 0) === 1 ? "" : "s"}
+                  </StatChip>,
+                ];
                 if (p.business_type) chips.push(<b key="bt">{p.business_type}</b>);
                 if (p.target_segment) chips.push(<span key="ts">{p.target_segment}</span>);
                 if (p.avg_ticket != null) chips.push(<span key="at">avg ticket ₹{p.avg_ticket}</span>);

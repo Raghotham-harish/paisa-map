@@ -7,6 +7,8 @@ import { DataList, DataRow } from "../components/DataList";
 import { AsyncBoundary } from "../components/AsyncBoundary";
 import { UndoToastStack } from "../components/UndoToast";
 import { usePendingDelete } from "../lib/undo";
+import { MicroBar } from "../components/MicroViz";
+import { ramp } from "../components/chartTheme";
 
 const STATUS_OPTIONS: LocationStatus[] = ["shortlist", "reviewing", "approved", "rejected"];
 
@@ -109,8 +111,11 @@ export default function SavedLocations() {
                 <>
                   {loc.pincode}
                   {loc.pincode in scores && scores[loc.pincode] !== null && (
-                    <span style={{ marginLeft: 8, fontFamily: "var(--mono)", color: "var(--rupee-deep)" }}>
-                      Economic score {scores[loc.pincode]}/100
+                    <span style={{ marginLeft: 8, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <MicroBar value={scores[loc.pincode]!} color={ramp("ppi", scores[loc.pincode])} />
+                      <span style={{ fontFamily: "var(--mono)", color: "var(--rupee-deep)" }}>
+                        {scores[loc.pincode]}/100
+                      </span>
                     </span>
                   )}
                 </>

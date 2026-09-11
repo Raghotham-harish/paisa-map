@@ -788,13 +788,34 @@ def get_or_create_default_project(user_id):
 
 
 def list_projects(user_id):
+    """Includes location_count/report_count via correlated subqueries — cheap
+    (indexed FK, a handful of projects per user) and lets the workspace show
+    real "12 locations · 3 reports" context on the project list instead of a
+    bare name (dashboard audit finding C5)."""
     engine = _require_engine()
     tables = _get_tables()
     projects = tables["projects"]
-    from sqlalchemy import select
+    locs = tables["saved_locations"]
+    reports = tables["reports"]
+    from sqlalchemy import select, func
+    location_count = (
+        select(func.count(locs.c.id))
+        .where(locs.c.project_id == projects.c.id)
+        .scalar_subquery()
+    )
+    report_count = (
+        select(func.count(reports.c.id))
+        .where(reports.c.project_id == projects.c.id)
+        .scalar_subquery()
+    )
     with engine.connect() as conn:
         rows = conn.execute(
-            select(projects).where(projects.c.user_id == user_id)
+            select(
+                projects,
+                location_count.label("location_count"),
+                report_count.label("report_count"),
+            )
+            .where(projects.c.user_id == user_id)
             .order_by(projects.c.updated_at.desc())
         ).mappings().all()
     return [dict(r) for r in rows]

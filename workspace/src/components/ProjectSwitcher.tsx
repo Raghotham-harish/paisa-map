@@ -24,7 +24,10 @@ export function ProjectSwitcher() {
         ))}
       </select>
       {activeProject && (
-        <span className="topbar-switcher-meta">updated {new Date(activeProject.updated_at).toLocaleDateString()}</span>
+        <span className="topbar-switcher-meta">
+          {activeProject.location_count ?? 0} location{(activeProject.location_count ?? 0) === 1 ? "" : "s"}
+          {" · updated "}{new Date(activeProject.updated_at).toLocaleDateString()}
+        </span>
       )}
     </div>
   );

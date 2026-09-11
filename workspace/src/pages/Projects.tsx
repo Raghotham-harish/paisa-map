@@ -7,6 +7,7 @@ import { DataList, DataRow } from "../components/DataList";
 import { AsyncBoundary } from "../components/AsyncBoundary";
 import { UndoToastStack } from "../components/UndoToast";
 import { usePendingDelete } from "../lib/undo";
+import { StatChip } from "../components/StatChip";
 
 const EMPTY_FIELDS: ProjectFields = {
   name: "", description: "", business_type: "", target_segment: "", avg_ticket: "", website_url: "",
@@ -180,7 +181,14 @@ export default function Projects() {
           return (
         <DataList>
           {filtered.map((p) => {
-            const chips: ReactNode[] = [];
+            const chips: ReactNode[] = [
+              <StatChip key="locs" icon="ti ti-map-pin">
+                {p.location_count ?? 0} location{(p.location_count ?? 0) === 1 ? "" : "s"}
+              </StatChip>,
+              <StatChip key="reports" icon="ti ti-file-text">
+                {p.report_count ?? 0} report{(p.report_count ?? 0) === 1 ? "" : "s"}
+              </StatChip>,
+            ];
             if (p.business_type) chips.push(<b key="bt">{p.business_type}</b>);
             if (p.target_segment) chips.push(<span key="ts">{p.target_segment}</span>);
             if (p.avg_ticket != null) chips.push(<span key="at">avg ticket ₹{p.avg_ticket}</span>);
