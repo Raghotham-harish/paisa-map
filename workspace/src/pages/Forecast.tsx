@@ -39,6 +39,9 @@ export default function Forecast() {
   const [running, setRunning] = useState(false);
   const [showMoreSites, setShowMoreSites] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reportRunning, setReportRunning] = useState(false);
+  const [reportId, setReportId] = useState<number | null>(null);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   useEffect(() => {
     api.getPricing().then(setPricing).catch(() => setPricing(null));
@@ -55,6 +58,8 @@ export default function Forecast() {
     setResult(null);
     setResultBudget(null);
     setError(null);
+    setReportId(null);
+    setReportError(null);
     try {
       const raw = localStorage.getItem(prevKey(projectId));
       setPrev(raw ? JSON.parse(raw) : null);
@@ -108,6 +113,35 @@ export default function Forecast() {
 
   const swotSites = (rp?.sites ?? []).filter((s) => s.swot).slice(0, 5).map((s) => ({ name: s.name, swot: s.swot }));
   const factorSites = (rp?.sites ?? []).filter((s) => s.factors).slice(0, 5).map((s) => ({ name: s.name, factors: s.factors }));
+
+  // E1 — "Save report" from Forecast, same generateReport call CompareModal
+  // already uses. Unlike Compare, there's no bulk-save-candidates step first:
+  // Forecast's sites are a dynamic what-if over the whole addressable market,
+  // not a small deliberately-picked set, so silently turning "within budget"
+  // sites into permanent saved locations would be a surprising side effect.
+  // The report just uses whatever the project has already saved — same data
+  // Reports.tsx's own "Generate report" already works from.
+  const reportCost = pricing?.credit_costs?.report_generate;
+  const onSaveReport = async () => {
+    if (projectId == null) return;
+    setReportRunning(true);
+    setReportError(null);
+    setReportId(null);
+    try {
+      const { report } = await api.generateReport(projectId, `Forecast — ${new Date().toLocaleDateString()}`);
+      setReportId(report.id);
+    } catch (e) {
+      setReportError(
+        e instanceof ApiError && e.body?.error === "insufficient_credits"
+          ? `Not enough credits — needs ${e.body.required}, you have ${e.body.balance}.`
+          : e instanceof ApiError && e.body?.error === "no_locations"
+            ? "This project has no saved locations yet — save some from the map first."
+            : "Couldn't generate the report — try again."
+      );
+    } finally {
+      setReportRunning(false);
+    }
+  };
 
   return (
     <>
@@ -473,6 +507,17 @@ export default function Forecast() {
                 ]}
                 footnote={`Revenue is modelled reachable household spend at a ${(f.capture_model.median_capture_rate * 100).toFixed(3)}% capture rate (${f.capture_model.method}), gross profit at ${f.gross_margin_pct}% margin. ${f.capex_basis ?? ""}`}
               />
+
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", margin: "14px 0" }}>
+                {reportId != null ? (
+                  <a className="btn" href={api.reportDownloadUrl(reportId)}>Download report PDF</a>
+                ) : (
+                  <button className="btn secondary" disabled={reportRunning} onClick={onSaveReport}>
+                    {reportRunning ? "Generating…" : `Save report${reportCost != null ? ` — ${reportCost} credits` : ""}`}
+                  </button>
+                )}
+                {reportError && <span style={{ color: "var(--flame)", fontSize: 12.5 }}>{reportError}</span>}
+              </div>
 
               <details style={{ marginTop: 20, fontSize: 12.5, color: "var(--ink-soft)" }}>
                 <summary style={{ cursor: "pointer", fontWeight: 600 }}>Model assumptions</summary>

@@ -19,6 +19,7 @@ import Forecast from "./pages/Forecast";
 import ApiKeys from "./pages/ApiKeys";
 import CompanySettings from "./pages/CompanySettings";
 import InviteAccept from "./pages/InviteAccept";
+import SharedProject from "./pages/SharedProject";
 
 function WorkspaceUrlSync() {
   useSyncProjectFromUrl();
@@ -65,6 +66,12 @@ export default function App() {
   const bleed = location.pathname === "/map";
   // The forecast + compare dashboards need more than the default 880px column.
   const wide = location.pathname === "/forecast";
+
+  // E2 — a project's public share link works for anyone with the URL, no
+  // session at all, so this is checked before the loading/auth gates below
+  // rather than as an authenticated <Route> (same reasoning as InviteAccept,
+  // one step further since this page never needs even a signed-out identity).
+  if (location.pathname.startsWith("/projects/shared/")) return <SharedProject />;
 
   if (loading) return <div className="loading">Loading…</div>;
   if (!user) {

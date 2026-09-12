@@ -150,6 +150,9 @@ def _get_tables():
         Column("revenue_period", Text),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("updated_at", DateTime(timezone=True), nullable=False),
+        # Phase E3/E2 — additive, see _MIGRATIONS below for the ALTER TABLE.
+        Column("archived_at", DateTime(timezone=True)),
+        Column("share_token", Text),
     )
 
     saved_locations = Table(
@@ -463,6 +466,9 @@ _MIGRATIONS = [
     ("customer_uploads", "org_id", "INTEGER"),
     ("customer_locations", "org_id", "INTEGER"),
     ("oauth_connections", "org_id", "INTEGER"),
+    # Phase E3/E2 — additive, nothing reads these until the functions below ship.
+    ("projects", "archived_at", "TIMESTAMP"),
+    ("projects", "share_token", "TEXT"),
 ]
 
 
@@ -1529,13 +1535,17 @@ def get_or_create_default_project(user_id):
                            description="Locations you've saved from the map.")["id"]
 
 
-def list_projects(user_id):
+def list_projects(user_id, include_archived=False):
     """Includes location_count/report_count via correlated subqueries — cheap
     (indexed FK, a handful of projects per user) and lets the workspace show
     real "12 locations · 3 reports" context on the project list instead of a
     bare name (dashboard audit finding C5). Phase D2: also includes every
     project belonging to any company this user is a member of, not just ones
-    they personally created — the whole point of a shared company."""
+    they personally created — the whole point of a shared company.
+
+    Phase E3: archived projects are excluded by default (archive is meant to
+    declutter the working list, not a soft-delete anyone has to think about)
+    — pass include_archived=True for the "Archived" filter view."""
     engine = _require_engine()
     tables = _get_tables()
     projects = tables["projects"]
@@ -1556,6 +1566,8 @@ def list_projects(user_id):
     cond = projects.c.user_id == user_id
     if org_ids:
         cond = or_(cond, projects.c.org_id.in_(org_ids))
+    if not include_archived:
+        cond = cond & projects.c.archived_at.is_(None)
     with engine.connect() as conn:
         rows = conn.execute(
             select(
@@ -1618,6 +1630,111 @@ def delete_project(project_id, user_id):
     with engine.begin() as conn:
         result = conn.execute(projects.delete().where(projects.c.id == project_id))
     return result.rowcount > 0
+
+
+def _set_project_archived(project_id, user_id, archived):
+    """Shared body for archive_project/unarchive_project — write-level access
+    (same as update_project/rename), not delete-gated: archiving just hides a
+    project from the default list, it doesn't touch its data or anyone else's
+    ability to still open it directly, so it doesn't need the stronger
+    owner/admin bar delete_project enforces."""
+    project = _load_project_row(project_id)
+    if _project_role(project, user_id) is None:
+        return None
+    engine = _require_engine()
+    tables = _get_tables()
+    projects = tables["projects"]
+    with engine.begin() as conn:
+        conn.execute(
+            projects.update().where(projects.c.id == project_id)
+            .values(archived_at=_now() if archived else None, updated_at=_now())
+        )
+    return get_project(project_id, user_id)
+
+
+def archive_project(project_id, user_id):
+    return _set_project_archived(project_id, user_id, True)
+
+
+def unarchive_project(project_id, user_id):
+    return _set_project_archived(project_id, user_id, False)
+
+
+def duplicate_project(project_id, user_id):
+    """E3 — clones the project's own setup (name, description, business
+    profile, wizard fields) into a brand-new project so the caller can reuse
+    a business profile for a different market/segment. Deliberately does NOT
+    copy saved_locations/reports/connections/customer data — those belong to
+    the specific expansion effort the source project represents, not to the
+    reusable "what business is this" template being duplicated. Read access
+    is enough to duplicate (same bar as update_project); the clone lands in
+    the source project's own org."""
+    source = get_project(project_id, user_id)
+    if source is None:
+        return None
+    fields = {k: source.get(k) for k in PROJECT_EDITABLE_FIELDS
+              if k not in ("name", "description") and source.get(k) is not None}
+    return create_project(user_id, f"{source['name']} (copy)", source.get("description"),
+                           org_id=source.get("org_id"), **fields)
+
+
+def set_project_share_token(project_id, user_id, token):
+    """E2 — owner/admin only (stricter than update_project's any-member bar):
+    unlike editing, this controls whether the project becomes visible to
+    anyone outside the company at all, so it gets the same bar as inviting
+    someone new (create_or_resend_org_invite) rather than the looser
+    any-member write bar most project fields use."""
+    project = _load_project_row(project_id)
+    if _project_role(project, user_id) not in PROJECT_DELETE_ROLES:
+        return None
+    engine = _require_engine()
+    tables = _get_tables()
+    projects = tables["projects"]
+    with engine.begin() as conn:
+        conn.execute(projects.update().where(projects.c.id == project_id).values(share_token=token))
+    return get_project(project_id, user_id)
+
+
+_PROJECT_PUBLIC_FIELDS = ("id", "name", "description", "business_type", "target_segment",
+                          "industry", "created_at")
+
+
+def get_project_by_share_token(token):
+    """Public, unauthenticated lookup for the project's read-only share link
+    — same "possession of the unguessable token is the credential" pattern
+    as get_report_by_share_token. Returns only a public-safe field subset
+    (no org_id/user_id/financial-planning fields like total_investment) plus
+    its saved locations (name/pincode/lat/lng only, no scores — the viewer's
+    own client can look those up the same way the map does) and a bare
+    report list (title/status/created_at, no ids — a report's own download
+    stays behind its own separate, individually-revocable share link, not
+    implicitly opened up by sharing the project)."""
+    engine = _require_engine()
+    tables = _get_tables()
+    projects = tables["projects"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(projects).where(projects.c.share_token == token, projects.c.archived_at.is_(None))
+        ).mappings().first()
+        if row is None:
+            return None
+        project_id = row["id"]
+        locs = tables["saved_locations"]
+        locations = conn.execute(
+            select(locs.c.name, locs.c.pincode, locs.c.lat, locs.c.lng)
+            .where(locs.c.project_id == project_id)
+        ).mappings().all()
+        reports = tables["reports"]
+        report_rows = conn.execute(
+            select(reports.c.title, reports.c.status, reports.c.created_at)
+            .where(reports.c.project_id == project_id, reports.c.status == "ready")
+            .order_by(reports.c.created_at.desc())
+        ).mappings().all()
+    out = {k: row[k] for k in _PROJECT_PUBLIC_FIELDS}
+    out["locations"] = [dict(l) for l in locations]
+    out["reports"] = [dict(r) for r in report_rows]
+    return out
 
 
 # ── Saved locations ──────────────────────────────────────────────────────────

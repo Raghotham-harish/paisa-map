@@ -118,17 +118,45 @@ export interface Project {
   revenue_period: RevenuePeriod | null;
   created_at: string;
   updated_at: string;
+  // E3 — null unless archived. E2 — null unless a public share link is live.
+  archived_at: string | null;
+  share_token: string | null;
   // Only populated by listProjects() (a cheap correlated-subquery count) —
   // undefined on the single-project create/update/get responses.
   location_count?: number;
   report_count?: number;
   // Phase D2: the caller's effective role on this project (owner if you
   // created it or own the company; admin/member if you reach it via
-  // company membership) — present on every list/get response. Not yet
-  // used to conditionally hide UI (e.g. Delete for a plain member) since
-  // there's no second real member to verify that against; the backend
-  // already enforces it either way.
+  // company membership) — present on every list/get response. Used from E2
+  // onward to hide the Share action for a plain member (see set_project_share_token).
   role?: "owner" | "admin" | "member";
+}
+
+// E2 — the public, read-only shape returned by GET /api/projects/shared/<token>.
+// Deliberately thinner than Project: no org_id/user_id/financial-planning
+// fields, no report ids (a report's own download stays behind its own
+// separate share link, not implicitly opened by sharing the project).
+export interface SharedProjectLocation {
+  name: string | null;
+  pincode: string;
+  lat: number | null;
+  lng: number | null;
+}
+export interface SharedProjectReport {
+  title: string;
+  status: string;
+  created_at: string;
+}
+export interface SharedProject {
+  id: number;
+  name: string;
+  description: string | null;
+  business_type: string | null;
+  target_segment: string | null;
+  industry: string | null;
+  created_at: string;
+  locations: SharedProjectLocation[];
+  reports: SharedProjectReport[];
 }
 
 export interface ProjectFields {
@@ -730,12 +758,24 @@ export const api = {
     request("/api/auth/google", { method: "POST", body: JSON.stringify({ credential }) }) as Promise<MeResponse>,
   signOut: () => request("/api/auth/logout", { method: "POST" }),
 
-  listProjects: () => request("/api/projects") as Promise<{ projects: Project[] }>,
+  listProjects: (includeArchived = false) =>
+    request(`/api/projects${includeArchived ? "?include_archived=1" : ""}`) as Promise<{ projects: Project[] }>,
+  // WorkspaceProvider's own `projects` list excludes archived ones by
+  // default (E3) — an archived project's OWN detail page needs this direct
+  // fetch as a fallback, or it 404s the moment you archive it.
+  getProject: (id: number) => request(`/api/projects/${id}`) as Promise<{ project: Project }>,
   createProject: (fields: ProjectFields) =>
     request("/api/projects", { method: "POST", body: JSON.stringify(fields) }) as Promise<{ project: Project }>,
   updateProject: (id: number, fields: ProjectFields) =>
     request(`/api/projects/${id}`, { method: "PUT", body: JSON.stringify(fields) }) as Promise<{ project: Project }>,
   deleteProject: (id: number) => request(`/api/projects/${id}`, { method: "DELETE" }),
+  archiveProject: (id: number) => request(`/api/projects/${id}/archive`, { method: "POST" }) as Promise<{ project: Project }>,
+  unarchiveProject: (id: number) => request(`/api/projects/${id}/unarchive`, { method: "POST" }) as Promise<{ project: Project }>,
+  duplicateProject: (id: number) => request(`/api/projects/${id}/duplicate`, { method: "POST" }) as Promise<{ project: Project }>,
+  shareProject: (id: number) => request(`/api/projects/${id}/share`, { method: "POST" }) as Promise<{ project: Project }>,
+  unshareProject: (id: number) => request(`/api/projects/${id}/share`, { method: "DELETE" }) as Promise<{ project: Project }>,
+  getSharedProject: (token: string) =>
+    request(`/api/projects/shared/${token}`) as Promise<{ project: SharedProject }>,
 
   listOrganizations: () => request("/api/organizations") as Promise<{ organizations: Organization[] }>,
   createOrganization: (name: string) =>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
-  ApiError, OAuthConnection, PROVIDER_LABEL, ProjectFields, Report, SavedLocation, api,
+  ApiError, OAuthConnection, OrgMember, PROVIDER_LABEL, Project, ProjectFields, Report, SavedLocation, api,
 } from "../lib/api";
 import { useWorkspace } from "../lib/workspace";
 import { EmptyState } from "../components/EmptyState";
@@ -13,6 +13,8 @@ import { StatChip } from "../components/StatChip";
 import { MicroBar } from "../components/MicroViz";
 import { ramp } from "../components/chartTheme";
 import { money } from "../components/forecastCharts";
+import { UndoToastStack } from "../components/UndoToast";
+import { usePendingDelete } from "../lib/undo";
 import { BusinessFields } from "./Projects";
 
 const CONN_STATUS_CLASS: Record<string, string> = { connected: "approved", error: "rejected" };
@@ -27,27 +29,55 @@ type PrevCurve = { budget: number; points: { investment: number; monthly_revenue
  * Project detail (N4/E4) — the hub a project row now opens into instead of
  * only expanding inline. Pulls together everything a project already has:
  * map thumbnail (B1), saved-location shortlist, latest forecast, reports,
- * connections. Two things E4 lists are deliberately NOT here yet: "activity"
- * (the backend only ever logs `project_create`/`location_save` — see
- * `_auth_db.log_activity` call sites — so a project-scoped feed would be
- * near-always-empty; not worth building on top of an unfinished log) and
- * "members with access" (Phase D — orgs/roles don't exist yet).
+ * connections, and (E4, now that Phase D shipped real org roles) members
+ * with access. One thing E4 lists is still deliberately NOT here: "activity"
+ * — the backend only ever logs `project_create`/`location_save` (see
+ * `_auth_db.log_activity` call sites), so a project-scoped feed would be
+ * near-always-empty; not worth building on top of an unfinished log.
  */
 export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const projectId = Number(id);
   const navigate = useNavigate();
-  const { projects, loadError, reload, setActiveProjectId } = useWorkspace();
-  const project = projects?.find((p) => p.id === projectId) ?? null;
+  const { projects, reload, setActiveProjectId } = useWorkspace();
+  // E3: WorkspaceProvider's own `projects` list excludes archived ones by
+  // default, so an archived project would 404 its own detail page if this
+  // relied on that list alone. `project` starts from the shared list (no
+  // extra request, no flicker, for the common non-archived case) but a
+  // direct fetch below is the authoritative source and covers archived too.
+  const [project, setProject] = useState<Project | null>(null);
+  const [projectTried, setProjectTried] = useState(false);
+  const contextProject = projects?.find((p) => p.id === projectId) ?? null;
+
+  const reloadProject = () => {
+    api.getProject(projectId).then((data) => setProject(data.project)).catch(() => setProject(null));
+  };
+
+  useEffect(() => {
+    if (!Number.isFinite(projectId)) return;
+    setProject(contextProject);
+    setProjectTried(false);
+    api.getProject(projectId)
+      .then((data) => setProject(data.project))
+      .catch(() => setProject(null))
+      .finally(() => setProjectTried(true));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   const [locations, setLocations] = useState<SavedLocation[] | null>(null);
   const [scores, setScores] = useState<Record<string, number | null>>({});
   const [reports, setReports] = useState<Report[] | null>(null);
   const [connections, setConnections] = useState<OAuthConnection[] | null>(null);
+  const [members, setMembers] = useState<OrgMember[] | null>(null);
   const [prevCurve, setPrevCurve] = useState<PrevCurve | null>(null);
   const [editing, setEditing] = useState(false);
   const [editFields, setEditFields] = useState<ProjectFields>({});
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const { pending, remove, undo } = usePendingDelete();
 
   useEffect(() => {
     if (!Number.isFinite(projectId)) return;
@@ -79,7 +109,14 @@ export default function ProjectDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  if (projects === null && !loadError) return <p className="loading">Loading…</p>;
+  // Separate effect: needs project.org_id, which only exists once `projects`
+  // (workspace context) has actually loaded — not available on first render.
+  useEffect(() => {
+    if (project?.org_id == null) { setMembers(null); return; }
+    api.listOrgMembers(project.org_id).then((data) => setMembers(data.members)).catch(() => setMembers([]));
+  }, [project?.org_id]);
+
+  if (!projectTried) return <p className="loading">Loading…</p>;
   if (!project) {
     return (
       <EmptyState
@@ -104,19 +141,82 @@ export default function ProjectDetail() {
     try {
       await api.updateProject(project.id, editFields);
       setEditing(false);
+      reloadProject();
       reload();
     } catch {
       setError("Couldn't save changes — try again.");
     }
   };
 
-  const onDeleteProject = async () => {
-    if (!window.confirm(`Delete "${project.name}"? This removes its saved locations, reports, and connections too — it can't be undone.`)) return;
+  // E3: matches Projects.tsx's own onDelete exactly — no window.confirm, the
+  // 5s undo window (A5's pattern) replaces it. Deleting from the detail page
+  // can't just make a row disappear like the list does, so instead the whole
+  // page stays put showing the undo toast; the actual API call (and the
+  // navigate-away, since there's nothing left to show once it really
+  // commits) only happens once the window lapses without an Undo click.
+  const onDeleteProject = () => {
+    remove(project.id, `“${project.name}” will be deleted`, async () => {
+      try {
+        await api.deleteProject(project.id);
+        navigate("/projects");
+      } catch (e) {
+        setError(e instanceof ApiError ? e.message : "Couldn't delete this project — try again.");
+      }
+    });
+  };
+
+  const onArchiveToggle = async () => {
+    setBusy(true);
+    setError(null);
     try {
-      await api.deleteProject(project.id);
-      navigate("/projects");
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Couldn't delete this project — try again.");
+      await (project.archived_at ? api.unarchiveProject(project.id) : api.archiveProject(project.id));
+      reloadProject();
+      reload();
+    } catch {
+      setError(`Couldn't ${project.archived_at ? "restore" : "archive"} this project — try again.`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDuplicate = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { project: copy } = await api.duplicateProject(project.id);
+      navigate(`/projects/${copy.id}`);
+    } catch {
+      setError("Couldn't duplicate this project — try again.");
+      setBusy(false);
+    }
+  };
+
+  const onToggleShare = async () => {
+    setShareBusy(true);
+    setError(null);
+    try {
+      if (project.share_token) await api.unshareProject(project.id);
+      else await api.shareProject(project.id);
+      setShareCopied(false);
+      reloadProject();
+    } catch {
+      setError("Couldn't update sharing for this project — try again.");
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const shareUrl = project.share_token
+    ? `${window.location.origin}/workspace/projects/shared/${project.share_token}`
+    : null;
+
+  const onCopyShareLink = async () => {
+    if (!shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareCopied(true);
+    } catch {
+      setError("Couldn't copy the link — select and copy it manually.");
     }
   };
 
@@ -153,12 +253,25 @@ export default function ProjectDetail() {
       ) : (
         <div className="card map-hero" style={{ marginBottom: 22 }}>
           <div className="map-hero-copy">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <p className="map-hero-kicker">Project</p>
-              <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+              <p className="map-hero-kicker">
+                Project {project.archived_at && <Pill tone="shortlist">Archived</Pill>}
+              </p>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
                 <button className="icon-link" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer" }} onClick={startEdit}>
                   <i className="ti ti-pencil" /> Edit
                 </button>
+                <button className="icon-link" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer" }} disabled={busy} onClick={onDuplicate}>
+                  <i className="ti ti-copy" /> Duplicate
+                </button>
+                <button className="icon-link" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer" }} disabled={busy} onClick={onArchiveToggle}>
+                  <i className={project.archived_at ? "ti ti-archive-off" : "ti ti-archive"} /> {project.archived_at ? "Restore" : "Archive"}
+                </button>
+                {(project.role === "owner" || project.role === "admin") && (
+                  <button className="icon-link" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer" }} onClick={() => setShareOpen((v) => !v)}>
+                    <i className="ti ti-share" /> Share
+                  </button>
+                )}
                 <button className="icon-link" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer" }} onClick={onDeleteProject}>
                   <i className="ti ti-trash" /> Delete
                 </button>
@@ -176,6 +289,31 @@ export default function ProjectDetail() {
                 </a>
               )}
             </div>
+            {shareOpen && (
+              <div className="card" style={{ background: "var(--paper-3)", marginBottom: 14, padding: 12 }}>
+                {project.share_token ? (
+                  <>
+                    <p style={{ fontSize: 12.5, marginBottom: 8 }}>
+                      Anyone with this link can view a read-only summary — name, description, saved locations, and
+                      finished report titles. No downloads, no financial figures.
+                    </p>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <input type="text" readOnly value={shareUrl ?? ""} style={{ flex: 1, minWidth: 200, fontSize: 12 }} onFocus={(e) => e.target.select()} />
+                      <button className="btn secondary" onClick={onCopyShareLink}>{shareCopied ? "Copied!" : "Copy link"}</button>
+                      <button className="btn secondary" disabled={shareBusy} onClick={onToggleShare}>Stop sharing</button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p style={{ fontSize: 12.5, marginBottom: 8 }}>
+                      Create a public read-only link — no PaisaMap account needed to view it. Company members already
+                      see this project without one; use this for anyone outside the company.
+                    </p>
+                    <button className="btn" disabled={shareBusy} onClick={onToggleShare}>Create public link</button>
+                  </>
+                )}
+              </div>
+            )}
             <div className="map-hero-actions">
               <Link className="btn" to={`/map?project_id=${project.id}`}>Open on map →</Link>
               <Link className="btn secondary" to={`/forecast?project_id=${project.id}`}>Forecast</Link>
@@ -265,7 +403,7 @@ export default function ProjectDetail() {
         )}
       </div>
 
-      <div className="card">
+      <div className="card" style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
           <p className="kicker" style={{ margin: 0 }}>Connections</p>
           <Link to="/connections" style={{ fontSize: 12.5 }}>Manage →</Link>
@@ -285,6 +423,30 @@ export default function ProjectDetail() {
           </div>
         )}
       </div>
+
+      {/* E4 — every org member already has access to every one of the
+          company's projects (Phase D2's read policy), so this is purely
+          informational: who can see this, not a per-project ACL to edit.
+          Invite a new person via Company Settings, not here. */}
+      <div className="card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
+          <p className="kicker" style={{ margin: 0 }}>Members with access</p>
+          <Link to="/company" style={{ fontSize: 12.5 }}>Manage company →</Link>
+        </div>
+        {members === null ? (
+          <p className="loading">Loading…</p>
+        ) : members.length === 0 ? (
+          <p style={{ color: "var(--ink-soft)", fontSize: 13 }}>Just you — no other company members yet.</p>
+        ) : (
+          <DataList>
+            {members.map((m) => (
+              <DataRow key={m.user_id} title={m.name || m.email} subtitle={m.name ? m.email : undefined} trailing={<StatChip icon="ti ti-user-circle">{m.role}</StatChip>} />
+            ))}
+          </DataList>
+        )}
+      </div>
+
+      <UndoToastStack toasts={pending ? [{ key: "project", label: pending.label, onUndo: undo }] : []} />
     </>
   );
 }

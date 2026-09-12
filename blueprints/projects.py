@@ -3,11 +3,12 @@ projects.py — /api/projects CRUD, ownership-scoped by session user_id.
 """
 
 import json
+import secrets
 from urllib.parse import urlsplit
 
 from flask import Blueprint, request, jsonify
 
-from ._session import require_login, _auth_db
+from ._session import require_db, require_login, _auth_db
 
 projects_bp = Blueprint("projects", __name__, url_prefix="/api/projects")
 
@@ -137,7 +138,8 @@ def _shape(project):
 @projects_bp.route("", methods=["GET"])
 @require_login
 def list_projects(user_id):
-    return jsonify({"projects": [_shape(p) for p in _auth_db.list_projects(user_id)]})
+    include_archived = request.args.get("include_archived") == "1"
+    return jsonify({"projects": [_shape(p) for p in _auth_db.list_projects(user_id, include_archived=include_archived)]})
 
 
 @projects_bp.route("", methods=["POST"])
@@ -194,3 +196,68 @@ def delete_project(user_id, project_id):
     if not deleted:
         return jsonify({"error": "not_found"}), 404
     return jsonify({"status": "ok"})
+
+
+@projects_bp.route("/<int:project_id>/archive", methods=["POST"])
+@require_login
+def archive_project(user_id, project_id):
+    project = _auth_db.archive_project(project_id, user_id)
+    if project is None:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"project": _shape(project)})
+
+
+@projects_bp.route("/<int:project_id>/unarchive", methods=["POST"])
+@require_login
+def unarchive_project(user_id, project_id):
+    project = _auth_db.unarchive_project(project_id, user_id)
+    if project is None:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"project": _shape(project)})
+
+
+@projects_bp.route("/<int:project_id>/duplicate", methods=["POST"])
+@require_login
+def duplicate_project(user_id, project_id):
+    project = _auth_db.duplicate_project(project_id, user_id)
+    if project is None:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"project": _shape(project)}), 201
+
+
+@projects_bp.route("/<int:project_id>/share", methods=["POST"])
+@require_login
+def share_project(user_id, project_id):
+    """E2 — owner/admin only, see set_project_share_token. A project that
+    already has a token gets it reused (idempotent "get the current link"),
+    same convention as reports' share_report."""
+    existing = _auth_db.get_project(project_id, user_id)
+    if existing is None:
+        return jsonify({"error": "not_found"}), 404
+    token = existing.get("share_token") or secrets.token_urlsafe(24)
+    project = _auth_db.set_project_share_token(project_id, user_id, token)
+    if project is None:
+        return jsonify({"error": "forbidden"}), 403
+    return jsonify({"project": _shape(project)})
+
+
+@projects_bp.route("/<int:project_id>/share", methods=["DELETE"])
+@require_login
+def unshare_project(user_id, project_id):
+    if _auth_db.get_project(project_id, user_id) is None:
+        return jsonify({"error": "not_found"}), 404
+    project = _auth_db.set_project_share_token(project_id, user_id, None)
+    if project is None:
+        return jsonify({"error": "forbidden"}), 403
+    return jsonify({"project": _shape(project)})
+
+
+@projects_bp.route("/shared/<token>", methods=["GET"])
+@require_db
+def view_shared_project(token):
+    """Public, unauthenticated — no @require_login, same pattern as
+    reports.py's view_shared_report. The token itself is the credential."""
+    project = _auth_db.get_project_by_share_token(token)
+    if project is None:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"project": project})

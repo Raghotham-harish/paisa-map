@@ -8,6 +8,7 @@ import { AsyncBoundary } from "../components/AsyncBoundary";
 import { UndoToastStack } from "../components/UndoToast";
 import { usePendingDelete } from "../lib/undo";
 import { StatChip } from "../components/StatChip";
+import { Pill } from "../components/Pill";
 import { MiniMap } from "../components/MiniMap";
 import { useWorkspace } from "../lib/workspace";
 
@@ -74,6 +75,8 @@ export default function Projects() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editFields, setEditFields] = useState<ProjectFields>(EMPTY_FIELDS);
   const [query, setQuery] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [busyId, setBusyId] = useState<number | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const { pending, remove, undo, isPending } = usePendingDelete();
   const navigate = useNavigate();
@@ -81,12 +84,12 @@ export default function Projects() {
 
   const load = () => {
     setLoadError(null);
-    api.listProjects()
+    api.listProjects(showArchived)
       .then((data) => setProjects(data.projects))
       .catch(() => setLoadError("Couldn't load your projects — try again."));
   };
 
-  useEffect(load, []);
+  useEffect(load, [showArchived]);
   // One call for all projects' thumbnails — grouped client-side by project_id
   // below, rather than a per-row fetch (avoids an N+1 request fan-out).
   useEffect(() => {
@@ -118,6 +121,32 @@ export default function Projects() {
       }
       load();
     });
+  };
+
+  const onArchiveToggle = async (p: Project) => {
+    setBusyId(p.id);
+    try {
+      if (p.archived_at) await api.unarchiveProject(p.id);
+      else await api.archiveProject(p.id);
+      load();
+    } catch {
+      setError(`Couldn't ${p.archived_at ? "restore" : "archive"} “${p.name}” — try again.`);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const onDuplicate = async (p: Project) => {
+    setBusyId(p.id);
+    try {
+      const { project } = await api.duplicateProject(p.id);
+      load();
+      navigate(`/projects/${project.id}`);
+    } catch {
+      setError(`Couldn't duplicate “${p.name}” — try again.`);
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const startEdit = (p: Project) => {
@@ -179,7 +208,13 @@ export default function Projects() {
         }
       >
         <>
-        <SearchInput value={query} onChange={setQuery} placeholder="Search projects…" />
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <SearchInput value={query} onChange={setQuery} placeholder="Search projects…" />
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--ink-soft)", whiteSpace: "nowrap" }}>
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+            Show archived
+          </label>
+        </div>
         {(() => {
           const q = query.trim().toLowerCase();
           const filtered = (projects ?? []).filter(
@@ -226,12 +261,27 @@ export default function Projects() {
                 onToggle={() => navigate(`/projects/${p.id}`)}
                 trailing={
                   <>
+                    {p.archived_at && <Pill tone="shortlist">Archived</Pill>}
                     <StatChip icon="ti ti-calendar">{new Date(p.updated_at).toLocaleDateString()}</StatChip>
                     <button
                       className="btn secondary"
                       onClick={(e) => { e.stopPropagation(); editingId === p.id ? setEditingId(null) : startEdit(p); }}
                     >
                       Edit
+                    </button>
+                    <button
+                      className="btn secondary"
+                      disabled={busyId === p.id}
+                      onClick={(e) => { e.stopPropagation(); onDuplicate(p); }}
+                    >
+                      Duplicate
+                    </button>
+                    <button
+                      className="btn secondary"
+                      disabled={busyId === p.id}
+                      onClick={(e) => { e.stopPropagation(); onArchiveToggle(p); }}
+                    >
+                      {p.archived_at ? "Restore" : "Archive"}
                     </button>
                     <button
                       className="btn secondary"
