@@ -260,12 +260,23 @@ def _get_tables():
         Column("lat", Float),
         Column("lng", Float),
         Column("geocode_status", Text, nullable=False, server_default="pending"),
+        # Phase H1, staged: revenue/rent/capex/raw_address above are the
+        # legacy plaintext columns, kept for now so pre-migration rows keep
+        # reading correctly (see _MIGRATIONS' encrypted twins below and
+        # create_customer_locations_bulk / list_customer_locations /
+        # list_pending_geocode_locations for the dual-read/encrypt-on-write
+        # logic). A later, separately-approved backfill+cutover step will
+        # encrypt existing rows and eventually drop these plaintext columns.
         Column("revenue", Float),
         Column("rent", Float),
         Column("capex", Float),
         Column("extra_fields", JSONType),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("updated_at", DateTime(timezone=True), nullable=False),
+        Column("revenue_encrypted", Text),
+        Column("rent_encrypted", Text),
+        Column("capex_encrypted", Text),
+        Column("raw_address_encrypted", Text),
         CheckConstraint(
             "geocode_status IN ('direct','pending','geocoded','failed','unresolvable')",
             name="ck_customer_locations_geocode_status",
@@ -469,6 +480,12 @@ _MIGRATIONS = [
     # Phase E3/E2 — additive, nothing reads these until the functions below ship.
     ("projects", "archived_at", "TIMESTAMP"),
     ("projects", "share_token", "TEXT"),
+    # Phase H1 — additive, staged (see the Table definition above for the
+    # dual-read/encrypt-on-write plan; legacy plaintext columns stay put).
+    ("customer_locations", "revenue_encrypted", "TEXT"),
+    ("customer_locations", "rent_encrypted", "TEXT"),
+    ("customer_locations", "capex_encrypted", "TEXT"),
+    ("customer_locations", "raw_address_encrypted", "TEXT"),
 ]
 
 
@@ -2114,24 +2131,41 @@ def create_customer_locations_bulk(user_id, project_id, upload_id, rows):
     """rows: list of dicts with keys store_name/raw_address/pincode/lat/lng/
     geocode_status/revenue/rent/capex/extra_fields (all optional except
     geocode_status). Returns the count inserted. Phase C5: stamped with the
-    project's org_id, same reasoning as create_customer_upload."""
+    project's org_id, same reasoning as create_customer_upload.
+
+    Phase H1: raw_address/revenue/rent/capex are real financial/PII data
+    about a customer's own business — encrypted at rest via
+    _customer_data_crypto, mandatory (not best-effort) same as
+    _token_crypto.py's OAuth tokens: a missing CUSTOMER_DATA_KEY must fail
+    this loudly, not silently persist plaintext. The legacy plaintext
+    columns are left NULL for every row written through this path; they
+    only still hold real data on rows inserted before this encryption
+    existed, kept there until a separate, explicitly-approved backfill."""
     if not rows:
         return 0
+    import _customer_data_crypto as _cdc
     engine = _require_engine()
     tables = _get_tables()
     locs = tables["customer_locations"]
     projects = tables["projects"]
     from sqlalchemy import select
     now = _now()
+
+    def _enc(v):
+        return _cdc.encrypt(str(v)) if v is not None else None
+
     with engine.begin() as conn:
         org_id = conn.execute(select(projects.c.org_id).where(projects.c.id == project_id)).scalar()
         values = [
             dict(
                 user_id=user_id, project_id=project_id, org_id=org_id, upload_id=upload_id,
-                store_name=r.get("store_name"), raw_address=r.get("raw_address"),
+                store_name=r.get("store_name"), raw_address=None,
+                raw_address_encrypted=_enc(r.get("raw_address")),
                 pincode=r.get("pincode"), lat=r.get("lat"), lng=r.get("lng"),
                 geocode_status=r.get("geocode_status", "pending"),
-                revenue=r.get("revenue"), rent=r.get("rent"), capex=r.get("capex"),
+                revenue=None, rent=None, capex=None,
+                revenue_encrypted=_enc(r.get("revenue")), rent_encrypted=_enc(r.get("rent")),
+                capex_encrypted=_enc(r.get("capex")),
                 extra_fields=r.get("extra_fields"),
                 created_at=now, updated_at=now,
             )
@@ -2139,6 +2173,83 @@ def create_customer_locations_bulk(user_id, project_id, upload_id, rows):
         ]
         conn.execute(locs.insert(), values)
     return len(values)
+
+
+def _decrypt_customer_location_row(row):
+    """Shared by list_customer_locations/list_pending_geocode_locations —
+    the one choke point every consumer (forecast/expansion modelling,
+    CustomerData.tsx's own display, the geocode job) reads through, so none
+    of them need to know encryption is involved at all. Prefers the
+    encrypted column when present (every row written since H1 shipped);
+    falls back to the legacy plaintext column for rows written before it
+    (until a separate backfill migrates them) — never both at once, since
+    the write path always nulls out whichever side it isn't using."""
+    import _customer_data_crypto as _cdc
+    out = dict(row)
+    if out.get("raw_address_encrypted"):
+        out["raw_address"] = _cdc.decrypt(out["raw_address_encrypted"])
+    for field in ("revenue", "rent", "capex"):
+        enc = out.get(f"{field}_encrypted")
+        if enc:
+            out[field] = float(_cdc.decrypt(enc))
+    return out
+
+
+def backfill_encrypt_customer_locations(batch_size=500):
+    """Phase H1 — one-time (and safely re-runnable) backfill: encrypts
+    revenue/rent/capex/raw_address on every row written before this feature
+    existed. Idempotent — only selects rows where a plaintext value is
+    present AND its _encrypted twin is still NULL, so a row already migrated
+    (or one that never had a value at all) is never touched again on re-run.
+
+    Deliberately does NOT null out the legacy plaintext columns — that's a
+    separate, later, even-more-cautious step for once there's real
+    confidence the encrypted columns are correct and the key is durably
+    backed up; losing CUSTOMER_DATA_KEY before that point must not mean
+    losing the data, only the encrypted copy of it."""
+    import _customer_data_crypto as _cdc
+    if not _cdc.enabled():
+        raise RuntimeError("CUSTOMER_DATA_KEY is not configured — cannot backfill encryption without it")
+    engine = _require_engine()
+    tables = _get_tables()
+    locs = tables["customer_locations"]
+    from sqlalchemy import select, or_, and_
+
+    to_migrate = or_(
+        and_(locs.c.revenue.is_not(None), locs.c.revenue_encrypted.is_(None)),
+        and_(locs.c.rent.is_not(None), locs.c.rent_encrypted.is_(None)),
+        and_(locs.c.capex.is_not(None), locs.c.capex_encrypted.is_(None)),
+        and_(locs.c.raw_address.is_not(None), locs.c.raw_address_encrypted.is_(None)),
+    )
+    counts = {"rows_seen": 0, "revenue": 0, "rent": 0, "capex": 0, "raw_address": 0}
+    while True:
+        with engine.begin() as conn:
+            rows = conn.execute(
+                select(locs.c.id, locs.c.revenue, locs.c.rent, locs.c.capex, locs.c.raw_address,
+                       locs.c.revenue_encrypted, locs.c.rent_encrypted, locs.c.capex_encrypted,
+                       locs.c.raw_address_encrypted)
+                .where(to_migrate).limit(batch_size)
+            ).all()
+            if not rows:
+                break
+            for row in rows:
+                counts["rows_seen"] += 1
+                values = {}
+                if row.revenue is not None and row.revenue_encrypted is None:
+                    values["revenue_encrypted"] = _cdc.encrypt(str(row.revenue))
+                    counts["revenue"] += 1
+                if row.rent is not None and row.rent_encrypted is None:
+                    values["rent_encrypted"] = _cdc.encrypt(str(row.rent))
+                    counts["rent"] += 1
+                if row.capex is not None and row.capex_encrypted is None:
+                    values["capex_encrypted"] = _cdc.encrypt(str(row.capex))
+                    counts["capex"] += 1
+                if row.raw_address is not None and row.raw_address_encrypted is None:
+                    values["raw_address_encrypted"] = _cdc.encrypt(row.raw_address)
+                    counts["raw_address"] += 1
+                if values:
+                    conn.execute(locs.update().where(locs.c.id == row.id).values(**values))
+    return counts
 
 
 def list_customer_locations(user_id, project_id=None):
@@ -2159,7 +2270,7 @@ def list_customer_locations(user_id, project_id=None):
         rows = conn.execute(
             select(locs).where(*clauses).order_by(locs.c.created_at.desc())
         ).mappings().all()
-    return [dict(r) for r in rows]
+    return [_decrypt_customer_location_row(r) for r in rows]
 
 
 def count_unresolved_locations(upload_id, user_id):
@@ -2198,11 +2309,22 @@ def list_pending_geocode_locations(upload_id, user_id):
         rows = conn.execute(
             select(locs).where(locs.c.upload_id == upload_id, locs.c.geocode_status == "pending")
         ).mappings().all()
-    return [dict(r) for r in rows]
+    return [_decrypt_customer_location_row(r) for r in rows]
+
+
+_CUSTOMER_LOCATION_ENCRYPTED_FIELDS = ("revenue", "rent", "capex", "raw_address")
 
 
 def update_customer_location(location_id, user_id, **fields):
-    """Phase D2: any org member can update — access via the owning project's role."""
+    """Phase D2: any org member can update — access via the owning project's role.
+
+    Phase H1: defensive, not just documentation — the only real caller today
+    (the geocode job) never passes revenue/rent/capex/raw_address, but this
+    is a generic **fields setter, and a future caller easily could. Any of
+    those four gets transparently redirected to its _encrypted column
+    instead of ever writing the legacy plaintext one, so this function can't
+    silently reintroduce a plaintext write no matter what a future call site
+    passes."""
     engine = _require_engine()
     tables = _get_tables()
     locs = tables["customer_locations"]
@@ -2214,6 +2336,11 @@ def update_customer_location(location_id, user_id, **fields):
     allowed = {k: v for k, v in fields.items() if v is not None}
     if not allowed:
         return None
+    if any(f in allowed for f in _CUSTOMER_LOCATION_ENCRYPTED_FIELDS):
+        import _customer_data_crypto as _cdc
+        for f in _CUSTOMER_LOCATION_ENCRYPTED_FIELDS:
+            if f in allowed:
+                allowed[f"{f}_encrypted"] = _cdc.encrypt(str(allowed.pop(f)))
     allowed["updated_at"] = _now()
     with engine.begin() as conn:
         conn.execute(locs.update().where(locs.c.id == location_id).values(**allowed))

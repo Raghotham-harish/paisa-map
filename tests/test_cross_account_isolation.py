@@ -4,9 +4,12 @@ isolation test suite. Every endpoint that takes a resource id must never let
 an unrelated account read, write, or delete another account's data.
 
 Run against a throwaway sqlite DB (never point DATABASE_URL at anything
-real):
+real). Also needs a CUSTOMER_DATA_KEY (any valid Fernet key — see
+_customer_data_crypto.py) since the customer-data seed step below exercises
+the real upload/commit HTTP flow, which encrypts at write time unconditionally:
 
     DATABASE_URL="sqlite:////tmp/isolation_test.sqlite" \
+      CUSTOMER_DATA_KEY="$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" \
       python3 tests/test_cross_account_isolation.py
 
 Two isolation models exist in this codebase and both are covered:
@@ -36,6 +39,11 @@ sys.path.insert(0, os.path.join(REPO, "paisamap-etl", "etl"))
 os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/isolation_test_default.sqlite")
 if "sqlite" not in os.environ["DATABASE_URL"]:
     raise SystemExit("Refusing to run: DATABASE_URL doesn't look like a throwaway sqlite file.")
+if not os.environ.get("CUSTOMER_DATA_KEY"):
+    # A disposable key is fine here — this DB is throwaway too. See the
+    # module docstring for how to pass a real one instead if preferred.
+    from cryptography.fernet import Fernet
+    os.environ["CUSTOMER_DATA_KEY"] = Fernet.generate_key().decode()
 
 import _db
 _db.init_schema()
