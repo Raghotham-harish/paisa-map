@@ -99,6 +99,30 @@ def get_effective_plan():
     return user["plan"] if user else "free"
 
 
+def log_data_access(action, target_type=None, target_id=None, metadata=None):
+    """Phase D4 — records a data-access event (export/download/view) for the
+    admin-visible org audit log, attributing it to whichever identity the
+    request actually carries: an X-API-Key's owner first (same precedence as
+    get_effective_plan()), else the session user, else None for a genuinely
+    anonymous caller (still logged — just won't show up in any org's audit
+    log, since there's no member to attribute it to). Best-effort like
+    intelligence.py's _log_if_signed_in: never lets a logging failure affect
+    the actual export/download response."""
+    if _auth_db is None or not _auth_db.enabled():
+        return
+    try:
+        user_id = None
+        if _api_keys is not None:
+            key = _api_keys.resolve(request)
+            if key:
+                user_id = key["user_id"]
+        if user_id is None:
+            user_id = session.get("user_id")
+        _auth_db.log_activity(user_id, action, target_type=target_type, target_id=target_id, metadata=metadata)
+    except Exception:
+        pass
+
+
 def require_api_key(fn):
     """For a future route that should require a key specifically, rather than
     get_effective_plan()'s "elevate if present, else stay anonymous"

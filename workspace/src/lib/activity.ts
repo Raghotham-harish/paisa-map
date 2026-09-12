@@ -13,6 +13,9 @@ export const ACTION_LABELS: Record<string, string> = {
   location_compare: "Compared locations",
   forecast_run: "Ran a forecast",
   report_generate: "Generated a report",
+  report_download: "Downloaded a report",
+  report_share_view: "Report viewed via share link",
+  data_export: "Exported data",
 };
 
 export function describeActivity(entry: ActivityEntry): string {

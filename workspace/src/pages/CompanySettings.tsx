@@ -1,10 +1,24 @@
 import { useEffect, useState } from "react";
-import { ApiError, OrgMember, OrgRole, api } from "../lib/api";
+import { ApiError, AuditLogEntry, OrgMember, OrgRole, api } from "../lib/api";
 import { useWorkspace } from "../lib/workspace";
 import { AsyncBoundary } from "../components/AsyncBoundary";
 import { EmptyState } from "../components/EmptyState";
 import { DataList, DataRow } from "../components/DataList";
 import { StatChip } from "../components/StatChip";
+import { describeActivity } from "../lib/activity";
+
+// Metadata detail beyond describeActivity's own pincode suffix — the two
+// D4 action types whose metadata is actually worth surfacing here.
+function auditDetail(entry: AuditLogEntry): string | null {
+  const meta = entry.metadata as Record<string, unknown> | null;
+  if (!meta) return null;
+  if (entry.action === "data_export") {
+    return [meta.dataset, meta.format, meta.row_count != null ? `${meta.row_count} rows` : null]
+      .filter(Boolean).join(" · ");
+  }
+  if (entry.action === "report_share_view") return "via public share link";
+  return null;
+}
 
 const ROLE_OPTIONS: OrgRole[] = ["owner", "admin", "member"];
 
@@ -31,6 +45,8 @@ export default function CompanySettings() {
   const { organizations, orgLoadError, reloadOrgs, activeOrgId, activeOrg, setActiveOrgId } = useWorkspace();
   const [members, setMembers] = useState<OrgMember[] | null>(null);
   const [membersError, setMembersError] = useState<string | null>(null);
+  const [auditLog, setAuditLog] = useState<AuditLogEntry[] | null>(null);
+  const [auditLogError, setAuditLogError] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editWebsite, setEditWebsite] = useState("");
   const [saving, setSaving] = useState(false);
@@ -49,6 +65,14 @@ export default function CompanySettings() {
       .catch(() => setMembersError("Couldn't load members — try again."));
   };
 
+  const loadAuditLog = () => {
+    if (activeOrgId == null) return;
+    setAuditLogError(null);
+    api.getOrgAuditLog(activeOrgId)
+      .then((data) => setAuditLog(data.entries))
+      .catch(() => setAuditLogError("Couldn't load the audit log — try again."));
+  };
+
   useEffect(() => {
     if (activeOrg) {
       setEditName(activeOrg.name);
@@ -56,8 +80,12 @@ export default function CompanySettings() {
     }
     setMembers(null);
     loadMembers();
+    setAuditLog(null);
+    // 403s silently for a plain member (the endpoint is owner/admin-only) —
+    // only fetched here when the role check below already knows it'll pass.
+    if (activeOrg?.role === "owner" || activeOrg?.role === "admin") loadAuditLog();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeOrgId]);
+  }, [activeOrgId, activeOrg?.role]);
 
   const isOwnerOrAdmin = activeOrg?.role === "owner" || activeOrg?.role === "admin";
   const isOwner = activeOrg?.role === "owner";
@@ -244,6 +272,37 @@ export default function CompanySettings() {
             </div>
           )}
         </div>
+
+        {isOwnerOrAdmin && (
+          <div className="card" style={{ marginBottom: 20 }}>
+            <p className="kicker" style={{ marginBottom: 14 }}>Data-access audit log</p>
+            <p style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 12 }}>
+              Who on your team exported data, downloaded or viewed a report, or scored/compared a location — owner
+              and admin visible only.
+            </p>
+            <AsyncBoundary
+              loading={auditLog === null && !auditLogError}
+              error={auditLogError}
+              onRetry={loadAuditLog}
+              empty={auditLog?.length === 0}
+              emptyState={<EmptyState icon="🔍" title="No data access yet" bare />}
+            >
+              <DataList>
+                {(auditLog ?? []).map((entry) => {
+                  const detail = auditDetail(entry);
+                  return (
+                    <DataRow
+                      key={entry.id}
+                      title={describeActivity(entry)}
+                      subtitle={[entry.name || entry.email || "Unknown", detail].filter(Boolean).join(" — ")}
+                      trailing={<StatChip icon="ti ti-clock">{new Date(entry.created_at).toLocaleString()}</StatChip>}
+                    />
+                  );
+                })}
+              </DataList>
+            </AsyncBoundary>
+          </div>
+        )}
 
         <div className="card" style={{ marginBottom: 20 }}>
           <p className="kicker" style={{ marginBottom: 14 }}>Create another company</p>

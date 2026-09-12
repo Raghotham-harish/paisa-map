@@ -161,6 +161,15 @@ export interface ActivityEntry {
   created_at: string;
 }
 
+// Phase D4 — an org's admin-visible data-access audit log: an ActivityEntry
+// plus who did it, since (unlike the personal Activity feed) this spans
+// every member of the company.
+export interface AuditLogEntry extends ActivityEntry {
+  user_id: number | null;
+  email: string | null;
+  name: string | null;
+}
+
 export interface CreditLedgerEntry {
   id: number;
   delta: number;
@@ -721,6 +730,8 @@ export const api = {
     request(`/api/organizations/${id}/members/${memberUserId}`, { method: "PUT", body: JSON.stringify({ role }) }) as Promise<{ members: OrgMember[] }>,
   removeOrgMember: (id: number, memberUserId: number) =>
     request(`/api/organizations/${id}/members/${memberUserId}`, { method: "DELETE" }),
+  getOrgAuditLog: (id: number, limit = 100) =>
+    request(`/api/organizations/${id}/audit-log?limit=${limit}`) as Promise<{ entries: AuditLogEntry[] }>,
 
   listLocations: (projectId?: number) =>
     request(`/api/locations${projectId ? `?project_id=${projectId}` : ""}`) as Promise<{ locations: SavedLocation[] }>,

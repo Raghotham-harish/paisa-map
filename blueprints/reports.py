@@ -147,6 +147,7 @@ def download_report(user_id, report_id):
     if not path.exists():
         return jsonify({"error": "file_missing",
                          "detail": "The report record exists but its file is gone — try regenerating."}), 404
+    _auth_db.log_activity(user_id, "report_download", target_type="report", target_id=report_id)
     return send_file(str(path), mimetype="application/pdf", as_attachment=True,
                       download_name=f"{report['title']}.pdf")
 
@@ -187,5 +188,14 @@ def view_shared_report(token):
     path = Path(report["file_path"])
     if not path.exists():
         return jsonify({"error": "file_missing"}), 404
+    # No session by definition (the token IS the credential) — logged with no
+    # user_id, same honest "won't show in any org's roster-scoped audit log
+    # yet" limitation as an anonymous /api/export call. Best-effort: must
+    # never block a legitimate viewer from seeing the report.
+    try:
+        _auth_db.log_activity(None, "report_share_view", target_type="report", target_id=report["id"],
+                               metadata={"via": "share_link"})
+    except Exception:
+        pass
     return send_file(str(path), mimetype="application/pdf", as_attachment=False,
                       download_name=f"{report['title']}.pdf")

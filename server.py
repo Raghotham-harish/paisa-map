@@ -111,10 +111,13 @@ from _signals_data import (EXPORT_CORE_FIELDS, EXPORT_ALL_COLUMNS, columns_for_p
 # missing) — it just falls back to treating every caller as "free" in that
 # case, same as get_effective_plan() already does for an anonymous request.
 try:
-    from blueprints._session import get_effective_plan
+    from blueprints._session import get_effective_plan, log_data_access
 except ImportError:
     def get_effective_plan():
         return "free"
+
+    def log_data_access(*args, **kwargs):
+        pass
 
 app = Flask(__name__)
 
@@ -575,6 +578,14 @@ def api_export():
         base_name  = "paisamap_ppi_signals"
 
     filename = f"{base_name}_{ts}.{fmt}"
+
+    # Phase D4: audit trail for the actual data-access surface — who exported
+    # what, when. Attributed via X-API-Key/session if either is present (see
+    # log_data_access), else logged with no user_id (visible in aggregate,
+    # not attributable to any one org's roster). Never blocks the download.
+    log_data_access("data_export", target_type="dataset", target_id=None,
+                     metadata={"dataset": dataset, "format": fmt, "scope": scope,
+                               "row_count": len(rows), "column_count": len(columns)})
 
     if fmt == "json":
         payload = json.dumps({

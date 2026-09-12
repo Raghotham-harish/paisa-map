@@ -1003,6 +1003,47 @@ def list_org_members(org_id, user_id):
     return [dict(r) for r in rows]
 
 
+# Phase D4: "who viewed/exported what", admin-visible — a deliberate subset of
+# every activity_log action, not the full personal feed. login/purchase/
+# connection_connected/etc. stay off this view; they're account events, not
+# data access. Anonymous data access (a public /api/export call, or a
+# report_share_view with no session) has no user_id to attribute to any
+# org's roster and simply won't appear here — an honest limitation given
+# real production has exactly one org to verify a fancier attribution path
+# against, not a bug to work around yet.
+DATA_ACCESS_ACTIONS = (
+    "data_export", "report_generate", "report_download", "report_share_view",
+    "location_score", "location_compare", "customer_data_upload_commit",
+)
+
+
+def list_org_audit_log(org_id, user_id, limit=100):
+    """Owner/admin only (same forbidden-for-anyone-else shape as
+    update_organization/delete_organization) — activity_log rows for every
+    member of this org, filtered to DATA_ACCESS_ACTIONS, newest first."""
+    if get_org_role(org_id, user_id) not in ("owner", "admin"):
+        return None
+    engine = _require_engine()
+    tables = _get_tables()
+    log = tables["activity_log"]
+    members = tables["org_members"]
+    users = tables["users"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        member_ids = conn.execute(
+            select(members.c.user_id).where(members.c.org_id == org_id)
+        ).scalars().all()
+        if not member_ids:
+            return []
+        rows = conn.execute(
+            select(log, users.c.email, users.c.name)
+            .select_from(log.join(users, users.c.id == log.c.user_id))
+            .where(log.c.user_id.in_(member_ids), log.c.action.in_(DATA_ACCESS_ACTIONS))
+            .order_by(log.c.id.desc()).limit(limit)
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
 def add_org_member(org_id, actor_user_id, target_email, role="member"):
     """Owner/admin only, and only for a user who already has a PaisaMap
     account — there's no invite-by-email flow yet (Phase D), so the caller

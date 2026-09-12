@@ -123,3 +123,15 @@ def remove_member(user_id, org_id, member_user_id):
     if "error" in result:
         return _error_response(result)
     return jsonify(result)
+
+
+@organizations_bp.route("/<int:org_id>/audit-log", methods=["GET"])
+@require_login
+def audit_log(user_id, org_id):
+    """Phase D4 — owner/admin only. Data-access events (exports, downloads,
+    report views, location scores/compares) for every member of this org."""
+    limit = min(request.args.get("limit", 100, type=int) or 100, 500)
+    entries = _auth_db.list_org_audit_log(org_id, user_id, limit=limit)
+    if entries is None:
+        return jsonify({"error": "forbidden"}), 403
+    return jsonify({"entries": entries})
