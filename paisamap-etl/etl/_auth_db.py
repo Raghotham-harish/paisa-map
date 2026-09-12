@@ -102,6 +102,26 @@ def _get_tables():
         CheckConstraint("role IN ('owner','admin','member')", name="ck_org_members_role"),
     )
 
+    # Phase D1: invites for an email with no PaisaMap account yet. A known
+    # email short-circuits straight into org_members (see add_org_member) —
+    # this table only exists for the "hasn't signed up" case.
+    org_invites = Table(
+        "org_invites", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("org_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        Column("email", Text, nullable=False),
+        Column("role", Text, nullable=False, server_default="member"),
+        Column("token", Text, nullable=False, unique=True),
+        Column("invited_by_user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        Column("status", Text, nullable=False, server_default="pending"),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("expires_at", DateTime(timezone=True), nullable=False),
+        Column("accepted_by_user_id", Integer, ForeignKey("users.id", ondelete="SET NULL")),
+        Column("responded_at", DateTime(timezone=True)),
+        CheckConstraint("role IN ('owner','admin','member')", name="ck_org_invites_role"),
+        CheckConstraint("status IN ('pending','accepted','declined','revoked')", name="ck_org_invites_status"),
+    )
+
     projects = Table(
         "projects", _metadata,
         Column("id", Integer, primary_key=True, autoincrement=True),
@@ -365,6 +385,7 @@ def _get_tables():
 
     _tables = {
         "organizations": organizations, "users": users, "org_members": org_members,
+        "org_invites": org_invites,
         "projects": projects, "saved_locations": saved_locations, "reports": reports,
         "credits_ledger": credits_ledger, "activity_log": activity_log,
         "customer_uploads": customer_uploads, "customer_locations": customer_locations,
@@ -388,6 +409,7 @@ def init_schema():
     # already exist.
     _metadata.create_all(engine, tables=[
         tables["organizations"], tables["users"], tables["org_members"],
+        tables["org_invites"],
         tables["projects"], tables["saved_locations"], tables["reports"],
         tables["credits_ledger"], tables["activity_log"],
         tables["customer_uploads"], tables["customer_locations"],
@@ -1131,6 +1153,241 @@ def update_org_member_role(org_id, actor_user_id, target_user_id, role):
             .values(role=role)
         )
     return {"members": list_org_members(org_id, actor_user_id)}
+
+
+# ── Invites (Phase D1) ─────────────────────────────────────────────────────
+# add_org_member above only works for an email that already has an account.
+# This section covers the other case: invite someone who hasn't signed up
+# yet. A pending invite is keyed by a token (same secrets.token_urlsafe(24)
+# credential-not-session pattern as reports.py's share links) that's emailed
+# out and later exchanged for real org_members row once the invitee signs in.
+
+INVITE_TTL_DAYS = 7
+
+
+def _ensure_aware(dt):
+    """SQLite (local dev) returns naive datetimes even for
+    DateTime(timezone=True) columns — Postgres (prod) doesn't. Compared
+    against _now() (aware), a naive value raises TypeError rather than
+    just comparing wrong, so this normalizes before every expires_at check.
+    Same pattern as blueprints/analytics_connections.py's _ensure_aware."""
+    if dt is not None and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _invite_row_to_dict(row):
+    out = dict(row)
+    out["email"] = out["email"].lower()
+    return out
+
+
+def create_or_resend_org_invite(org_id, actor_user_id, target_email, role="member"):
+    """Owner/admin only. A known email short-circuits into add_org_member
+    (no need for an invite when the account already exists). For an unknown
+    email: reuses any existing pending invite for this (org, email) rather
+    than creating a duplicate — calling this again for the same address is
+    exactly "resend" (new token, extended expiry). Returns
+    {"invite": {...}, "accept_url": ..., "email_sent": bool} — email_sent is
+    surfaced but never blocks success; SES not being configured yet is a
+    normal state, not an error (see _email.py)."""
+    import secrets
+    from datetime import timedelta
+    actor_role = get_org_role(org_id, actor_user_id)
+    if actor_role not in ("owner", "admin"):
+        return {"error": "forbidden"}
+    if role not in ORG_ROLES or role == "owner":
+        role = "member"
+    email = target_email.strip().lower()
+    if not email:
+        return {"error": "email is required"}
+
+    existing_user = get_user_by_email(email)
+    if existing_user is not None:
+        return add_org_member(org_id, actor_user_id, email, role)
+
+    engine = _require_engine()
+    tables = _get_tables()
+    invites = tables["org_invites"]
+    members = tables["org_members"]
+    from sqlalchemy import select
+    now = _now()
+    token = secrets.token_urlsafe(24)
+    expires_at = now.replace(microsecond=0) + timedelta(days=INVITE_TTL_DAYS)
+    with engine.begin() as conn:
+        already_member = conn.execute(
+            select(members.c.id)
+            .select_from(members.join(tables["users"], tables["users"].c.id == members.c.user_id))
+            .where(members.c.org_id == org_id, tables["users"].c.email == email)
+        ).first()
+        if already_member:
+            return {"error": "already_a_member"}
+        pending = conn.execute(
+            select(invites.c.id)
+            .where(invites.c.org_id == org_id, invites.c.email == email, invites.c.status == "pending")
+        ).first()
+        if pending:
+            conn.execute(
+                invites.update().where(invites.c.id == pending.id)
+                .values(role=role, token=token, invited_by_user_id=actor_user_id,
+                        created_at=now, expires_at=expires_at)
+            )
+            invite_id = pending.id
+        else:
+            result = conn.execute(
+                invites.insert().values(
+                    org_id=org_id, email=email, role=role, token=token,
+                    invited_by_user_id=actor_user_id, status="pending",
+                    created_at=now, expires_at=expires_at,
+                )
+            )
+            invite_id = result.inserted_primary_key[0]
+
+    org = get_organization(org_id, actor_user_id)
+    inviter = get_user(actor_user_id)
+    accept_url = _invite_accept_url(token)
+    email_sent = False
+    try:
+        import _email
+        email_sent = _email.send_org_invite_email(
+            to_email=email, org_name=org["name"] if org else "PaisaMap",
+            inviter_name=(inviter or {}).get("name") or (inviter or {}).get("email") or "Someone",
+            role=role, accept_url=accept_url,
+        )
+    except Exception:
+        email_sent = False
+
+    return {
+        "invite": {"id": invite_id, "email": email, "role": role, "status": "pending"},
+        "accept_url": accept_url,
+        "email_sent": email_sent,
+    }
+
+
+def _invite_accept_url(token):
+    import os
+    base = os.environ.get("PUBLIC_APP_URL", "https://paisamaps.com").rstrip("/")
+    return f"{base}/workspace/invite/{token}"
+
+
+def list_org_invites(org_id, actor_user_id):
+    """Owner/admin only. Pending invites, newest first."""
+    if get_org_role(org_id, actor_user_id) not in ("owner", "admin"):
+        return None
+    engine = _require_engine()
+    tables = _get_tables()
+    invites = tables["org_invites"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(invites.c.id, invites.c.email, invites.c.role, invites.c.status,
+                   invites.c.created_at, invites.c.expires_at)
+            .where(invites.c.org_id == org_id, invites.c.status == "pending")
+            .order_by(invites.c.created_at.desc())
+        ).mappings().all()
+    return [_invite_row_to_dict(r) for r in rows]
+
+
+def revoke_org_invite(org_id, actor_user_id, invite_id):
+    """Owner/admin only."""
+    if get_org_role(org_id, actor_user_id) not in ("owner", "admin"):
+        return {"error": "forbidden"}
+    engine = _require_engine()
+    tables = _get_tables()
+    invites = tables["org_invites"]
+    with engine.begin() as conn:
+        result = conn.execute(
+            invites.update()
+            .where(invites.c.id == invite_id, invites.c.org_id == org_id, invites.c.status == "pending")
+            .values(status="revoked", responded_at=_now())
+        )
+        if result.rowcount == 0:
+            return {"error": "not_found"}
+    return {"status": "ok"}
+
+
+def get_invite_by_token(token):
+    """Public lookup for the accept/decline landing page — no auth. None if
+    the token doesn't exist, isn't pending, or has expired."""
+    engine = _require_engine()
+    tables = _get_tables()
+    invites = tables["org_invites"]
+    orgs = tables["organizations"]
+    users = tables["users"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        row = conn.execute(
+            select(invites.c.id, invites.c.org_id, invites.c.email, invites.c.role,
+                   invites.c.status, invites.c.expires_at,
+                   orgs.c.name.label("org_name"), users.c.name.label("inviter_name"),
+                   users.c.email.label("inviter_email"))
+            .select_from(
+                invites.join(orgs, orgs.c.id == invites.c.org_id)
+                .join(users, users.c.id == invites.c.invited_by_user_id)
+            )
+            .where(invites.c.token == token)
+        ).mappings().first()
+    if row is None or row["status"] != "pending" or _ensure_aware(row["expires_at"]) < _now():
+        return None
+    return _invite_row_to_dict(row)
+
+
+def accept_org_invite(token, accepting_user_id):
+    """Requires the accepting session's own email to match the invited
+    email (case-insensitive) — the token alone isn't enough to join, since
+    tokens travel over email and could be forwarded/leaked. On success,
+    adds the org_members row and marks the invite accepted."""
+    engine = _require_engine()
+    tables = _get_tables()
+    invites = tables["org_invites"]
+    members = tables["org_members"]
+    from sqlalchemy import select
+    accepting_user = get_user(accepting_user_id)
+    if accepting_user is None:
+        return {"error": "not_found"}
+    with engine.begin() as conn:
+        row = conn.execute(
+            select(invites.c.id, invites.c.org_id, invites.c.email, invites.c.role,
+                   invites.c.status, invites.c.expires_at)
+            .where(invites.c.token == token)
+        ).mappings().first()
+        if row is None or row["status"] != "pending" or _ensure_aware(row["expires_at"]) < _now():
+            return {"error": "invalid_invite"}
+        if row["email"].lower() != accepting_user["email"].lower():
+            return {"error": "email_mismatch"}
+        existing = conn.execute(
+            select(members.c.id).where(members.c.org_id == row["org_id"], members.c.user_id == accepting_user_id)
+        ).first()
+        if existing is None:
+            conn.execute(
+                members.insert().values(
+                    org_id=row["org_id"], user_id=accepting_user_id, role=row["role"], created_at=_now()
+                )
+            )
+        conn.execute(
+            invites.update().where(invites.c.id == row["id"])
+            .values(status="accepted", accepted_by_user_id=accepting_user_id, responded_at=_now())
+        )
+        org_id = row["org_id"]
+    return {"organization": get_organization(org_id, accepting_user_id)}
+
+
+def decline_org_invite(token):
+    """No login required — the token itself is the credential, same as a
+    report share-view. Idempotent-ish: declining an already-resolved invite
+    is a no-op 404 rather than double-writing responded_at."""
+    engine = _require_engine()
+    tables = _get_tables()
+    invites = tables["org_invites"]
+    with engine.begin() as conn:
+        result = conn.execute(
+            invites.update()
+            .where(invites.c.token == token, invites.c.status == "pending")
+            .values(status="declined", responded_at=_now())
+        )
+        if result.rowcount == 0:
+            return {"error": "not_found"}
+    return {"status": "ok"}
 
 
 def backfill_organizations():

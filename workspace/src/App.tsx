@@ -18,6 +18,7 @@ import Connections from "./pages/Connections";
 import Forecast from "./pages/Forecast";
 import ApiKeys from "./pages/ApiKeys";
 import CompanySettings from "./pages/CompanySettings";
+import InviteAccept from "./pages/InviteAccept";
 
 function WorkspaceUrlSync() {
   useSyncProjectFromUrl();
@@ -66,7 +67,14 @@ export default function App() {
   const wide = location.pathname === "/forecast";
 
   if (loading) return <div className="loading">Loading…</div>;
-  if (!user) return <SignIn />;
+  if (!user) {
+    // An invite link (D1) must work before sign-in too — rendered here,
+    // outside WorkspaceProvider, so InviteAccept never depends on
+    // useWorkspace(). Once sign-in completes, `user` becomes truthy and the
+    // normal authenticated <Route path="/invite/:token"> below takes over.
+    if (location.pathname.startsWith("/invite/")) return <InviteAccept />;
+    return <SignIn />;
+  }
 
   const initial = (user.name || user.email || "?").trim()[0]?.toUpperCase() || "?";
 
@@ -141,6 +149,7 @@ export default function App() {
               <Route path="/credits" element={<Navigate to="/billing" replace />} />
               <Route path="/billing" element={<Billing />} />
               <Route path="/api-keys" element={<ApiKeys />} />
+              <Route path="/invite/:token" element={<InviteAccept />} />
             </Routes>
           </main>
         </div>

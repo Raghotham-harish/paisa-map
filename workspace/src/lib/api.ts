@@ -77,6 +77,27 @@ export interface OrgMember {
   created_at: string;
 }
 
+// Phase D1 — a pending invite for an email with no PaisaMap account yet.
+export interface OrgInvite {
+  id: number;
+  email: string;
+  role: OrgRole;
+  status: "pending" | "accepted" | "declined" | "revoked";
+  created_at: string;
+  expires_at: string;
+}
+
+export interface InviteDetail {
+  id: number;
+  org_id: number;
+  email: string;
+  role: OrgRole;
+  status: string;
+  org_name: string;
+  inviter_name: string | null;
+  inviter_email: string;
+}
+
 export interface Project {
   id: number;
   name: string;
@@ -732,6 +753,18 @@ export const api = {
     request(`/api/organizations/${id}/members/${memberUserId}`, { method: "DELETE" }),
   getOrgAuditLog: (id: number, limit = 100) =>
     request(`/api/organizations/${id}/audit-log?limit=${limit}`) as Promise<{ entries: AuditLogEntry[] }>,
+
+  listOrgInvites: (id: number) => request(`/api/organizations/${id}/invites`) as Promise<{ invites: OrgInvite[] }>,
+  inviteOrgMember: (id: number, email: string, role: OrgRole = "member") =>
+    request(`/api/organizations/${id}/invites`, { method: "POST", body: JSON.stringify({ email, role }) }) as Promise<{ invite: OrgInvite; accept_url: string; email_sent: boolean }>,
+  revokeOrgInvite: (id: number, inviteId: number) =>
+    request(`/api/organizations/${id}/invites/${inviteId}`, { method: "DELETE" }),
+  getInviteByToken: (token: string) =>
+    request(`/api/organizations/invites/${token}`) as Promise<{ invite: InviteDetail }>,
+  acceptInvite: (token: string) =>
+    request(`/api/organizations/invites/${token}/accept`, { method: "POST" }) as Promise<{ organization: Organization }>,
+  declineInvite: (token: string) =>
+    request(`/api/organizations/invites/${token}/decline`, { method: "POST" }),
 
   listLocations: (projectId?: number) =>
     request(`/api/locations${projectId ? `?project_id=${projectId}` : ""}`) as Promise<{ locations: SavedLocation[] }>,

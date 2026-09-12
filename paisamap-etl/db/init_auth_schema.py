@@ -28,7 +28,7 @@ def main():
     _auth_db.init_schema()
     print("Applying additive schema migrations (if not already applied)…")
     _auth_db.migrate_schema()
-    print("Done. Tables: organizations, users, org_members, projects, "
+    print("Done. Tables: organizations, users, org_members, org_invites, projects, "
           "saved_locations, reports, credits_ledger, activity_log, "
           "customer_uploads, customer_locations, oauth_connections, "
           "orders, invoices, api_keys")

@@ -10,7 +10,7 @@ against.
 
 from flask import Blueprint, request, jsonify
 
-from ._session import require_login, _auth_db
+from ._session import require_db, require_login, _auth_db
 
 organizations_bp = Blueprint("organizations", __name__, url_prefix="/api/organizations")
 
@@ -22,6 +22,9 @@ _ERROR_STATUS = {
     "cannot_remove_last_owner": 409,
     "cannot_demote_last_owner": 409,
     "invalid_role": 400,
+    "not_found": 404,
+    "invalid_invite": 404,
+    "email_mismatch": 409,
 }
 
 
@@ -120,6 +123,73 @@ def update_member_role(user_id, org_id, member_user_id):
 @require_login
 def remove_member(user_id, org_id, member_user_id):
     result = _auth_db.remove_org_member(org_id, user_id, member_user_id)
+    if "error" in result:
+        return _error_response(result)
+    return jsonify(result)
+
+
+@organizations_bp.route("/<int:org_id>/invites", methods=["GET"])
+@require_login
+def list_invites(user_id, org_id):
+    invites = _auth_db.list_org_invites(org_id, user_id)
+    if invites is None:
+        return jsonify({"error": "forbidden"}), 403
+    return jsonify({"invites": invites})
+
+
+@organizations_bp.route("/<int:org_id>/invites", methods=["POST"])
+@require_login
+def create_invite(user_id, org_id):
+    """D1 — invite someone with no PaisaMap account yet. Calling this again
+    for an email that already has a pending invite resends it (new token,
+    extended expiry). An email that already has an account is added
+    directly instead (see create_or_resend_org_invite)."""
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip()
+    if not email:
+        return jsonify({"error": "email is required"}), 400
+    role = (body.get("role") or "member").strip()
+    result = _auth_db.create_or_resend_org_invite(org_id, user_id, email, role)
+    if "error" in result:
+        return _error_response(result)
+    return jsonify(result), 201
+
+
+@organizations_bp.route("/<int:org_id>/invites/<int:invite_id>", methods=["DELETE"])
+@require_login
+def revoke_invite(user_id, org_id, invite_id):
+    result = _auth_db.revoke_org_invite(org_id, user_id, invite_id)
+    if "error" in result:
+        return _error_response(result)
+    return jsonify(result)
+
+
+@organizations_bp.route("/invites/<token>", methods=["GET"])
+@require_db
+def get_invite(token):
+    """Public — no @require_login. The landing page needs to show who
+    invited whom to what before the visitor has signed in at all."""
+    invite = _auth_db.get_invite_by_token(token)
+    if invite is None:
+        return jsonify({"error": "not_found"}), 404
+    return jsonify({"invite": invite})
+
+
+@organizations_bp.route("/invites/<token>/accept", methods=["POST"])
+@require_login
+def accept_invite(user_id, token):
+    result = _auth_db.accept_org_invite(token, user_id)
+    if "error" in result:
+        return _error_response(result)
+    return jsonify(result)
+
+
+@organizations_bp.route("/invites/<token>/decline", methods=["POST"])
+@require_db
+def decline_invite(token):
+    """Public — declining doesn't grant access, so no login is required,
+    same as reports.py's public share-view route."""
+    result = _auth_db.decline_org_invite(token)
     if "error" in result:
         return _error_response(result)
     return jsonify(result)

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError, AuditLogEntry, OrgMember, OrgRole, api } from "../lib/api";
+import { ApiError, AuditLogEntry, OrgInvite, OrgMember, OrgRole, api } from "../lib/api";
 import { useWorkspace } from "../lib/workspace";
 import { AsyncBoundary } from "../components/AsyncBoundary";
 import { EmptyState } from "../components/EmptyState";
@@ -23,7 +23,6 @@ function auditDetail(entry: AuditLogEntry): string | null {
 const ROLE_OPTIONS: OrgRole[] = ["owner", "admin", "member"];
 
 const ADD_MEMBER_ERRORS: Record<string, string> = {
-  user_not_found: "That email doesn't have a PaisaMap account yet — ask them to sign in once first.",
   already_a_member: "They're already a member of this company.",
   forbidden: "Only an owner or admin can add members.",
 };
@@ -45,6 +44,8 @@ export default function CompanySettings() {
   const { organizations, orgLoadError, reloadOrgs, activeOrgId, activeOrg, setActiveOrgId } = useWorkspace();
   const [members, setMembers] = useState<OrgMember[] | null>(null);
   const [membersError, setMembersError] = useState<string | null>(null);
+  const [invites, setInvites] = useState<OrgInvite[] | null>(null);
+  const [addMessage, setAddMessage] = useState<string | null>(null);
   const [auditLog, setAuditLog] = useState<AuditLogEntry[] | null>(null);
   const [auditLogError, setAuditLogError] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -65,6 +66,13 @@ export default function CompanySettings() {
       .catch(() => setMembersError("Couldn't load members — try again."));
   };
 
+  const loadInvites = () => {
+    if (activeOrgId == null) return;
+    api.listOrgInvites(activeOrgId)
+      .then((data) => setInvites(data.invites))
+      .catch(() => setInvites([]));
+  };
+
   const loadAuditLog = () => {
     if (activeOrgId == null) return;
     setAuditLogError(null);
@@ -81,9 +89,13 @@ export default function CompanySettings() {
     setMembers(null);
     loadMembers();
     setAuditLog(null);
+    setInvites(null);
     // 403s silently for a plain member (the endpoint is owner/admin-only) —
     // only fetched here when the role check below already knows it'll pass.
-    if (activeOrg?.role === "owner" || activeOrg?.role === "admin") loadAuditLog();
+    if (activeOrg?.role === "owner" || activeOrg?.role === "admin") {
+      loadAuditLog();
+      loadInvites();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId, activeOrg?.role]);
 
@@ -108,15 +120,40 @@ export default function CompanySettings() {
     if (activeOrgId == null || !newEmail.trim()) return;
     setAdding(true);
     setError(null);
+    setAddMessage(null);
     try {
       const result = await api.addOrgMember(activeOrgId, newEmail.trim(), newRole);
       setMembers(result.members);
       setNewEmail("");
     } catch (e) {
       const code = e instanceof ApiError ? e.body?.error : null;
-      setError((code && ADD_MEMBER_ERRORS[code]) || "Couldn't add that member — try again.");
+      if (code === "user_not_found") {
+        // No PaisaMap account yet (D1) — invite them by email instead.
+        try {
+          await api.inviteOrgMember(activeOrgId, newEmail.trim(), newRole);
+          setAddMessage(`Invite sent to ${newEmail.trim()}.`);
+          setNewEmail("");
+          loadInvites();
+        } catch (inviteErr) {
+          const inviteCode = inviteErr instanceof ApiError ? inviteErr.body?.error : null;
+          setError((inviteCode && ADD_MEMBER_ERRORS[inviteCode]) || "Couldn't send that invite — try again.");
+        }
+      } else {
+        setError((code && ADD_MEMBER_ERRORS[code]) || "Couldn't add that member — try again.");
+      }
     } finally {
       setAdding(false);
+    }
+  };
+
+  const onRevokeInvite = async (invite: OrgInvite) => {
+    if (activeOrgId == null) return;
+    if (!window.confirm(`Cancel the invite to ${invite.email}?`)) return;
+    try {
+      await api.revokeOrgInvite(activeOrgId, invite.id);
+      loadInvites();
+    } catch {
+      setError("Couldn't cancel that invite — try again.");
     }
   };
 
@@ -270,6 +307,28 @@ export default function CompanySettings() {
                 {adding ? "Adding…" : "Add"}
               </button>
             </div>
+          )}
+          {addMessage && <p style={{ color: "var(--ink-soft)", fontSize: 13, marginTop: 10 }}>{addMessage}</p>}
+
+          {isOwnerOrAdmin && invites !== null && invites.length > 0 && (
+            <>
+              <p className="kicker" style={{ marginTop: 20, marginBottom: 10 }}>Pending invites</p>
+              <DataList>
+                {invites.map((inv) => (
+                  <DataRow
+                    key={inv.id}
+                    title={inv.email}
+                    subtitle={`Invited as ${inv.role}`}
+                    trailing={
+                      <>
+                        <StatChip icon="ti ti-clock">Pending</StatChip>
+                        <button className="btn secondary" onClick={() => onRevokeInvite(inv)}>Cancel</button>
+                      </>
+                    }
+                  />
+                ))}
+              </DataList>
+            </>
           )}
         </div>
 
