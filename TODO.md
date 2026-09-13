@@ -294,27 +294,67 @@ Gap 2 (datastore) is done — Postgres dual-write. The other four below.
 - [ ] Multi-worker note: `_ops` counters + buckets are per-process. Fine on the
       current single-process setup; revisit if gunicorn workers > 1.
 
-### Security hardening — first pass SHIPPED 2026-09-07, rest open
+### Security hardening — first pass SHIPPED 2026-09-07, most of the rest closed 2026-09-13
 - [x] Per-IP token-bucket rate limiter on `/api/*` (`_ops.check`), 429 +
       `Retry-After`, three tiers (geo / data / default), **fails open**, and
       **off unless `RATELIMIT_ENABLED=1`** so deploying it is inert.
 - [x] Baseline security headers on every response (`X-Content-Type-Options`,
       `Referrer-Policy`, `X-Frame-Options: SAMEORIGIN`, CSP `frame-ancestors 'self'`).
-- [ ] **Flip `RATELIMIT_ENABLED=1`** in prod after watching `/api/metrics`
-      `requests_ratelimited` for a day at the default caps (tune the
-      `RATELIMIT_*_CAP` / `_RPS` env vars if legit traffic trips it).
-- [ ] Secrets audit: everything sensitive is in `/etc/paisamap/db.env` (600,
-      root) — confirm nothing secret is in the repo, GitHub Actions, or the
-      systemd unit inline; rotate `SECRET_KEY` and the DB password once; generate
-      the distinct `RAZORPAY_WEBHOOK_SECRET` (already tracked under Phase 03).
+- [x] **`RATELIMIT_ENABLED=1` flipped on in prod (2026-09-13).** Calibrated
+      against real traffic by reading actual call sites rather than watching
+      a day of `/api/metrics` (page-load bursts, the one polling loop, the
+      staggered bulk-enrich flows all fit comfortably). A live positive-control
+      burst test then caught a real bug: the `geo` group's cap (30) let a
+      burst outrun what Nominatim itself tolerates, drawing real `429`s from
+      Nominatim surfaced as `502` to users — fixed (`RATELIMIT_GEO_CAP` 30→3,
+      both env override and source default). See
+      `docs/DASHBOARD_AUDIT_AND_ROADMAP.md`'s 2026-09-13 session log.
+- [x] Secrets audit (2026-09-13): scanned tracked files, full `git log --all
+      -S` pickaxe history, GitHub Actions workflows, and the systemd unit —
+      **clean, nothing secret ever leaked** (the only pickaxe hits were a
+      well-known public data.gov.in sample key already documented in-code,
+      and two docstrings naming env vars with no real values). Actions
+      workflows correctly reference `${{ secrets.X }}` only; the systemd unit
+      only has `EnvironmentFile=/etc/paisamap/db.env`, no inline secrets.
+      `RAZORPAY_WEBHOOK_SECRET` already distinct and live (confirmed present
+      in prod's env, tested with a real signed webhook under Phase 03).
+      **`SECRET_KEY` rotated for real (2026-09-13)** — generated and appended
+      entirely server-side over SSH (never displayed locally), verified via
+      `/api/health` + a protected-route 401 check post-restart; both real
+      users' existing sessions are now invalidated (accepted, low-stakes with
+      only 2 real users). **DB password rotation deliberately NOT done** —
+      needs a coordinated `ALTER ROLE` + env update with no mismatch window,
+      bigger/riskier than a plain env-var swap, left for its own session.
 - [ ] A real WSGI server (gunicorn/uwsgi) in front of Flask instead of
       `app.run()` — `deploy.sh`/systemd currently run the dev server.
 - [ ] `fail2ban` or nginx `limit_req` as a second layer at the edge (the app
       limiter only sees requests nginx already forwarded).
-- [ ] HSTS header (nginx, once certain the apex + www are HTTPS-only — they are).
-- [ ] Dependency scanning (`pip-audit` / Dependabot) — no lockfile today; deps
-      are an inline `pip install` list in `deploy.sh`. Consider a real
-      `requirements.txt` with pinned versions.
+- [x] **HSTS header added 2026-09-13** (`Strict-Transport-Security:
+      max-age=15768000`, conservative 6-month max-age, no preload/subdomains
+      yet) — confirmed apex+www are both HTTPS-only first. Found and fixed a
+      real, pre-existing (not introduced this session) nginx hygiene bug
+      while there: `sites-enabled/*` has no extension filtering, so a stray
+      `.bak` file left in that directory from 2026-09-08 was silently being
+      parsed as a duplicate config on every reload (harmless — nginx ignores
+      the conflict — but noisy in the error log); moved all backups to a new
+      `/etc/nginx/backups/` directory outside nginx's include path.
+- [~] Dependency scanning: ran real `npm audit` + `pip-audit` this session
+      (2026-09-13) and fixed what they found — see
+      `docs/DASHBOARD_AUDIT_AND_ROADMAP.md`'s H5 session log (react-router-dom/
+      vite upgrade, ETL venv's stale Pillow). **Still open**: no lockfile/pins
+      for Python — `deploy.sh` runs plain `pip install` with no `--upgrade`
+      and no version pins, so an already-installed package never gets a
+      security patch automatically; a venv only ends up current if it happens
+      to get rebuilt from scratch (exactly why `venv-flask` and
+      `paisamap-etl/venv` had drifted to different Pillow versions this
+      session). A real `requirements.txt` with pinned versions + a deliberate
+      periodic bump process would close this for good — deliberately not
+      done this session, it changes `deploy.sh`'s install behavior for both
+      venvs and deserves its own careful pass rather than a same-session
+      add-on. No Dependabot config yet either (pip ecosystem needs a
+      requirements file to track before Dependabot can scan it; npm's
+      `workspace/package-lock.json` already exists and could take a
+      Dependabot config independently, also not done this session).
 
 ### Data licensing — inventory DONE 2026-09-07, clearances open
 - [x] `docs/DATA_LICENSING.md` — every source, its licence, commercial-resale
