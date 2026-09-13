@@ -90,7 +90,15 @@ _API_KEY_PRO_MULTIPLIER = float(os.environ.get("RATELIMIT_APIKEY_PRO_MULTIPLIER"
 _LIMITS = {
     # Nominatim-proxying endpoints: OSM's usage policy is ~1 req/s per app, and
     # every call here goes out under our single server IP — the tightest group.
-    "geo":     (int(os.environ.get("RATELIMIT_GEO_CAP", "30")),
+    # Cap deliberately kept LOW (not just the refill rate) — a full token
+    # bucket lets a burst run at effectively unlimited speed until it's spent,
+    # and Nominatim itself starts returning its own 429s well before a burst
+    # of 30 completes (confirmed live 2026-09-13: a 35-request burst got
+    # through this limiter untouched and started drawing real 429s from
+    # Nominatim at request ~21, surfaced to users as 502s on /api/search for
+    # several minutes until Nominatim's own cooldown cleared). The refill
+    # rate alone does not protect the upstream; the cap has to as well.
+    "geo":     (int(os.environ.get("RATELIMIT_GEO_CAP", "3")),
                 float(os.environ.get("RATELIMIT_GEO_RPS", "0.5"))),
     # Data pulls (/api/export, /api/enrich_stats) — heavier responses.
     "data":    (int(os.environ.get("RATELIMIT_DATA_CAP", "60")),
