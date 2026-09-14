@@ -1,0 +1,46 @@
+# Pinned deps for venv-flask (the live Flask server). Generated from a
+# pip-audit-clean freeze of prod on 2026-09-14 — see deploy.sh and
+# TODO.md's "Security hardening" section for why this exists: an unpinned
+# `pip install` never upgrades an already-installed package, so a venv only
+# gets security patches if it happens to be rebuilt from scratch. This file
+# forces every deploy to converge on these exact versions.
+#
+# Bump process: `pip install --upgrade -r requirements-flask.txt`, run
+# `pip-audit --strict`, re-freeze the changed packages' versions here,
+# smoke-test, then commit. Do this periodically, not just when a CVE is
+# found reactively.
+blinker==1.9.0
+boto3==1.43.93
+botocore==1.43.93
+certifi==2026.7.22
+cffi==2.1.1
+charset-normalizer==3.5.1
+click==8.4.1
+cryptography==50.0.1
+et_xmlfile==2.0.0
+Flask==3.1.3
+google-auth==2.57.1
+greenlet==3.5.3
+gunicorn==26.2.0
+idna==3.19
+itsdangerous==2.2.0
+Jinja2==3.1.6
+jmespath==1.1.0
+MarkupSafe==3.0.3
+openpyxl==3.1.5
+pillow==12.3.0
+psycopg2-binary==2.9.12
+pyasn1==0.6.4
+pyasn1_modules==0.4.2
+pycparser==3.0
+python-dateutil==2.9.0.post0
+razorpay==2.0.1
+reportlab==5.0.1
+requests==2.34.2
+s3transfer==0.19.2
+sentry-sdk==2.68.1
+six==1.17.0
+SQLAlchemy==2.0.51
+typing_extensions==4.16.0
+urllib3==2.7.0
+Werkzeug==3.1.8

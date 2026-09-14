@@ -144,16 +144,20 @@ if [ -f /etc/paisamap/google_client_id.env ]; then
   echo "[deploy] Google OAuth client ID injected into static index.html"
 fi
 
-# Install any new Python deps for Flask server
+# Install pinned Python deps for the Flask server. Pinned (not a bare
+# package list) so an already-installed package actually gets upgraded to
+# a patched version on deploy instead of silently staying put — see
+# requirements-flask.txt's header for the incident (a stale Pillow) that
+# made this necessary, and the periodic bump process.
 if [ -f venv-flask/bin/activate ]; then
   source venv-flask/bin/activate
-  pip install -q flask openpyxl sqlalchemy psycopg2-binary google-auth requests reportlab razorpay sentry-sdk boto3 cryptography gunicorn
+  pip install -q -r requirements-flask.txt
   deactivate
 fi
 
-# Install any new ETL deps
+# Install pinned ETL deps — same reasoning, see paisamap-etl/requirements.txt.
 if [ -d paisamap-etl/venv ]; then
-  paisamap-etl/venv/bin/pip install -q pandas requests pdfplumber scikit-learn sqlalchemy psycopg2-binary
+  paisamap-etl/venv/bin/pip install -q -r paisamap-etl/requirements.txt
 fi
 
 # Record the deployed commit so /api/health can report it — a plain file the

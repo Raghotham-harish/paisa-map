@@ -1,0 +1,38 @@
+# Pinned deps for paisamap-etl/venv (enrichment/ML scripts + cron jobs).
+# Generated from a pip-audit-clean freeze of prod on 2026-09-14 — see
+# ../deploy.sh and ../TODO.md's "Security hardening" section for why this
+# exists: an unpinned `pip install` never upgrades an already-installed
+# package, so this venv drifted from venv-flask's cryptography version
+# (49.0.0 vs 50.0.1, the latter fixing a real CVE) purely because it hadn't
+# been rebuilt recently. This file forces every deploy to converge on
+# these exact versions instead.
+#
+# Bump process: `pip install --upgrade -r requirements.txt`, run
+# `pip-audit --strict`, re-freeze the changed packages' versions here,
+# smoke-test a real enrichment run, then commit. Do this periodically, not
+# just when a CVE is found reactively.
+certifi==2026.5.20
+cffi==2.0.0
+charset-normalizer==3.4.7
+cryptography==50.0.1
+greenlet==3.5.3
+idna==3.18
+joblib==1.5.3
+narwhals==2.22.1
+numpy==2.4.6
+pandas==3.0.3
+pdfminer.six==20260107
+pdfplumber==0.11.10
+pillow==12.3.0
+psycopg2-binary==2.9.12
+pycparser==3.0
+pypdfium2==5.10.1
+python-dateutil==2.9.0.post0
+requests==2.34.2
+scikit-learn==1.9.0
+scipy==1.17.1
+six==1.17.0
+SQLAlchemy==2.0.51
+threadpoolctl==3.6.0
+typing_extensions==4.16.0
+urllib3==2.7.0

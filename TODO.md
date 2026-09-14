@@ -387,23 +387,33 @@ Gap 2 (datastore) is done — Postgres dual-write. The other four below.
       parsed as a duplicate config on every reload (harmless — nginx ignores
       the conflict — but noisy in the error log); moved all backups to a new
       `/etc/nginx/backups/` directory outside nginx's include path.
-- [~] Dependency scanning: ran real `npm audit` + `pip-audit` this session
-      (2026-09-13) and fixed what they found — see
-      `docs/DASHBOARD_AUDIT_AND_ROADMAP.md`'s H5 session log (react-router-dom/
-      vite upgrade, ETL venv's stale Pillow). **Still open**: no lockfile/pins
-      for Python — `deploy.sh` runs plain `pip install` with no `--upgrade`
-      and no version pins, so an already-installed package never gets a
-      security patch automatically; a venv only ends up current if it happens
-      to get rebuilt from scratch (exactly why `venv-flask` and
-      `paisamap-etl/venv` had drifted to different Pillow versions this
-      session). A real `requirements.txt` with pinned versions + a deliberate
-      periodic bump process would close this for good — deliberately not
-      done this session, it changes `deploy.sh`'s install behavior for both
-      venvs and deserves its own careful pass rather than a same-session
-      add-on. No Dependabot config yet either (pip ecosystem needs a
-      requirements file to track before Dependabot can scan it; npm's
-      `workspace/package-lock.json` already exists and could take a
-      Dependabot config independently, also not done this session).
+- [x] Dependency scanning (2026-09-13) + **Python pinning — SHIPPED 2026-09-14**:
+      ran real `npm audit` + `pip-audit` on 2026-09-13 and fixed what they
+      found (react-router-dom/vite upgrade, ETL venv's stale Pillow) — see
+      `docs/DASHBOARD_AUDIT_AND_ROADMAP.md`'s H5 session log. The identified
+      root cause (`deploy.sh` ran plain unpinned `pip install`, so an
+      already-installed package never auto-patches) is now closed: new
+      `requirements-flask.txt` + `paisamap-etl/requirements.txt`, generated
+      from a fresh `pip-audit --strict`-clean freeze of prod (2026-09-14),
+      wired into `deploy.sh` via `pip install -r`. Along the way, `pip-audit`
+      itself (installed temporarily, then fully uninstalled again — its
+      transitive deps aren't app runtime deps and don't belong in the pin
+      files) found two more real, live findings beyond the prior session's
+      Pillow fix: **`pip` 24.0 had 12 known CVEs in both venvs** (fixed by
+      upgrading pip itself — a bootstrap tool, not a runtime dep, but easy to
+      fix) and **`cryptography==49.0.0` in the ETL venv had a real
+      vulnerability (PYSEC-2026-3552)** while `venv-flask` was already on the
+      patched `50.0.1` — the exact drift pattern this whole pinning effort
+      exists to prevent, confirmed live rather than theoretical. Fixed by
+      upgrading the ETL venv's `cryptography` to match, verified `pip-audit
+      --strict` clean on both venvs, restarted `paisamap`, confirmed
+      `/api/health` still green (encryption/DB paths both depend on
+      `cryptography`, so this was a real regression risk, not a no-op bump).
+      Each requirements file documents its own bump process (upgrade, audit,
+      re-freeze, smoke-test, commit) so this doesn't silently go stale again.
+      **Still open**: no Dependabot config for the pip ecosystem (now
+      unblocked, since a requirements file exists for it to track — npm's
+      `workspace/package-lock.json` could also take one independently).
 
 ### Data licensing — inventory DONE 2026-09-07, clearances open
 - [x] `docs/DATA_LICENSING.md` — every source, its licence, commercial-resale
