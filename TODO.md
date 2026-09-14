@@ -376,8 +376,31 @@ Gap 2 (datastore) is done — Postgres dual-write. The other four below.
       clean restart with no errors. Multi-worker note in `_ops.py` above
       still applies if this ever needs to scale past one process — would
       need Redis or DB-backed rate-limit/job state first.
-- [ ] `fail2ban` or nginx `limit_req` as a second layer at the edge (the app
-      limiter only sees requests nginx already forwarded).
+- [x] **nginx `limit_req` — SHIPPED + LIVE 2026-09-14.** New
+      `/etc/nginx/conf.d/rate-limit.conf` (server-only, not in this repo —
+      nginx configs live exclusively on the box) defines 3 zones:
+      `general` (20r/s, burst 40, applied server-wide via inheritance —
+      covers `/`, `/data/`, `/workspace/`, `/privacy`, `/terms`, none of
+      which the app-level limiter touches at all since `_ratelimit()` in
+      `server.py` only fires on `/api/*`), `api` (10r/s, burst 25, the main
+      `/api/` block), and `geo` (30r/m = 0.5r/s, burst 3, `/api/search` +
+      `/api/reverse` only — deliberately matches `_ops.py`'s own
+      `RATELIMIT_GEO_CAP`/`RATELIMIT_GEO_RPS` exactly, since these two proxy
+      to Nominatim and a burst outrunning Nominatim's own tolerance already
+      caused a real incident on 2026-09-13). This is a coarser backstop, not
+      a duplicate of the app's precise per-group tuning — it exists because
+      `_ops.check()` only runs *after* nginx has already accepted and
+      proxied a request, so a flood could still exhaust gunicorn's 4 threads
+      before the app layer ever sees it. `sites-enabled/paisamaps` (the live
+      file, not `sites-available`) backed up first
+      (`/etc/nginx/backups/paisamaps.bak-20260914-preratelimit`), `nginx -t`
+      validated before reload. Verified live with a real positive-control
+      burst (35 concurrent `/api/export` requests: 26 succeeded, 9 correctly
+      429'd, bucket refilled cleanly afterward — not a permanent block).
+      `fail2ban` (IP-level banning from log patterns, complementary to
+      `limit_req`'s per-request throttling) still not done — smaller
+      marginal value now that both app- and nginx-level throttling exist,
+      left open.
 - [x] **HSTS header added 2026-09-13** (`Strict-Transport-Security:
       max-age=15768000`, conservative 6-month max-age, no preload/subdomains
       yet) — confirmed apex+www are both HTTPS-only first. Found and fixed a
