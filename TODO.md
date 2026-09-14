@@ -325,8 +325,27 @@ Gap 2 (datastore) is done — Postgres dual-write. The other four below.
       only 2 real users). **DB password rotation deliberately NOT done** —
       needs a coordinated `ALTER ROLE` + env update with no mismatch window,
       bigger/riskier than a plain env-var swap, left for its own session.
-- [ ] A real WSGI server (gunicorn/uwsgi) in front of Flask instead of
-      `app.run()` — `deploy.sh`/systemd currently run the dev server.
+- [x] **Real WSGI server (gunicorn) in front of Flask — SHIPPED + LIVE
+      2026-09-14.** `deploy.sh` now installs `gunicorn` alongside the other
+      Flask deps. Live `/etc/systemd/system/paisamap.service` `ExecStart`
+      switched from `python3 server.py` to
+      `gunicorn --workers 1 --threads 4 --worker-class gthread --timeout 60
+      --bind 127.0.0.1:8080 server:app` (old unit backed up server-side as
+      `paisamap.service.bak-20260914`). **Deliberately 1 worker, not more** —
+      `_ops.py`'s rate-limit buckets and the `_jobs` enrichment-status dict
+      are in-process state with no shared backing store; multiple worker
+      *processes* would silently fragment both (a client polling job status
+      could hit a different worker than the one that started the job).
+      1 worker + 4 threads (`gthread`) still fixes the actual problem —
+      Flask's dev server (`app.run()` with default `threaded=False`) served
+      one request at a time; gunicorn now serves 4 concurrently while
+      keeping all in-memory state single-process-consistent. Verified live:
+      `/api/health` fresh `uptime_seconds` after restart, homepage/workspace/
+      `/api/export` all 200, 8 parallel `/api/health` requests completed in
+      two real overlapping batches (not serial), `journalctl -u paisamap`
+      clean restart with no errors. Multi-worker note in `_ops.py` above
+      still applies if this ever needs to scale past one process — would
+      need Redis or DB-backed rate-limit/job state first.
 - [ ] `fail2ban` or nginx `limit_req` as a second layer at the edge (the app
       limiter only sees requests nginx already forwarded).
 - [x] **HSTS header added 2026-09-13** (`Strict-Transport-Security:
