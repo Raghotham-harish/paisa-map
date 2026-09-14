@@ -351,10 +351,23 @@ Gap 2 (datastore) is done — Postgres dual-write. The other four below.
       idempotency), `/api/health` `database:true` on the new password,
       homepage/workspace/export all 200. **`GOOGLE_CLIENT_SECRET` and
       `RAZORPAY_KEY_SECRET`/`RAZORPAY_WEBHOOK_SECRET` were also exposed in the
-      same dump but were deliberately NOT rotated yet** — those live in
-      external dashboards (Google Cloud Console / Razorpay), need the user to
-      generate new values, and this time will actually be made distinct from
-      each other (finally closing the Phase 03 TODO item above for real).
+      same dump but were deliberately NOT rotated in this same pass** — those
+      live in external dashboards (Google Cloud Console / Razorpay). Both
+      done as separate follow-ups on 2026-09-14/15 — see
+      `docs/DASHBOARD_AUDIT_AND_ROADMAP.md`'s Phase 03 section for the
+      Razorpay half (now genuinely distinct, closing that old TODO item for
+      real) and the entry right below for the Google half.
+- [x] **`GOOGLE_CLIENT_SECRET` rotated — SHIPPED 2026-09-14.** User
+      regenerated it in Google Cloud Console and downloaded the client JSON;
+      rather than paste the secret into chat, the JSON file (which landed
+      untracked in the repo root — added `client_secret_*.json` to
+      `.gitignore` so this pattern can never land in a commit) was `scp`'d
+      directly to the server and a script run there extracted `client_secret`
+      and blind-replaced the env value — the secret was never read or printed
+      anywhere in the conversation. Restarted `paisamap`, `/api/health` green.
+      **Still needs**: one real Google sign-in to confirm the new secret
+      actually authenticates (a restart proves the app loaded some value, not
+      that it's the *right* one) — not yet done.
 - [x] **Real WSGI server (gunicorn) in front of Flask — SHIPPED + LIVE
       2026-09-14.** `deploy.sh` now installs `gunicorn` alongside the other
       Flask deps. Live `/etc/systemd/system/paisamap.service` `ExecStart`
@@ -497,9 +510,30 @@ not a bare class call).
       design). Confirms the success-handler → `/api/billing/verify` →
       credit-grant path fires from a real completed payment, not just the
       already-verified direct-API simulation of that same path.
-- [ ] Generate a **distinct** `RAZORPAY_WEBHOOK_SECRET` (currently reused from
-      the API key secret as a stopgap) via Razorpay dashboard → Webhooks →
-      Edit, then update `/etc/paisamap/db.env` and restart `paisamap`.
+- [x] **Distinct `RAZORPAY_WEBHOOK_SECRET` — SHIPPED 2026-09-15.** Closed as
+      part of the secret-exposure incident remediation (see
+      `project_secret_exposure_incident_20260914` in memory). Turned out
+      there was no webhook to "Edit" at all — checked the Razorpay
+      dashboard's Webhooks tab live and it was genuinely empty
+      ("You have not setup any webhook"), meaning the prior claim that this
+      was "tested with a real signed webhook" only ever meant a simulated
+      signed payload in a test, never an actual Razorpay-dispatched one.
+      Created the first real webhook (`https://paisamaps.com/api/billing/webhook`,
+      `payment.captured` only — the one event `blueprints/billing.py`'s
+      handler acts on, everything else is safely ignored) with a freshly
+      generated random secret, genuinely distinct from `RAZORPAY_KEY_SECRET`
+      for the first time. Also rotated `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`
+      to new values in the same pass (regenerated in the dashboard as part
+      of the same incident cleanup). Applied via the same blind server-side
+      script pattern used all session, restarted `paisamap`, verified live:
+      `/api/health` green, an unsigned test POST to `/api/billing/webhook`
+      correctly returned 400 `signature_invalid` (not 503
+      `billing_unavailable`) — proof the new secret loaded and the
+      verification path actually ran. **Still needs**: one real test-mode
+      payment through the Razorpay checkout UI to confirm the whole
+      order→pay→webhook→credit-grant path fires end to end with the new
+      credentials — browser automation can't drive Razorpay's checkout form,
+      same limitation as the item above.
 - [ ] Add `PAISAMAP_GSTIN` / `PAISAMAP_BILLING_ADDRESS` to `db.env` once
       GST-registered — invoices currently correctly say "Not yet registered."
 - [ ] Swap test-mode Razorpay keys for live ones once KYC/business
