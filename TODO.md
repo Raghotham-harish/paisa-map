@@ -316,8 +316,11 @@ Gap 2 (datastore) is done — Postgres dual-write. The other four below.
       and two docstrings naming env vars with no real values). Actions
       workflows correctly reference `${{ secrets.X }}` only; the systemd unit
       only has `EnvironmentFile=/etc/paisamap/db.env`, no inline secrets.
-      `RAZORPAY_WEBHOOK_SECRET` already distinct and live (confirmed present
-      in prod's env, tested with a real signed webhook under Phase 03).
+      `RAZORPAY_WEBHOOK_SECRET` present in prod's env, tested with a real
+      signed webhook under Phase 03 — **this session's claim that it was
+      "already distinct" was wrong**, see the 2026-09-14 correction below;
+      it was actually still reused from `RAZORPAY_KEY_SECRET` as a stopgap,
+      matching what Phase 03's own TODO item already said.
       **`SECRET_KEY` rotated for real (2026-09-13)** — generated and appended
       entirely server-side over SSH (never displayed locally), verified via
       `/api/health` + a protected-route 401 check post-restart; both real
@@ -325,6 +328,33 @@ Gap 2 (datastore) is done — Postgres dual-write. The other four below.
       only 2 real users). **DB password rotation deliberately NOT done** —
       needs a coordinated `ALTER ROLE` + env update with no mismatch window,
       bigger/riskier than a plain env-var swap, left for its own session.
+- [x] **DB password + 3 other secrets rotated — SHIPPED 2026-09-14**, done as
+      incident remediation: a broken `sed` redaction regex (meant to mask the
+      password before viewing `DATABASE_URL`) matched nothing and instead
+      printed the *entire* `/etc/paisamap/db.env` file — every secret in it —
+      in plaintext into a conversation transcript. Not a public leak, but it
+      broke this project's established "never display secrets, blind-append/
+      replace only" discipline, so every exposed value was treated as
+      compromised. Rotated via one script run server-side over SSH stdin
+      (never written to disk, prints no secret values): **`DATABASE_URL`
+      password** (`ALTER ROLE` + in-place env rewrite, preserving scheme/
+      user/host/port/dbname exactly), **`SECRET_KEY`** (blind — also found
+      and fixed a latent duplicate-`SECRET_KEY`-line bug in the env file
+      itself, collapsed to one), **`CUSTOMER_DATA_KEY`** (blind, but only
+      after confirming `customer_locations` was 0 rows inside the same DB
+      transaction, not assumed from a stale count), **`ANALYTICS_TOKEN_KEY`**
+      (NOT blind — 6 real `oauth_connections` rows individually decrypted
+      with the old key and re-encrypted with the new one inside one
+      transaction, then verified by decrypting the freshly-stored value with
+      the new key before the env file was ever touched). Verified live: clean
+      `journalctl` restart (twice — once for the rotation, once confirming
+      idempotency), `/api/health` `database:true` on the new password,
+      homepage/workspace/export all 200. **`GOOGLE_CLIENT_SECRET` and
+      `RAZORPAY_KEY_SECRET`/`RAZORPAY_WEBHOOK_SECRET` were also exposed in the
+      same dump but were deliberately NOT rotated yet** — those live in
+      external dashboards (Google Cloud Console / Razorpay), need the user to
+      generate new values, and this time will actually be made distinct from
+      each other (finally closing the Phase 03 TODO item above for real).
 - [x] **Real WSGI server (gunicorn) in front of Flask — SHIPPED + LIVE
       2026-09-14.** `deploy.sh` now installs `gunicorn` alongside the other
       Flask deps. Live `/etc/systemd/system/paisamap.service` `ExecStart`
