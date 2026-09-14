@@ -2,6 +2,10 @@ venv/
 __pycache__/
 *.pyc
 
+# Google Cloud Console's downloaded OAuth client credential files land here
+# by default (client_secret_*.json) — never committed, real secrets.
+client_secret_*.json
+
 # workspace/ (React+Vite app) — built fresh by deploy.sh on every deploy,
 # never committed.
 workspace/node_modules/
