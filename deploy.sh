@@ -114,13 +114,38 @@ fi
 # Mirror app files to nginx's static root (serves /data/, frontend assets, and
 # workspace/dist/ via the /workspace/ location block configured on the server;
 # /api/ is proxied straight to the Flask service above, not through here).
-sudo rsync -av --delete \
+#
+# nginx serves this whole tree, so anything copied here is publicly
+# downloadable. Only the static front end needs to live here (index.html,
+# privacy/terms, assets/, data/, workspace/dist — nginx aliases /workspace/ to
+# workspace/dist/ only); server code, virtualenvs (leak server paths + package
+# versions), docs and the workspace sources are excluded. --delete-excluded is
+# what actually removes copies left by earlier deploys — plain --exclude only
+# stops NEW copies (found 2026-09-18: paisamap-etl/venv/ and .github/ were
+# still being served long after the .github exclude was added). Flask runs
+# from $REPO, never from this copy.
+sudo rsync -av --delete --delete-excluded \
   --exclude='.git' \
   --exclude='.github' \
   --exclude='venv-flask' \
   --exclude='__pycache__' \
   --exclude='*.pyc' \
-  --exclude='workspace/node_modules' \
+  --exclude='venv' \
+  --include='/workspace/dist/***' \
+  --exclude='/workspace/*' \
+  --exclude='/paisamap-etl' \
+  --exclude='/blueprints' \
+  --exclude='/tests' \
+  --exclude='/docs' \
+  --exclude='/db' \
+  --exclude='/.vite' \
+  --exclude='/.claude' \
+  --exclude='/.gitignore' \
+  --exclude='/*.py' \
+  --exclude='/*.sh' \
+  --exclude='/*.md' \
+  --exclude='/*.zip' \
+  --exclude='/requirements*.txt' \
   "$REPO/" \
   /var/www/paisamap/
 echo "[deploy] synced to /var/www/paisamap"

@@ -47,14 +47,28 @@ _PINCODE_RE = re.compile(r"^\d{6}$")
 _NUMERIC_STRIP_RE = re.compile(r"[^\d.\-]")
 
 
+# Both parsers stop as soon as they've seen more than MAX_UPLOAD_ROWS data rows
+# (or scanned _MAX_SCAN_ROWS raw rows, so a file padded with blank rows can't
+# spin forever) instead of materialising the whole file first — an .xlsx is a
+# zip, so a file well under nginx's upload limit can expand to millions of
+# rows and exhaust the single gunicorn worker's memory. The caller's
+# `len(rows) > MAX_UPLOAD_ROWS` check then rejects it with too_many_rows.
+_MAX_SCAN_ROWS = 20000
+
+
 def _parse_csv(raw_bytes):
     text = raw_bytes.decode("utf-8-sig", errors="replace")
     reader = csv.reader(io.StringIO(text))
-    rows = list(reader)
-    if not rows:
+    header_row = next(reader, None)
+    if not header_row:
         return [], []
-    headers = [h.strip() for h in rows[0]]
-    data_rows = [dict(zip(headers, row)) for row in rows[1:] if any(c.strip() for c in row)]
+    headers = [h.strip() for h in header_row]
+    data_rows = []
+    for scanned, row in enumerate(reader, 1):
+        if any(c.strip() for c in row):
+            data_rows.append(dict(zip(headers, row)))
+        if len(data_rows) > MAX_UPLOAD_ROWS or scanned >= _MAX_SCAN_ROWS:
+            break
     return headers, data_rows
 
 
@@ -69,11 +83,12 @@ def _parse_xlsx(raw_bytes):
         return [], []
     headers = [str(h).strip() if h is not None else "" for h in header_row]
     data_rows = []
-    for row in rows_iter:
-        if row is None or all(c is None for c in row):
-            continue
-        data_rows.append({headers[i]: ("" if v is None else str(v))
-                           for i, v in enumerate(row) if i < len(headers)})
+    for scanned, row in enumerate(rows_iter, 1):
+        if row is not None and not all(c is None for c in row):
+            data_rows.append({headers[i]: ("" if v is None else str(v))
+                               for i, v in enumerate(row) if i < len(headers)})
+        if len(data_rows) > MAX_UPLOAD_ROWS or scanned >= _MAX_SCAN_ROWS:
+            break
     return headers, data_rows
 
 
@@ -117,8 +132,8 @@ def upload_file(user_id):
                          "detail": "No data rows found in the file."}), 400
     if len(rows) > MAX_UPLOAD_ROWS:
         return jsonify({"error": "too_many_rows",
-                         "detail": f"This file has {len(rows)} rows; the limit "
-                                   f"is {MAX_UPLOAD_ROWS}. Split it and upload in parts."}), 400
+                         "detail": f"This file has more than {MAX_UPLOAD_ROWS} rows; the "
+                                   f"limit is {MAX_UPLOAD_ROWS}. Split it and upload in parts."}), 400
 
     upload = _auth_db.create_customer_upload(user_id, project_id, filename, ext, headers, rows)
     return jsonify({"upload": {

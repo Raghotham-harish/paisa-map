@@ -1365,6 +1365,12 @@ async function loadPPIData(){
 
 const DELHI_CENTER = [28.61, 77.21];
 const fmtINR = n => "₹" + Math.round(n).toLocaleString("en-IN");
+// Place names reach the DOM via innerHTML/Leaflet tooltips+popups (which parse
+// strings as HTML). Names originate from anonymous /api/enrich calls, Nominatim
+// and OSM tags, so every interpolation of one into markup goes through esc().
+function esc(s){
+  return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
 const fmtShort = n => n >= 100000 ? "₹" + (n/100000).toFixed(1).replace(/\.0$/,"") + "L"
                                   : "₹" + Math.round(n/1000) + "k";
 
@@ -2013,7 +2019,7 @@ function showLocalResults(matches){
   searchResults.innerHTML="";
   matches.forEach(d=>{
     const b=document.createElement("button");
-    b.innerHTML=`<b>${d.name}</b><span style="font-family:var(--mono);font-size:10px">${d.pincode||""} · PPI ${d.ppi||"—"}</span>`;
+    b.innerHTML=`<b>${esc(d.name)}</b><span style="font-family:var(--mono);font-size:10px">${esc(d.pincode||"")} · PPI ${esc(d.ppi||"—")}</span>`;
     b.addEventListener("click",()=>{
       center=[d.lat,d.lng];
       moveYou();
@@ -2074,7 +2080,7 @@ async function runSearch(){
     res.forEach(r=>{
       const b=document.createElement("button");
       const parts=r.display_name.split(",");
-      b.innerHTML=`<b>${parts[0]}</b><span>${parts.slice(1,4).join(",").trim()}</span>`;
+      b.innerHTML=`<b>${esc(parts[0])}</b><span>${esc(parts.slice(1,4).join(",").trim())}</span>`;
       b.addEventListener("click",()=>applyPlace(r));
       searchResults.appendChild(b);
     });
@@ -2421,7 +2427,7 @@ nearbyBtn.addEventListener("click", async ()=>{
       const kind = t.shop === "mall" ? "Mall" : t.shop === "supermarket" ? "Supermarket" : "Bank";
       L.circleMarker([la,lo],{
         radius:3.5, color:"#115000", weight:1, fillColor:"#216A0B", fillOpacity:.9
-      }).bindTooltip(`${t.name || kind} · ${kind}`,{direction:"top",offset:[0,-4]})
+      }).bindTooltip(esc(`${t.name || kind} · ${kind}`),{direction:"top",offset:[0,-4]})
         .addTo(nearbyGroup);
       n++;
     });
@@ -2976,9 +2982,9 @@ function render(){
     const m = L.marker([d.lat,d.lng],{icon:markerIcon})   // CSS-drawn classic pin (or tier-pin in Icons mode)
       .bindPopup(popupHTML(d, rows));
     if(OFFLINE){
-      m.bindTooltip(d.name,{permanent:true,direction:"top",className:"name-label",opacity:1});
+      m.bindTooltip(esc(d.name),{permanent:true,direction:"top",className:"name-label",opacity:1});
     }else{
-      m.bindTooltip(d.name,{direction:"top",opacity:.95});
+      m.bindTooltip(esc(d.name),{direction:"top",opacity:.95});
     }
     m.on("click",e=>{ L.DomEvent.stopPropagation(e); setActive(d.id,false); });
     m.addTo(markerGroup);
@@ -3050,7 +3056,7 @@ function render(){
     // computed above for the map's own zone/heat colouring, not a new number.
     const pct = metricMax > metricMin ? (metricValue(d) - metricMin) / (metricMax - metricMin) : 1;
     b.innerHTML = `<span class="rank">${String(i+1).padStart(2,"0")}</span>
-      <span class="name">${d.name}</span>
+      <span class="name">${esc(d.name)}</span>
       <span class="val">${valText}</span>
       <span class="ppi">${d.isBroadOnly ? "—" : d.ppi}</span>
       <span class="row-bar" style="width:${Math.max(2,Math.round(pct*100))}%"></span>`;
@@ -3140,7 +3146,7 @@ function renderMyStores(){
   myStores.forEach(s=>{
     if(!s || !isFinite(s.lat) || !isFinite(s.lng)) return;
     const m = L.marker([s.lat, s.lng], {icon: myStoreIcon, zIndexOffset:900}).addTo(myStoresGroup);
-    if(s.name) m.bindTooltip(s.name, {direction:"top", offset:[0,-10]});
+    if(s.name) m.bindTooltip(esc(s.name), {direction:"top", offset:[0,-10]});
   });
 }
 
@@ -3175,8 +3181,8 @@ function popupHTML(d, rows){
     const primary = broadVals.find(s => s.id === metric) || broadVals[0];
     const rest = broadVals.filter(s => s !== primary);
     return `<div class="pp">
-      <h3>${d.name}</h3>
-      <div class="tag">Real government data · ${d.district ? d.district + ", " : ""}${d.state || "India"}</div>
+      <h3>${esc(d.name)}</h3>
+      <div class="tag">Real government data · ${d.district ? esc(d.district) + ", " : ""}${esc(d.state || "India")}</div>
       ${primary ? `<div class="ppi-big">${SIGNAL_DEFS[primary.id].fmt(primary.v)} <span style="font-size:11px;color:var(--ink-soft)">${SIGNAL_DEFS[primary.id].label}</span></div>` : ""}
       <table>
         ${rest.map(s => `<tr><td>${SIGNAL_DEFS[s.id].label}</td><td>${SIGNAL_DEFS[s.id].fmt(s.v)}</td></tr>`).join("")}
@@ -3233,7 +3239,7 @@ function popupHTML(d, rows){
     });
 
   return `<div class="pp">
-    <h3>${d.name}</h3>
+    <h3>${esc(d.name)}</h3>
     <div class="tag">Modelled estimate · demo</div>
     ${isPrimaryPPI ? "" : `<div class="metric-label">${primaryLabel}</div>`}
     <div class="ppi-big">${primaryValue} <span style="font-size:11px;color:var(--ink-soft)">${primaryUnit || primaryLabel}</span></div>
@@ -3643,7 +3649,7 @@ function renderCompareBar(){
   bar.classList.remove("hidden");
   chips.innerHTML = compareList.map(pc=>{
     const d = pincodeMap[pc];
-    const label = d ? d.name : pc;
+    const label = esc(d ? d.name : pc);
     return `<span class="compare-chip">${label}<button onclick="toggleCompare('${pc}')" aria-label="Remove ${label} from compare">&times;</button></span>`;
   }).join("");
   btn.textContent = `Compare (${compareList.length})`;
@@ -3664,7 +3670,7 @@ function rankBadge(r){
 
 function renderCompareTable(locations){
   const row = (label, renderer) => `<tr><th>${label}</th>${locations.map(renderer).join("")}</tr>`;
-  const cols = locations.map(loc => `<th>${rankBadge(loc.rank)}${loc.name}<br>
+  const cols = locations.map(loc => `<th>${rankBadge(loc.rank)}${esc(loc.name)}<br>
     <span style="font-weight:400;color:var(--ink-soft);text-transform:none;letter-spacing:0">${loc.pincode}</span></th>`).join("");
   return `<div style="overflow-x:auto"><table class="compare-table">
     <thead><tr><th></th>${cols}</tr></thead>

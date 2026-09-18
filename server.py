@@ -265,6 +265,31 @@ def _log_unhandled(exc):
 _jobs: dict = {}
 _lock = threading.Lock()
 
+# /api/enrich is public (the map calls it anonymously) and each accepted call
+# spawns a pandas/sklearn subprocess for up to 180s. Two caps keep an anonymous
+# caller from turning that into a resource-exhaustion or data-poisoning tool:
+# at most _ENRICH_MAX_CONCURRENT subprocesses run at once (the rest wait on the
+# semaphore, still reported as "running" so the client's status polling keeps
+# working), and at most _ENRICH_MAX_OUTSTANDING jobs may be running+waiting.
+_ENRICH_MAX_CONCURRENT  = int(os.environ.get("ENRICH_MAX_CONCURRENT", "3"))
+_ENRICH_MAX_OUTSTANDING = int(os.environ.get("ENRICH_MAX_OUTSTANDING", "40"))
+_enrich_slots = threading.BoundedSemaphore(_ENRICH_MAX_CONCURRENT)
+_ENRICH_SOURCES = {"yah", "prefetch", "search", "manual", "phase1"}
+_PINCODE_RE = re.compile(r"\d{6}")
+_INDIA_LAT, _INDIA_LNG = (6.0, 38.0), (68.0, 98.0)   # generous bounding box
+_CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _clean_place_name(raw, fallback):
+    """The name lands in enrichment_log.csv, pincode_names.csv and the public
+    map dataset, and is rendered by the map — so strip what has no place in a
+    place name: control characters, angle brackets (markup), and any leading
+    =+-@ (spreadsheet formula injection in the XLSX/CSV exports). Everything
+    else, including non-ASCII scripts and apostrophes/ampersands, is kept."""
+    name = _CTRL_RE.sub(" ", raw or "").replace("<", "").replace(">", "")
+    name = name.strip().lstrip("=+-@").strip()[:80]
+    return name or fallback
+
 
 # ── Enrichment log ────────────────────────────────────────────────────────────
 def _append_log(pc, name, lat, lng, source, ppi, income):
@@ -385,19 +410,33 @@ def api_enrich():
     pc     = request.args.get("pincode", "").strip()
     lat    = request.args.get("lat",     "").strip()
     lng    = request.args.get("lng",     "").strip()
-    name   = request.args.get("name",    pc).strip()
     source = request.args.get("source",  "yah").strip()   # yah | prefetch | search | manual
 
     if not pc or not lat or not lng:
         return jsonify({"error": "pincode, lat, lng are required"}), 400
+    if not _PINCODE_RE.fullmatch(pc):
+        return jsonify({"error": "pincode must be exactly 6 digits"}), 400
+    try:
+        lat_f, lng_f = float(lat), float(lng)
+    except ValueError:
+        return jsonify({"error": "lat and lng must be numbers"}), 400
+    if not (_INDIA_LAT[0] <= lat_f <= _INDIA_LAT[1] and _INDIA_LNG[0] <= lng_f <= _INDIA_LNG[1]):
+        return jsonify({"error": "lat/lng outside India"}), 400
+    if source not in _ENRICH_SOURCES:
+        source = "yah"
+    name = _clean_place_name(request.args.get("name"), pc)
 
     with _lock:
         job = _jobs.get(pc, {})
         if job.get("status") in ("running", "done"):
             return jsonify(job)
+        outstanding = sum(1 for j in _jobs.values() if j.get("status") == "running")
+        if outstanding >= _ENRICH_MAX_OUTSTANDING:
+            return jsonify({"error": "busy", "detail": "Enrichment queue is full — retry shortly."}), 503, {
+                "Retry-After": "30"}
         _jobs[pc] = {"status": "running", "source": source}
 
-    threading.Thread(target=_run_enrich, args=(pc, lat, lng, name, source),
+    threading.Thread(target=_run_enrich, args=(pc, str(lat_f), str(lng_f), name, source),
                      daemon=True).start()
     return jsonify({"status": "started", "source": source})
 
@@ -653,10 +692,11 @@ def api_export():
 # ── Worker ────────────────────────────────────────────────────────────────────
 def _run_enrich(pc, lat, lng, name, source="yah"):
     try:
-        res = subprocess.run(
-            [PYTHON, str(ENRICH_SCRIPT), pc, lat, lng, name],
-            capture_output=True, text=True, timeout=180, cwd=str(ETL)
-        )
+        with _enrich_slots:
+            res = subprocess.run(
+                [PYTHON, str(ENRICH_SCRIPT), pc, lat, lng, name],
+                capture_output=True, text=True, timeout=180, cwd=str(ETL)
+            )
         ppi, income = _parse_enrich_output(res.stdout)
         with _lock:
             if res.returncode == 0:
@@ -673,11 +713,15 @@ def _run_enrich(pc, lat, lng, name, source="yah"):
                 _append_log(pc, name, lat, lng, source, ppi, income)
                 _mirror_to_static()
             else:
+                # /api/status/<pc> is public — raw stderr (tracebacks, server
+                # paths) goes to the server log, not the response.
+                print(f"[enrich] {pc} failed rc={res.returncode}: {res.stderr[-1500:]}", flush=True)
                 _jobs[pc] = {"status": "error", "source": source,
-                             "error": res.stderr[-1500:]}
+                             "error": "enrichment failed"}
     except Exception as e:
+        print(f"[enrich] {pc} raised {type(e).__name__}: {e}", flush=True)
         with _lock:
-            _jobs[pc] = {"status": "error", "source": source, "error": str(e)}
+            _jobs[pc] = {"status": "error", "source": source, "error": "enrichment failed"}
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
