@@ -17,17 +17,19 @@ auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 SIGNUP_BONUS_CREDITS = 50  # placeholder — Phase 3 owns the real credit economy/pricing
 
 
-def _user_payload(user_id):
+def _user_payload(user_id, org_id=None):
     user = _auth_db.get_user(user_id)
     if user is None:
         return None
+    view = _auth_db.get_credit_view(user_id, org_id=org_id)
     return {
         "id": user["id"],
         "email": user["email"],
         "name": user["name"],
         "picture_url": user["picture_url"],
-        "plan": user["plan"],
-        "credits": _auth_db.get_credit_balance(user_id),
+        "plan": _auth_db.get_effective_plan_for_user(user_id),
+        "credits": view["balance"],
+        "credits_paid_by": view["paid_by"],
     }
 
 
@@ -63,7 +65,6 @@ def google_signin():
     )
 
     if result["created"]:
-        _auth_db.grant_credits(result["id"], SIGNUP_BONUS_CREDITS, "signup_bonus")
         # Phase C: every account gets a default company from day one — matches
         # the pricing model (every tier includes 1 company) and C3's backfill,
         # which did the same for pre-existing accounts. A display name isn't
@@ -71,6 +72,9 @@ def google_signin():
         # local-part exactly like the backfill does.
         display = payload.get("name") or payload["email"].split("@")[0]
         _auth_db.create_default_organization_for_user(result["id"], f"{display}'s Workspace")
+        # After the company exists, so the bonus row is stamped with its org_id
+        # (billing-v2 stage 2a) — grant_credits resolves users.org_id.
+        _auth_db.grant_credits(result["id"], SIGNUP_BONUS_CREDITS, "signup_bonus")
 
     _auth_db.log_activity(result["id"], "login")
 
@@ -91,7 +95,13 @@ def logout():
 @auth_bp.route("/me", methods=["GET"])
 @require_login
 def me(user_id):
-    user = _user_payload(user_id)
+    # Optional ?org_id= — the company selected in the switcher, so the credits
+    # shown are that company's wallet. A company you don't belong to is simply
+    # ignored (no error, no information): you get your own primary company's.
+    org_id = request.args.get("org_id", type=int)
+    if org_id is not None and _auth_db.get_org_role(org_id, user_id) is None:
+        org_id = None
+    user = _user_payload(user_id, org_id=org_id)
     if user is None:
         # session pointed at a user_id that no longer exists — clear the stale cookie
         session.clear()

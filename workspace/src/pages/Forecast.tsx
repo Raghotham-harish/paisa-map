@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, Forecast as ForecastResult, ForecastResponse, ForecastSite, PricingConfig, api } from "../lib/api";
+import { ApiError, Forecast as ForecastResult, ForecastResponse, ForecastSite, PricingConfig, api, insufficientCreditsMessage } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { ForecastPreview } from "../components/ForecastPreview";
 import { DataList, DataRow } from "../components/DataList";
@@ -89,7 +89,7 @@ export default function Forecast() {
       setResultBudget(b ?? null);
     } catch (e) {
       if (e instanceof ApiError && e.body?.error === "insufficient_credits") {
-        setError(`Not enough credits — this forecast costs ${e.body.required}, you have ${e.body.balance}.`);
+        setError(insufficientCreditsMessage(e.body, "this forecast costs"));
       } else if (e instanceof ApiError && e.body?.detail) {
         setError(String(e.body.detail));
       } else {
@@ -133,7 +133,9 @@ export default function Forecast() {
     } catch (e) {
       setReportError(
         e instanceof ApiError && e.body?.error === "insufficient_credits"
-          ? `Not enough credits — needs ${e.body.required}, you have ${e.body.balance}.`
+          ? insufficientCreditsMessage(e.body, "needs")
+          : e instanceof ApiError && e.body?.error === "budget_required"
+            ? String(e.body.detail)
           : e instanceof ApiError && e.body?.error === "no_locations"
             ? "This project has no saved locations yet — save some from the map first."
             : "Couldn't generate the report — try again."

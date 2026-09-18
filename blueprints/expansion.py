@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" /
 import _signals_data  # noqa: E402
 import _pricing  # noqa: E402
 
-from ._session import require_login, _auth_db, charge_credits
+from ._session import require_login, _auth_db, charge_credits, wallet_gate
 from .intelligence import opportunity_assessment, risk_assessment  # noqa: E402
 
 expansion_bp = Blueprint("expansion", __name__, url_prefix="/api/expansion")
@@ -281,10 +281,15 @@ def recommend(user_id):
     if budget is None or budget <= 0:
         return jsonify({"error": "budget must be a positive number"}), 400
 
+    gated = wallet_gate(user_id, project.get("org_id"))
+    if gated:
+        return gated
     cost = _pricing.credit_cost("expansion_recommend")
-    balance = _auth_db.get_credit_balance(user_id)
+    balance = _auth_db.get_credit_balance(user_id, org_id=project.get("org_id"))
     if balance < cost:
-        return jsonify({"error": "insufficient_credits", "balance": balance, "required": cost}), 402
+        view = _auth_db.get_credit_view(user_id, org_id=project.get("org_id"))
+        return jsonify({"error": "insufficient_credits", "balance": view["balance"],
+                         "paid_by": view["paid_by"], "required": cost}), 402
 
     scored = score_project_candidates(project, user_id,
                                        apply_quality_gate=True, estimate_capex=True)
@@ -312,7 +317,8 @@ def recommend(user_id):
         candidates.sort(key=lambda c: c["combined_score"], reverse=True)
         portfolio = candidates[:RECOMMEND_FALLBACK_TOP_N]
 
-    charge_credits(user_id, "expansion_recommend", ref_type="expansion", ref_id=project_id)
+    charge_credits(user_id, "expansion_recommend", ref_type="expansion", ref_id=project_id,
+                   org_id=(project or {}).get("org_id"))
 
     return jsonify({
         "budget": budget,

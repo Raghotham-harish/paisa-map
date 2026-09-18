@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError, DriverAnalysis, LocationScore, LocationStatus, PricingConfig, Project, SavedLocation, api } from "../../lib/api";
+import { ApiError, DriverAnalysis, LocationScore, LocationStatus, PricingConfig, Project, SavedLocation, api, insufficientCreditsMessage } from "../../lib/api";
 import { prettySignal } from "../../lib/signalLabel";
 
 type Ranked = LocationScore & { rank: number };
@@ -171,7 +171,9 @@ export function CompareModal({
     } catch (e) {
       setReportError(
         e instanceof ApiError && e.body?.error === "insufficient_credits"
-          ? `Not enough credits — needs ${e.body.required}, you have ${e.body.balance}.`
+          ? insufficientCreditsMessage(e.body, "needs")
+          : e instanceof ApiError && e.body?.error === "budget_required"
+            ? String(e.body.detail)
           : e instanceof ApiError && e.body?.error === "no_locations"
             ? "Nothing to report on yet."
             : "Couldn't generate the report — try again.",

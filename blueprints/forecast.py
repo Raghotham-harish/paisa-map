@@ -27,7 +27,7 @@ import _signals_data  # noqa: E402
 import _forecast_model  # noqa: E402
 import _pricing  # noqa: E402
 
-from ._session import require_login, _auth_db, charge_credits
+from ._session import require_login, _auth_db, charge_credits, wallet_gate
 from .expansion import _compute_drivers  # noqa: E402
 from .projects import _shape  # decodes the JSON-array project columns (signals, target_pincodes)
 
@@ -50,10 +50,15 @@ def forecast(user_id):
         return jsonify({"error": "budget_required",
                          "detail": "Pass ?budget= or set a total investment on the project."}), 400
 
+    gated = wallet_gate(user_id, project.get("org_id"))
+    if gated:
+        return gated
     cost = _pricing.credit_cost("forecast")
-    balance = _auth_db.get_credit_balance(user_id)
+    balance = _auth_db.get_credit_balance(user_id, org_id=project.get("org_id"))
     if balance < cost:
-        return jsonify({"error": "insufficient_credits", "balance": balance, "required": cost}), 402
+        view = _auth_db.get_credit_view(user_id, org_id=project.get("org_id"))
+        return jsonify({"error": "insufficient_credits", "balance": view["balance"],
+                         "paid_by": view["paid_by"], "required": cost}), 402
 
     locations = _auth_db.list_customer_locations(user_id, project_id)
     rows_by_pincode, _source = _signals_data.load_ppi_signals_rows()
@@ -68,7 +73,8 @@ def forecast(user_id):
 
     # Charge only for a real forecast — an honest "not enough data" is free.
     if result.get("sufficient_data"):
-        charge_credits(user_id, "forecast", ref_type="project", ref_id=project_id)
+        charge_credits(user_id, "forecast", ref_type="project", ref_id=project_id,
+                       org_id=project.get("org_id"))
         _auth_db.log_activity(user_id, "forecast_run", target_type="project", target_id=project_id,
                                metadata={"budget": budget})
 

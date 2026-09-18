@@ -41,13 +41,23 @@ export interface User {
   name: string | null;
   picture_url: string | null;
   plan: "free" | "pro" | "team";
-  credits: number;
+  // null = the wallet belongs to a company you don't belong to (e.g. a client
+  // company paid for by an agency): you're told who pays, never their balance.
+  credits: number | null;
+  credits_paid_by?: PaidBy | null;
+}
+
+// The company whose wallet pays for the company you're working in — only
+// present when it's a different company from the one you selected.
+export interface PaidBy {
+  org_id: number;
+  name: string;
 }
 
 export interface MeResponse {
   user: User;
   plan: string;
-  credits: number;
+  credits: number | null;
 }
 
 export type OutcomeGoal = "revenue_reach" | "store_count" | "balanced";
@@ -223,8 +233,18 @@ export interface CreditLedgerEntry {
   id: number;
   delta: number;
   reason: string;
-  balance_after: number;
+  balance_after: number | null;   // null for members of a client company: that's the payer's running total
   created_at: string;
+}
+
+// The one place that words an "insufficient_credits" 402, so every screen
+// handles a hidden balance (body.balance == null) the same way.
+export function insufficientCreditsMessage(body: any, needs: string): string {
+  if (body?.balance == null) {
+    const who = body?.paid_by?.name ?? "your account admin";
+    return `Not enough credits — ${needs} ${body?.required}. Ask ${who} to top up.`;
+  }
+  return `Not enough credits — ${needs} ${body.required}, you have ${body.balance}.`;
 }
 
 // Track 1 (B2B data-API product). Never carries the raw key or its hash —
@@ -753,7 +773,8 @@ export interface Invoice {
 
 export const api = {
   config: () => request("/api/config"),
-  me: () => request("/api/auth/me") as Promise<MeResponse>,
+  me: (orgId?: number | null) =>
+    request(orgId != null ? `/api/auth/me?org_id=${orgId}` : "/api/auth/me") as Promise<MeResponse>,
   signInWithGoogle: (credential: string) =>
     request("/api/auth/google", { method: "POST", body: JSON.stringify({ credential }) }) as Promise<MeResponse>,
   signOut: () => request("/api/auth/logout", { method: "POST" }),
@@ -840,7 +861,16 @@ export const api = {
     return request(`/api/intelligence/compare?${q.toString()}`) as Promise<{ locations: (LocationScore & { rank: number })[] }>;
   },
 
-  getCredits: () => request("/api/credits") as Promise<{ balance: number; ledger: CreditLedgerEntry[] }>,
+  // orgId = the company selected in the switcher: the wallet shown is that company's.
+  getCredits: (orgId?: number | null, limit?: number) => {
+    const qs = new URLSearchParams();
+    if (orgId != null) qs.set("org_id", String(orgId));
+    if (limit != null) qs.set("limit", String(limit));
+    const q = qs.toString();
+    return request(`/api/credits${q ? `?${q}` : ""}`) as Promise<{
+      balance: number | null; paid_by: PaidBy | null; ledger: CreditLedgerEntry[];
+    }>;
+  },
 
   listReports: () => request("/api/reports") as Promise<{ reports: Report[] }>,
   generateReport: (projectId: number, title?: string, orderId?: number) =>

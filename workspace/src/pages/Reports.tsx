@@ -36,7 +36,8 @@ function summarize(locations?: LocationScore[]): string | null {
 }
 
 interface InsufficientCredits {
-  balance: number;
+  balance: number | null;        // null = the wallet belongs to a company you don't belong to
+  paidBy?: string | null;
   required: number;
   reportPurchasePricePaise: number;
 }
@@ -76,7 +77,7 @@ export default function Reports() {
         setInsufficientFor((prev) => ({
           ...prev,
           [project.id]: {
-            balance: e.body.balance, required: e.body.required,
+            balance: e.body.balance, paidBy: e.body.paid_by?.name ?? null, required: e.body.required,
             reportPurchasePricePaise: e.body.report_purchase_price_paise,
           },
         }));
@@ -199,8 +200,10 @@ export default function Reports() {
                           {errors[p.id] && <div style={{ color: "var(--flame)" }}>{errors[p.id]}</div>}
                           {insufficientFor[p.id] && (
                             <div>
-                              You have {insufficientFor[p.id].balance} credits, need {insufficientFor[p.id].required}.{" "}
-                              <Link to="/billing">Buy credits</Link> or{" "}
+                              {insufficientFor[p.id].balance == null
+                                ? <>Needs {insufficientFor[p.id].required} credits. Ask {insufficientFor[p.id].paidBy ?? "your account admin"} to top up.{" "}</>
+                                : <>You have {insufficientFor[p.id].balance} credits, need {insufficientFor[p.id].required}.{" "}
+                                    <Link to="/billing">Buy credits</Link> or{" "}</>}
                               <button
                                 className="btn secondary"
                                 style={{ padding: "2px 8px", fontSize: 12 }}

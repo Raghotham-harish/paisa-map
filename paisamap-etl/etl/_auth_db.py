@@ -18,6 +18,7 @@ Set DATABASE_URL to enable, e.g.:
   sqlite:///paisamap_dev.db                                        (local testing only)
 """
 
+import os
 import threading
 from datetime import datetime, timezone
 
@@ -74,6 +75,12 @@ def _get_tables():
         # of this file for why that cutover is deliberately separate).
         Column("plan", Text, nullable=False, server_default="free"),
         Column("website_url", Text),
+        # Billing-v2 stage 2a: the PAYING ACCOUNT this company's credits are
+        # drawn from. NULL = the company pays for itself (every company today).
+        # An agency links its client companies to the agency's own company, so
+        # one wallet serves them all while usage stays attributable per client.
+        # Exactly one level deep: a payer never has a payer of its own.
+        Column("billing_org_id", Integer, ForeignKey("organizations.id")),
         Column("created_at", DateTime(timezone=True), nullable=False),
     )
 
@@ -203,6 +210,11 @@ def _get_tables():
         # Phase C, staged: NULL until credits pooling actually cuts over to the
         # org level — every existing/new row keeps writing user_id as today.
         Column("org_id", Integer, ForeignKey("organizations.id")),
+        # Billing-v2 stage 2a: the wallet (paying company) this row belongs to —
+        # org_id's payer at write time, stored so history stays put if a
+        # company is later re-linked. NULL only on rows predating this column
+        # (backfill_organizations stamps them).
+        Column("billing_org_id", Integer, ForeignKey("organizations.id")),
         Column("delta", Integer, nullable=False),
         Column("reason", Text, nullable=False),
         Column("ref_type", Text),
@@ -346,6 +358,15 @@ def _get_tables():
         Column("report_id", Integer, ForeignKey("reports.id", ondelete="SET NULL")),  # linked
                                                 # once the paid-for report is actually generated
         Column("meta", JSONType),
+        # Billing-v2 stage 2a, additive: which company was billed, and which
+        # price book the buyer saw (see _pricing.PRICE_BOOK_VERSION). Nothing
+        # reads these yet; they're stamped at order creation so a later
+        # company-level cutover and any price experiment have clean history.
+        Column("org_id", Integer, ForeignKey("organizations.id")),
+        # The wallet the purchase was recorded against ("Buying for: ..."). For
+        # now this only RECORDS the buyer's choice — balances are still per-user.
+        Column("billing_org_id", Integer, ForeignKey("organizations.id")),
+        Column("price_book_version", Text),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("paid_at", DateTime(timezone=True)),
         CheckConstraint("kind IN ('credit_pack','plan_upgrade','report_purchase')",
@@ -474,6 +495,11 @@ _MIGRATIONS = [
     ("organizations", "plan", "TEXT DEFAULT 'free'"),
     ("organizations", "website_url", "TEXT"),
     ("credits_ledger", "org_id", "INTEGER"),
+    ("orders", "org_id", "INTEGER"),
+    ("orders", "billing_org_id", "INTEGER"),
+    ("orders", "price_book_version", "TEXT"),
+    ("organizations", "billing_org_id", "INTEGER"),
+    ("credits_ledger", "billing_org_id", "INTEGER"),
     ("customer_uploads", "org_id", "INTEGER"),
     ("customer_locations", "org_id", "INTEGER"),
     ("oauth_connections", "org_id", "INTEGER"),
@@ -555,25 +581,104 @@ def get_user(user_id):
 
 
 # ── Credits ──────────────────────────────────────────────────────────────────
-def grant_credits(user_id, amount, reason, ref_type=None, ref_id=None, conn=None):
+def _primary_org_id(conn, user_id):
+    """users.org_id — the caller's default company (set at signup / C3
+    backfill). None if they somehow have none yet."""
+    tables = _get_tables()
+    from sqlalchemy import select
+    return conn.execute(
+        select(tables["users"].c.org_id).where(tables["users"].c.id == user_id)
+    ).scalar()
+
+
+def _payer_org_id(conn, org_id):
+    """The wallet (paying company) for `org_id`: its billing_org_id if it has a
+    payer, else itself. None in -> None out."""
+    if org_id is None:
+        return None
+    tables = _get_tables()
+    from sqlalchemy import select
+    orgs = tables["organizations"]
+    payer = conn.execute(select(orgs.c.billing_org_id).where(orgs.c.id == org_id)).scalar()
+    return payer if payer is not None else org_id
+
+
+def get_payer_org_id(org_id):
+    engine = _require_engine()
+    with engine.connect() as conn:
+        return _payer_org_id(conn, org_id)
+
+
+# ── Billing scope (billing-v2 stage 2b) ────────────────────────────────────
+# BILLING_SCOPE=user   (default) — exactly the legacy behaviour: a credit
+#                      balance is one per-user chain, a user's plan is users.plan.
+# BILLING_SCOPE=wallet — a balance is the WALLET's (the paying company's) sum,
+#                      shared by every company drawing from it and every member
+#                      of those companies; a user's effective plan is the best
+#                      of their own plan and their companies' plans.
+# Read at call time, so flipping it is one env change + a restart, and flipping
+# it back is lossless for single-user wallets (see the runbook for pooled ones).
+# Ledger rows keep a per-user balance_after chain in BOTH modes so rollback
+# never reads a different number than legacy would have.
+def billing_scope():
+    return "wallet" if (os.environ.get("BILLING_SCOPE") or "").strip().lower() == "wallet" else "user"
+
+
+def _wallet_for(conn, user_id, org_id=None):
+    """The wallet a balance/spend applies to: the payer of the company being
+    worked in (org_id), else of the user's primary company. None if the user
+    has no company at all (then callers fall back to the per-user chain)."""
+    oid = org_id if org_id is not None else _primary_org_id(conn, user_id)
+    return _payer_org_id(conn, oid)
+
+
+def _wallet_balance(conn, wallet_id, user_id):
+    """Sum of every ledger row in this wallet. Rows are matched on
+    COALESCE(billing_org_id, org_id) so a row stamped with a company but not
+    yet a wallet still counts; rows with NO company at all count only toward
+    their own user (temporary safety net — wallet_mode_preflight() insists
+    there are none before the switch is flipped)."""
+    tables = _get_tables()
+    ledger = tables["credits_ledger"]
+    from sqlalchemy import select, func, or_, and_
+    cond = or_(func.coalesce(ledger.c.billing_org_id, ledger.c.org_id) == wallet_id,
+               and_(ledger.c.org_id.is_(None), ledger.c.user_id == user_id))
+    return int(conn.execute(
+        select(func.coalesce(func.sum(ledger.c.delta), 0)).where(cond)).scalar() or 0)
+
+
+def _user_chain_balance(conn, user_id):
+    tables = _get_tables()
+    ledger = tables["credits_ledger"]
+    from sqlalchemy import select
+    return conn.execute(
+        select(ledger.c.balance_after).where(ledger.c.user_id == user_id)
+        .order_by(ledger.c.id.desc()).limit(1)).scalar() or 0
+
+
+def grant_credits(user_id, amount, reason, ref_type=None, ref_id=None, conn=None, org_id=None):
     """Append a credits_ledger row and return the new balance. If `conn` is given,
     runs inside the caller's transaction (used by the signup flow to grant the
-    bonus atomically with the user creation); otherwise opens its own."""
+    bonus atomically with the user creation); otherwise opens its own.
+
+    Every row is stamped with the company (`org_id`, the caller's primary unless
+    passed) and its wallet (`billing_org_id`). BILLING_SCOPE=user returns the
+    per-user balance as always; =wallet returns the wallet's balance after."""
     tables = _get_tables()
     ledger = tables["credits_ledger"]
 
     def _do(c):
-        from sqlalchemy import select
-        prev = c.execute(
-            select(ledger.c.balance_after).where(ledger.c.user_id == user_id)
-            .order_by(ledger.c.id.desc()).limit(1)
-        ).scalar()
-        new_balance = (prev or 0) + amount
+        oid = org_id if org_id is not None else _primary_org_id(c, user_id)
+        wallet = _payer_org_id(c, oid)
+        prev = _user_chain_balance(c, user_id)          # per-user chain, both modes
         c.execute(ledger.insert().values(
-            user_id=user_id, delta=amount, reason=reason, ref_type=ref_type, ref_id=ref_id,
-            balance_after=new_balance, created_at=_now(),
+            user_id=user_id, org_id=oid, billing_org_id=wallet,
+            delta=amount, reason=reason, ref_type=ref_type, ref_id=ref_id,
+            balance_after=prev + amount, created_at=_now(),
         ))
-        return new_balance
+        if billing_scope() == "wallet" and wallet is not None:
+            return _wallet_balance(c, wallet, user_id)
+        return prev + amount
 
     if conn is not None:
         return _do(conn)
@@ -582,17 +687,334 @@ def grant_credits(user_id, amount, reason, ref_type=None, ref_id=None, conn=None
         return _do(c)
 
 
-def get_credit_balance(user_id):
+def get_credit_balance(user_id, org_id=None):
+    """user scope: the caller's per-user balance (org_id ignored). wallet scope:
+    the balance of the wallet behind `org_id` (the company being worked in) or,
+    if omitted, behind the caller's primary company. Callers pass an org_id
+    only after checking the user belongs to it."""
+    engine = _require_engine()
+    with engine.connect() as conn:
+        if billing_scope() == "wallet":
+            wallet = _wallet_for(conn, user_id, org_id)
+            if wallet is not None:
+                return _wallet_balance(conn, wallet, user_id)
+        # Clamped at 0: legacy data is never negative, but a teammate who spent
+        # from a shared wallet has a negative per-user chain, which would show
+        # as a negative balance if the scope were ever rolled back to "user".
+        return max(0, _user_chain_balance(conn, user_id))
+
+
+def get_credit_view(user_id, org_id=None):
+    """What a USER is allowed to be shown about credits — distinct from
+    get_credit_balance(), which is the exact number the server decides with.
+
+    Returns {"balance": int | None, "paid_by": {"org_id", "name"} | None}.
+    A wallet's balance belongs to the paying company: someone who works in a
+    client company but is NOT a member of the company that pays for it (e.g. a
+    client's own staff, on an agency-paid company) sees balance=None and who
+    pays, never the payer's total. Members of the paying company see the
+    number. Under the legacy per-user scope it is always the user's own balance."""
+    engine = _require_engine()
+    tables = _get_tables()
+    with engine.connect() as conn:
+        if billing_scope() != "wallet":
+            return {"balance": max(0, _user_chain_balance(conn, user_id)), "paid_by": None}
+        oid = org_id if org_id is not None else _primary_org_id(conn, user_id)
+        wallet = _payer_org_id(conn, oid)
+        if wallet is None:
+            return {"balance": max(0, _user_chain_balance(conn, user_id)), "paid_by": None}
+        paid_by = None
+        if wallet != oid:
+            name = conn.execute(_org_name_query(tables, wallet)).scalar()
+            paid_by = {"org_id": wallet, "name": name}
+        balance = _wallet_balance(conn, wallet, user_id)
+    if get_org_role(wallet, user_id) is None:
+        balance = None
+    return {"balance": balance, "paid_by": paid_by}
+
+
+def _org_name_query(tables, org_id):
+    from sqlalchemy import select
+    orgs = tables["organizations"]
+    return select(orgs.c.name).where(orgs.c.id == org_id)
+
+
+def resolve_purchase_wallet(user_id, requested_org_id=None):
+    """Which company/wallet a purchase is recorded against ("Buying for: ...").
+    No company requested -> the buyer's primary company (exactly today's
+    behaviour). A company requested -> the buyer must be its owner or admin
+    (a plain member may spend a company's credits but not charge for it).
+    Returns {"org_id": <company>, "billing_org_id": <its wallet>} or None if
+    not permitted. Recording only for now: balances are still per-user."""
+    engine = _require_engine()
+    with engine.connect() as conn:
+        if requested_org_id is None:
+            oid = _primary_org_id(conn, user_id)
+        else:
+            oid = requested_org_id
+    if oid is None:
+        return {"org_id": None, "billing_org_id": None}
+    if requested_org_id is not None and get_org_role(oid, user_id) not in ("owner", "admin"):
+        return None
+    return {"org_id": oid, "billing_org_id": get_payer_org_id(oid)}
+
+
+def set_org_payer(org_id, actor_user_id, payer_org_id):
+    """Link a company under a paying account (or unlink with payer_org_id=None).
+    Rules — each one prevents a way to end up with credits nobody can trace:
+      * actor must own `org_id`, and be owner/admin of the payer;
+      * a company can't pay for itself via a link, and a payer can't have a
+        payer (one level only — no chains, so no cycles);
+      * a company that already pays for others can't itself be moved under one.
+    Only FUTURE ledger rows use the new wallet; history keeps the wallet it was
+    written under. Returns {"status": "ok"} or {"error": ...}."""
+    engine = _require_engine()
+    tables = _get_tables()
+    orgs = tables["organizations"]
+    from sqlalchemy import select, func
+    if get_org_role(org_id, actor_user_id) != "owner":
+        return {"error": "not_found"}
+    if payer_org_id is not None:
+        if payer_org_id == org_id:
+            return {"error": "invalid_payer"}
+        if get_org_role(payer_org_id, actor_user_id) not in ("owner", "admin"):
+            return {"error": "not_found"}
+    with engine.begin() as conn:
+        if payer_org_id is not None:
+            if conn.execute(select(orgs.c.billing_org_id).where(orgs.c.id == payer_org_id)).scalar() is not None:
+                return {"error": "payer_has_payer"}
+            if conn.execute(select(func.count()).select_from(orgs)
+                            .where(orgs.c.billing_org_id == org_id)).scalar():
+                return {"error": "already_a_payer"}
+            # A company holding credits in its OWN wallet can't be linked: its
+            # rows would keep pointing at the old wallet and the credits would
+            # be stranded. Spend them down, or merge deliberately.
+            ledger = tables["credits_ledger"]
+            own = conn.execute(
+                select(func.coalesce(func.sum(ledger.c.delta), 0))
+                .where(func.coalesce(ledger.c.billing_org_id, ledger.c.org_id) == org_id)).scalar() or 0
+            if own != 0:
+                return {"error": "company_has_credits"}
+        conn.execute(orgs.update().where(orgs.c.id == org_id).values(billing_org_id=payer_org_id))
+    return {"status": "ok"}
+
+
+def link_extra_companies_to_primary():
+    """ONE-TIME, deliberate migration for the credits cutover. Before wallets,
+    a user's credits followed the USER across every company they created, so
+    their extra companies effectively shared one pool. To keep that true, link
+    every extra company under its owner's primary company AND move its ledger
+    rows into that wallet (a merge — same person, same pool as before).
+    Idempotent: only touches unlinked extra companies, and skips any company
+    that itself pays for others. Returns counts."""
+    engine = _require_engine()
+    tables = _get_tables()
+    orgs, users, ledger = tables["organizations"], tables["users"], tables["credits_ledger"]
+    from sqlalchemy import select, func, update
+    counts = {"linked": 0, "ledger_rows_moved": 0, "skipped_pays_for_others": 0}
+    with engine.begin() as conn:
+        rows = conn.execute(
+            select(orgs.c.id, users.c.org_id.label("primary_id"))
+            .select_from(orgs.join(users, users.c.id == orgs.c.owner_user_id))
+            .where(orgs.c.billing_org_id.is_(None), users.c.org_id.is_not(None),
+                   orgs.c.id != users.c.org_id)).all()
+        for r in rows:
+            if conn.execute(select(func.count()).select_from(orgs)
+                            .where(orgs.c.billing_org_id == r.id)).scalar():
+                counts["skipped_pays_for_others"] += 1
+                continue
+            payer = _payer_org_id(conn, r.primary_id)
+            conn.execute(update(orgs).where(orgs.c.id == r.id).values(billing_org_id=payer))
+            moved = conn.execute(
+                update(ledger)
+                .where(func.coalesce(ledger.c.billing_org_id, ledger.c.org_id) == r.id)
+                .values(billing_org_id=payer))
+            counts["linked"] += 1
+            counts["ledger_rows_moved"] += moved.rowcount
+    return counts
+
+
+def credit_wallet_parity():
+    """Like credit_org_parity() but grouped by WALLET — the unit a cutover
+    actually changes. A wallet "matches" when its ledger sum equals the sum of
+    the latest per-user balances of every user with rows in it: true when each
+    user's credits live in one wallet, false when one user's credits are split
+    across wallets (that user's visible balance would change)."""
     engine = _require_engine()
     tables = _get_tables()
     ledger = tables["credits_ledger"]
-    from sqlalchemy import select
+    from sqlalchemy import select, func
+    wallet = func.coalesce(ledger.c.billing_org_id, ledger.c.org_id)
     with engine.connect() as conn:
-        bal = conn.execute(
-            select(ledger.c.balance_after).where(ledger.c.user_id == user_id)
-            .order_by(ledger.c.id.desc()).limit(1)
+        sums = {r.w: int(r.s or 0) for r in conn.execute(
+            select(wallet.label("w"), func.sum(ledger.c.delta).label("s"))
+            .where(wallet.is_not(None)).group_by(wallet))}
+        pairs = conn.execute(select(wallet.label("w"), ledger.c.user_id)
+                             .where(wallet.is_not(None)).distinct()).all()
+        latest = {}
+        for uid in {u for _, u in pairs}:
+            latest[uid] = _user_chain_balance(conn, uid)
+    per_wallet = {}
+    for w, uid in pairs:
+        per_wallet.setdefault(w, {})[uid] = latest[uid]
+    out, bad = [], []
+    for w, total in sorted(sums.items()):
+        members_bal = per_wallet.get(w, {})
+        ok = sum(members_bal.values()) == total
+        if not ok:
+            bad.append(w)
+        out.append({"wallet_id": w, "wallet_sum": total, "member_user_balances": members_bal, "match": ok})
+    return {"wallets": out, "mismatches": bad}
+
+
+def org_delete_blocker(org_id):
+    """Why a company can't be deleted, or None. A company that pays for others
+    would orphan them (and lose the row that serialises their spends); one with
+    billing history would leave orphaned ledger/order records."""
+    engine = _require_engine()
+    tables = _get_tables()
+    orgs, ledger, orders = tables["organizations"], tables["credits_ledger"], tables["orders"]
+    from sqlalchemy import select, func, or_
+    with engine.connect() as conn:
+        if conn.execute(select(func.count()).select_from(orgs).where(orgs.c.billing_org_id == org_id)).scalar():
+            return "pays_for_companies"
+        if conn.execute(select(func.count()).select_from(ledger)
+                        .where(or_(ledger.c.org_id == org_id, ledger.c.billing_org_id == org_id))).scalar() or \
+           conn.execute(select(func.count()).select_from(orders)
+                        .where(or_(orders.c.org_id == org_id, orders.c.billing_org_id == org_id))).scalar():
+            return "has_billing_history"
+    return None
+
+
+def get_wallet_credit_balance(billing_org_id):
+    """Sum of every ledger row belonging to this wallet. Read-only, unused by
+    any decision yet — what a wallet balance would be once balances move off
+    the per-user chain."""
+    engine = _require_engine()
+    tables = _get_tables()
+    ledger = tables["credits_ledger"]
+    from sqlalchemy import select, func
+    with engine.connect() as conn:
+        total = conn.execute(
+            select(func.coalesce(func.sum(ledger.c.delta), 0)).where(ledger.c.billing_org_id == billing_org_id)
         ).scalar()
-    return bal or 0
+    return int(total or 0)
+
+
+def usage_by_company(billing_org_id):
+    """Credits SPENT per company against one wallet — the "usage per client"
+    view an agency re-bills from. Spends only (negative deltas); purchases and
+    grants are excluded. Largest first."""
+    engine = _require_engine()
+    tables = _get_tables()
+    ledger = tables["credits_ledger"]
+    orgs = tables["organizations"]
+    from sqlalchemy import select, func
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(ledger.c.org_id, orgs.c.name, func.sum(-ledger.c.delta).label("used"))
+            .select_from(ledger.join(orgs, orgs.c.id == ledger.c.org_id))
+            .where(ledger.c.billing_org_id == billing_org_id, ledger.c.delta < 0)
+            .group_by(ledger.c.org_id, orgs.c.name)
+            .order_by(func.sum(-ledger.c.delta).desc())
+        ).all()
+    return [{"org_id": r.org_id, "name": r.name, "credits_used": int(r.used)} for r in rows]
+
+
+def get_org_credit_balance(org_id):
+    """Sum of every ledger row stamped with this company. NOT used for any
+    decision yet (get_credit_balance, the per-user chain, is still what
+    spend/checks use) — this is the number a company-level balance would be,
+    kept here so it can be compared against the per-user one before any cutover."""
+    engine = _require_engine()
+    tables = _get_tables()
+    ledger = tables["credits_ledger"]
+    from sqlalchemy import select, func
+    with engine.connect() as conn:
+        total = conn.execute(
+            select(func.coalesce(func.sum(ledger.c.delta), 0)).where(ledger.c.org_id == org_id)
+        ).scalar()
+    return int(total or 0)
+
+
+def credit_org_parity():
+    """Read-only audit for the credits cutover: is every ledger row
+    company-attributed, and would a company-level balance match what users
+    have today? Returns
+      {"null_org_rows": N,             # rows still lacking org_id — re-run
+                                       # backfill_organizations() to stamp them
+       "orgs": [{"org_id", "org_sum", "member_user_balances": {uid: bal},
+                 "user_sum", "match": bool}, ...],
+       "mismatches": [org_id, ...]}
+    An org "matches" when its stamped ledger sum equals the sum of its ledger
+    users' latest per-user balances (true for the normal one-user-one-company
+    case). A mismatch is exactly the case a cutover has to decide about —
+    e.g. one user's credits spread across several companies."""
+    engine = _require_engine()
+    tables = _get_tables()
+    ledger = tables["credits_ledger"]
+    from sqlalchemy import select, func
+    with engine.connect() as conn:
+        null_rows = conn.execute(
+            select(func.count()).select_from(ledger).where(ledger.c.org_id.is_(None))
+        ).scalar() or 0
+        null_wallet_rows = conn.execute(
+            select(func.count()).select_from(ledger)
+            .where(ledger.c.billing_org_id.is_(None), ledger.c.org_id.is_not(None))
+        ).scalar() or 0
+        org_sums = {r.org_id: int(r.s or 0) for r in conn.execute(
+            select(ledger.c.org_id, func.sum(ledger.c.delta).label("s"))
+            .where(ledger.c.org_id.is_not(None)).group_by(ledger.c.org_id))}
+        # users who have any row stamped to each org
+        pairs = conn.execute(
+            select(ledger.c.org_id, ledger.c.user_id).where(ledger.c.org_id.is_not(None)).distinct()
+        ).all()
+        latest = {}
+        for uid in {u for _, u in pairs}:
+            latest[uid] = conn.execute(
+                select(ledger.c.balance_after).where(ledger.c.user_id == uid)
+                .order_by(ledger.c.id.desc()).limit(1)
+            ).scalar() or 0
+    per_org = {}
+    for org_id, uid in pairs:
+        per_org.setdefault(org_id, {})[uid] = latest[uid]
+    orgs_out, mismatches = [], []
+    for org_id, total in sorted(org_sums.items()):
+        members = per_org.get(org_id, {})
+        user_sum = sum(members.values())
+        ok = (user_sum == total)
+        if not ok:
+            mismatches.append(org_id)
+        orgs_out.append({"org_id": org_id, "org_sum": total,
+                         "member_user_balances": members, "user_sum": user_sum, "match": ok})
+    return {"null_org_rows": int(null_rows), "null_wallet_rows": int(null_wallet_rows),
+            "orgs": orgs_out, "mismatches": mismatches}
+
+
+class SpendNotAllowedError(Exception):
+    """Raised by spend_credits() in wallet scope when the spender is OUTSIDE the
+    company that pays for the wallet (e.g. a client's own staff working in an
+    agency-paid company) and no spending budget allows it. Interim rule until
+    budgets exist: outside spenders can't draw a wallet at all — otherwise one
+    client's people could drain the agency's credits for every other client."""
+    def __init__(self, reason="budget_required"):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def wallet_spend_allowed(user_id, org_id=None):
+    """(allowed, reason). Legacy scope: always allowed. Wallet scope: allowed for
+    anyone who is a member of the company that owns the wallet (their own
+    company, or the paying agency); NOT for someone who only belongs to a client
+    company paid for by another. This is the single seam budgets plug into."""
+    if billing_scope() != "wallet":
+        return True, None
+    engine = _require_engine()
+    with engine.connect() as conn:
+        wallet = _wallet_for(conn, user_id, org_id)
+    if wallet is None or get_org_role(wallet, user_id) is not None:
+        return True, None
+    return False, "budget_required"
 
 
 class InsufficientCreditsError(Exception):
@@ -606,20 +1028,39 @@ class InsufficientCreditsError(Exception):
         super().__init__(f"insufficient credits: have {balance}, need {required}")
 
 
-def spend_credits(user_id, amount, reason, ref_type=None, ref_id=None):
+def spend_credits(user_id, amount, reason, ref_type=None, ref_id=None, org_id=None):
     """Debit `amount` credits if the balance covers it, atomically. Raises
-    InsufficientCreditsError (balance left unchanged) if not. Unlike
-    grant_credits() above (read-then-insert, fine since it only ever adds),
-    this locks the latest ledger row with SELECT ... FOR UPDATE on Postgres so
-    two concurrent spends for the same user can't both read the same stale
-    balance and drive it negative. SQLite (local dev only) has no row-level
-    locking but is single-writer by default, so it degrades safely without it."""
+    InsufficientCreditsError (balance left unchanged) if not.
+
+    user scope: checks/chains the caller's own balance (locking the latest
+    ledger row on Postgres so two concurrent spends can't both read a stale
+    balance). wallet scope: checks the WALLET's balance, serialising concurrent
+    spends on the wallet company's row (SELECT ... FOR UPDATE on Postgres;
+    SQLite is single-writer so it degrades safely). `org_id` is the company the
+    spend is attributed to (a project's company when project-scoped)."""
     assert amount > 0, "spend_credits amount must be positive"
     engine = _require_engine()
     tables = _get_tables()
     ledger = tables["credits_ledger"]
     from sqlalchemy import select
     with engine.begin() as conn:
+        oid = org_id if org_id is not None else _primary_org_id(conn, user_id)
+        wallet = _payer_org_id(conn, oid)
+        if billing_scope() == "wallet" and wallet is not None:
+            if get_org_role(wallet, user_id) is None:
+                raise SpendNotAllowedError("budget_required")
+            if engine.dialect.name == "postgresql":
+                conn.execute(select(tables["organizations"].c.id)
+                             .where(tables["organizations"].c.id == wallet).with_for_update())
+            balance = _wallet_balance(conn, wallet, user_id)
+            if balance < amount:
+                raise InsufficientCreditsError(balance, amount)
+            conn.execute(ledger.insert().values(
+                user_id=user_id, org_id=oid, billing_org_id=wallet,
+                delta=-amount, reason=reason, ref_type=ref_type, ref_id=ref_id,
+                balance_after=_user_chain_balance(conn, user_id) - amount, created_at=_now(),
+            ))
+            return balance - amount
         query = (select(ledger.c.balance_after).where(ledger.c.user_id == user_id)
                  .order_by(ledger.c.id.desc()).limit(1))
         if engine.dialect.name == "postgresql":
@@ -629,13 +1070,96 @@ def spend_credits(user_id, amount, reason, ref_type=None, ref_id=None):
             raise InsufficientCreditsError(balance, amount)
         new_balance = balance - amount
         conn.execute(ledger.insert().values(
-            user_id=user_id, delta=-amount, reason=reason, ref_type=ref_type, ref_id=ref_id,
+            user_id=user_id, org_id=oid, billing_org_id=wallet,
+            delta=-amount, reason=reason, ref_type=ref_type, ref_id=ref_id,
             balance_after=new_balance, created_at=_now(),
         ))
         return new_balance
 
 
 # ── Plan ─────────────────────────────────────────────────────────────────────
+def get_effective_plan_for_user(user_id):
+    """The plan that gates a user's features. user scope: users.plan, exactly
+    as before. wallet scope: the BEST of their own plan and the plan of every
+    paying company they belong to (a seat in a paid company comes with its
+    plan) — it can only raise a user's plan, never lower it. Only legacy plan
+    ids ('free'/'pro'/'team') count here; anything else (a v2 id, junk) is
+    ignored, fail-closed, until v2 enforcement exists."""
+    import _pricing
+    user = get_user(user_id)
+    own = user["plan"] if user else "free"
+    if user is None or billing_scope() != "wallet":
+        return own
+    engine = _require_engine()
+    tables = _get_tables()
+    orgs, members = tables["organizations"], tables["org_members"]
+    from sqlalchemy import select
+    best = own
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(orgs.c.id, orgs.c.billing_org_id)
+            .select_from(members.join(orgs, orgs.c.id == members.c.org_id))
+            .where(members.c.user_id == user_id)).all()
+        for payer in {r.billing_org_id or r.id for r in rows}:
+            plan = conn.execute(select(orgs.c.plan).where(orgs.c.id == payer)).scalar()
+            if _pricing.parse_plan(plan)[0] in ("free", "legacy") and \
+                    _pricing.plan_rank(plan) > _pricing.plan_rank(best):
+                best = plan
+    return best
+
+
+def plan_org_parity():
+    """Owners whose users.plan disagrees with their own company's plan.
+    Informational, not blocking: org plans are mirrored only by set_user_plan,
+    so a plan changed any other way (e.g. a manual database flip) leaves the
+    company stale. In wallet scope the higher one wins, so it never downgrades
+    anyone — but each row is a place the two vocabularies still disagree."""
+    engine = _require_engine()
+    tables = _get_tables()
+    users, orgs = tables["users"], tables["organizations"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(users.c.id, users.c.plan, orgs.c.id.label("org_id"), orgs.c.plan.label("org_plan"))
+            .select_from(users.join(orgs, orgs.c.id == users.c.org_id))
+            .where(orgs.c.owner_user_id == users.c.id, users.c.plan != orgs.c.plan)).all()
+    return [{"user_id": r.id, "user_plan": r.plan, "org_id": r.org_id, "org_plan": r.org_plan} for r in rows]
+
+
+def wallet_mode_preflight():
+    """Everything that must be true before BILLING_SCOPE=wallet is switched on
+    against real data. {"ok": bool, "problems": [...], "info": {...}}. Read-only."""
+    engine = _require_engine()
+    tables = _get_tables()
+    users = tables["users"]
+    from sqlalchemy import select, func
+    rep = credit_org_parity()
+    problems = []
+    if rep["null_org_rows"]:
+        problems.append(f"{rep['null_org_rows']} ledger rows have no company — run backfill_organizations()")
+    if rep["null_wallet_rows"]:
+        problems.append(f"{rep['null_wallet_rows']} ledger rows have no wallet — run backfill_organizations()")
+    wp = credit_wallet_parity()
+    if wp["mismatches"]:
+        problems.append("wallet ledger sums differ from the per-user balances for wallets "
+                        f"{wp['mismatches']} (one user's credits split across wallets) — "
+                        "a wallet-level balance would visibly change for these users; decide each one")
+    orgs = tables["organizations"]
+    with engine.connect() as conn:
+        no_org = conn.execute(select(func.count()).select_from(users).where(users.c.org_id.is_(None))).scalar() or 0
+        extra_unlinked = conn.execute(
+            select(func.count()).select_from(orgs.join(users, users.c.id == orgs.c.owner_user_id))
+            .where(orgs.c.billing_org_id.is_(None), users.c.org_id.is_not(None),
+                   orgs.c.id != users.c.org_id)).scalar() or 0
+    if extra_unlinked:
+        problems.append(f"{extra_unlinked} extra companies are not linked under their owner's primary "
+                        "company — they would start with empty wallets; run link_extra_companies_to_primary()")
+    if no_org:
+        problems.append(f"{no_org} users have no primary company — run backfill_organizations()")
+    return {"ok": not problems, "problems": problems,
+            "info": {"plan_mismatches": plan_org_parity(), "companies_with_credits": len(rep["orgs"])}}
+
+
 def set_user_plan(user_id, plan):
     """First-ever writer of users.plan post-signup (upsert_user only ever sets
     it to 'free' at creation). No plan-history table this phase — activity_log
@@ -644,17 +1168,30 @@ def set_user_plan(user_id, plan):
     engine = _require_engine()
     tables = _get_tables()
     users = tables["users"]
+    orgs = tables["organizations"]
     with engine.begin() as conn:
         conn.execute(users.update().where(users.c.id == user_id).values(plan=plan))
+        # Billing-v2 stage 2a dual-write: keep the caller's OWN company's plan
+        # in step (organizations.plan was only ever set at backfill, so it went
+        # stale on every later flip). Only when they own it — buying a plan
+        # must never rewrite someone else's company. users.plan stays the
+        # enforced value; nothing reads organizations.plan yet.
+        org_id = _primary_org_id(conn, user_id)
+        if org_id is not None:
+            conn.execute(orgs.update()
+                         .where(orgs.c.id == org_id, orgs.c.owner_user_id == user_id)
+                         .values(plan=plan))
     return get_user(user_id)
 
 
 # ── Orders (Razorpay) ────────────────────────────────────────────────────────
 def create_order(user_id, kind, razorpay_order_id, amount_paise, *, credit_pack_id=None,
-                  target_plan=None, project_id=None, report_id=None, meta=None):
+                  target_plan=None, project_id=None, report_id=None, meta=None,
+                  org_id=None, billing_org_id=None):
     engine = _require_engine()
     tables = _get_tables()
     orders = tables["orders"]
+    import _pricing
     with engine.begin() as conn:
         result = conn.execute(
             orders.insert().values(
@@ -662,6 +1199,11 @@ def create_order(user_id, kind, razorpay_order_id, amount_paise, *, credit_pack_
                 amount_paise=amount_paise, currency="INR", status="created",
                 credit_pack_id=credit_pack_id, target_plan=target_plan,
                 project_id=project_id, report_id=report_id, meta=meta,
+                org_id=org_id if org_id is not None else _primary_org_id(conn, user_id),
+                billing_org_id=(billing_org_id if billing_org_id is not None else
+                                _payer_org_id(conn, org_id if org_id is not None
+                                              else _primary_org_id(conn, user_id))),
+                price_book_version=_pricing.PRICE_BOOK_VERSION,
                 created_at=_now(),
             )
         )
@@ -857,15 +1399,24 @@ ORG_ROLES = ("owner", "admin", "member")
 
 
 def create_organization(user_id, name):
-    """Creates the org and adds the creator as 'owner' in one transaction."""
+    """Creates the org and adds the creator as 'owner' in one transaction.
+
+    An ADDITIONAL company is created linked under the creator's own paying
+    account (their primary company's wallet) — extra companies share the
+    account's credit pool, they don't start with an empty one (pricing doc:
+    the extra-company fee adds a company, not credits). Unlink it with
+    set_org_payer(..., None) if it should pay for itself."""
     engine = _require_engine()
     tables = _get_tables()
     orgs = tables["organizations"]
     members = tables["org_members"]
     now = _now()
     with engine.begin() as conn:
+        primary = _primary_org_id(conn, user_id)
+        payer = _payer_org_id(conn, primary) if primary is not None else None
         result = conn.execute(
-            orgs.insert().values(name=name, owner_user_id=user_id, plan="free", created_at=now)
+            orgs.insert().values(name=name, owner_user_id=user_id, plan="free",
+                                 billing_org_id=payer, created_at=now)
         )
         new_id = result.inserted_primary_key[0]
         conn.execute(
@@ -1481,6 +2032,17 @@ def backfill_organizations():
                 )
                 counts[key] += r.rowcount
 
+    # Billing-v2 stage 2a: every stamped ledger row also needs its wallet (the
+    # payer of its company, or the company itself when unlinked). Correlated
+    # subquery keeps this one statement and dialect-neutral.
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        r = conn.execute(text(
+            "UPDATE credits_ledger SET billing_org_id = COALESCE("
+            "(SELECT o.billing_org_id FROM organizations o WHERE o.id = credits_ledger.org_id), org_id) "
+            "WHERE billing_org_id IS NULL AND org_id IS NOT NULL"))
+        counts["ledger_wallets_stamped"] = r.rowcount
+
     return counts
 
 
@@ -1898,17 +2460,44 @@ def list_activity(user_id, limit=50):
     return [dict(r) for r in rows]
 
 
-def list_credit_ledger(user_id, limit=50):
+def list_credit_ledger(user_id, limit=50, org_id=None):
+    """user scope: the caller's own rows, unchanged. wallet scope: the rows of
+    the wallet behind `org_id` (or the caller's primary company) that the caller
+    is allowed to see — their own, plus any in a company they belong to. A
+    teammate's activity in a client company you have no access to (project ids,
+    company names) is never shown. balance_after is recomputed as the wallet's
+    running balance — but only for members of the PAYING company; anyone else
+    (a client's own staff) gets None, since that number is the payer's total."""
     engine = _require_engine()
     tables = _get_tables()
     ledger = tables["credits_ledger"]
-    from sqlalchemy import select
+    members = tables["org_members"]
+    from sqlalchemy import select, func, or_, and_
     with engine.connect() as conn:
-        rows = conn.execute(
-            select(ledger).where(ledger.c.user_id == user_id)
-            .order_by(ledger.c.id.desc()).limit(limit)
-        ).mappings().all()
-    return [dict(r) for r in rows]
+        if billing_scope() != "wallet" or _wallet_for(conn, user_id, org_id) is None:
+            rows = conn.execute(
+                select(ledger).where(ledger.c.user_id == user_id)
+                .order_by(ledger.c.id.desc()).limit(limit)
+            ).mappings().all()
+            return [dict(r) for r in rows]
+        wallet = _wallet_for(conn, user_id, org_id)
+        cond = or_(func.coalesce(ledger.c.billing_org_id, ledger.c.org_id) == wallet,
+                   and_(ledger.c.org_id.is_(None), ledger.c.user_id == user_id))
+        rows = [dict(r) for r in conn.execute(
+            select(ledger).where(cond).order_by(ledger.c.id.desc()).limit(_LEDGER_SCAN)).mappings()]
+        mine = {r[0] for r in conn.execute(select(members.c.org_id).where(members.c.user_id == user_id))}
+        running = _wallet_balance(conn, wallet, user_id)
+    wallet_visible = wallet in mine      # the running total is the PAYER's number
+    out = []
+    for r in rows:                       # newest -> oldest, over ALL wallet rows
+        r["balance_after"] = running if wallet_visible else None
+        running -= r["delta"]
+        if r["user_id"] == user_id or r["org_id"] in mine:
+            out.append(r)
+    return out[:limit]
+
+
+_LEDGER_SCAN = 2000     # newest wallet rows considered when rebuilding the running balance
 
 
 def list_reports(user_id):
@@ -2728,7 +3317,8 @@ def get_api_key_by_hash(key_hash):
         ).mappings().first()
     if not user:
         return None
-    return {"key_id": row["id"], "user_id": row["user_id"], "plan": user["plan"]}
+    return {"key_id": row["id"], "user_id": row["user_id"],
+            "plan": get_effective_plan_for_user(row["user_id"])}
 
 
 def revoke_api_key(key_id, user_id):

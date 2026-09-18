@@ -28,7 +28,7 @@ import _signals_data  # noqa: E402
 import _pricing  # noqa: E402
 from _google_oauth import normalize_city  # noqa: E402
 
-from ._session import require_login, require_db, _auth_db, charge_credits
+from ._session import require_login, require_db, _auth_db, charge_credits, wallet_gate
 from .analytics_connections import get_project_digital_baseline  # noqa: E402
 from .intelligence import compute_location_intelligence_batch  # noqa: E402
 
@@ -78,10 +78,15 @@ def generate_report(user_id):
             return jsonify({"error": "invalid_order"}), 400
         paid_via_order = order
     else:
+        gated = wallet_gate(user_id, (project or {}).get("org_id"))
+        if gated:
+            return gated
         cost = _pricing.credit_cost("report_generate")
-        balance = _auth_db.get_credit_balance(user_id)
+        balance = _auth_db.get_credit_balance(user_id, org_id=(project or {}).get("org_id"))
         if balance < cost:
-            return jsonify({"error": "insufficient_credits", "balance": balance, "required": cost,
+            view = _auth_db.get_credit_view(user_id, org_id=(project or {}).get("org_id"))
+            return jsonify({"error": "insufficient_credits", "balance": view["balance"],
+                             "paid_by": view["paid_by"], "required": cost,
                              "report_purchase_price_paise": _pricing.REPORT_PURCHASE_PRICE_PAISE}), 402
 
     business = _business_profile(project)
@@ -130,7 +135,8 @@ def generate_report(user_id):
     if paid_via_order is not None:
         _auth_db.link_order_to_report(paid_via_order["id"], report["id"])
     else:
-        charge_credits(user_id, "report_generate", ref_type="report", ref_id=report["id"])
+        charge_credits(user_id, "report_generate", ref_type="report", ref_id=report["id"],
+                       org_id=(project or {}).get("org_id"))
 
     _auth_db.log_activity(user_id, "report_generate", target_type="report", target_id=report["id"],
                            metadata={"project_id": project_id})

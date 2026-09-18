@@ -93,6 +93,23 @@ def _create_razorpay_order_and_local_row(user_id, kind, amount_paise, **kwargs):
     }, None
 
 
+def _purchase_wallet(user_id, body):
+    """Optional "Buying for: <company>" — body.org_id. Omitted = the buyer's own
+    primary company (unchanged behaviour). Returns (wallet_kwargs, error_response).
+    Recording only: which company/wallet a purchase is against is stored on the
+    order and the resulting ledger row; balances are still per-user."""
+    requested = body.get("org_id")
+    if requested is not None and (isinstance(requested, bool) or not isinstance(requested, int)):
+        return None, (jsonify({"error": "invalid_org_id"}), 400)
+    wallet = _auth_db.resolve_purchase_wallet(user_id, requested)
+    if wallet is None:
+        # Same 403 whether the company doesn't exist or the caller just isn't
+        # an owner/admin of it — don't reveal which companies exist.
+        return None, (jsonify({"error": "not_allowed",
+                                "detail": "Only a company's owner or admin can buy for it."}), 403)
+    return {"org_id": wallet["org_id"], "billing_org_id": wallet["billing_org_id"]}, None
+
+
 @billing_bp.route("/orders/credits", methods=["POST"])
 @require_login
 def create_credit_order(user_id):
@@ -101,8 +118,11 @@ def create_credit_order(user_id):
     pack = _pricing.CREDIT_PACKS.get(pack_id)
     if pack is None:
         return jsonify({"error": "invalid_pack"}), 400
+    wallet, werr = _purchase_wallet(user_id, body)
+    if werr:
+        return werr
     payload, err = _create_razorpay_order_and_local_row(
-        user_id, "credit_pack", pack["price_paise"], credit_pack_id=pack_id)
+        user_id, "credit_pack", pack["price_paise"], credit_pack_id=pack_id, **wallet)
     if err:
         return err
     return jsonify(payload), 201
@@ -116,8 +136,11 @@ def create_plan_order(user_id):
     plan_cfg = _pricing.PLAN_PRICES.get(target_plan)
     if plan_cfg is None:
         return jsonify({"error": "invalid_plan"}), 400
+    wallet, werr = _purchase_wallet(user_id, body)
+    if werr:
+        return werr
     payload, err = _create_razorpay_order_and_local_row(
-        user_id, "plan_upgrade", plan_cfg["price_paise"], target_plan=target_plan)
+        user_id, "plan_upgrade", plan_cfg["price_paise"], target_plan=target_plan, **wallet)
     if err:
         return err
     return jsonify(payload), 201
@@ -131,10 +154,14 @@ def create_report_order(user_id):
     inline "buy this report" flow can reuse the same project selection state."""
     body = request.get_json(silent=True) or {}
     project_id = body.get("project_id")
-    if project_id is None or _auth_db.get_project(project_id, user_id) is None:
+    project = _auth_db.get_project(project_id, user_id) if project_id is not None else None
+    if project is None:
         return jsonify({"error": "project not_found"}), 404
+    # A report is always for one project, so it's recorded against that
+    # project's company — no "Buying for" choice to make.
     payload, err = _create_razorpay_order_and_local_row(
-        user_id, "report_purchase", _pricing.REPORT_PURCHASE_PRICE_PAISE, project_id=project_id)
+        user_id, "report_purchase", _pricing.REPORT_PURCHASE_PRICE_PAISE, project_id=project_id,
+        org_id=project.get("org_id"))
     if err:
         return err
     return jsonify(payload), 201
@@ -162,8 +189,11 @@ def _apply_paid_order(order, payment_id, signature):
     if newly_paid:
         if order["kind"] == "credit_pack":
             pack = _pricing.CREDIT_PACKS[order["credit_pack_id"]]
+            # Stamped against the wallet the buyer chose at checkout (falls back to
+            # the buyer's company for orders created before wallets existed).
             _auth_db.grant_credits(order["user_id"], pack["credits"],
-                                    reason="credit_purchase", ref_type="order", ref_id=order["id"])
+                                    reason="credit_purchase", ref_type="order", ref_id=order["id"],
+                                    org_id=order.get("billing_org_id") or order.get("org_id"))
             line_item = pack["label"]
         elif order["kind"] == "plan_upgrade":
             _auth_db.set_user_plan(order["user_id"], order["target_plan"])

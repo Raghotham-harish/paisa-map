@@ -63,7 +63,10 @@ def require_plan(min_plan):
         def wrapper(user_id, *args, **kwargs):
             import _pricing
             user = _auth_db.get_user(user_id)
-            if user is None or _pricing.plan_rank(user["plan"]) < _pricing.plan_rank(min_plan):
+            # Effective plan: users.plan, or (BILLING_SCOPE=wallet) the best of
+            # that and the caller's paying companies' plans.
+            plan = _auth_db.get_effective_plan_for_user(user_id) if user is not None else "free"
+            if user is None or _pricing.plan_rank(plan) < _pricing.plan_rank(min_plan):
                 return jsonify({"error": "plan_required",
                                  "detail": f"requires {min_plan} plan or higher"}), 403
             return fn(user_id, *args, **kwargs)
@@ -96,7 +99,7 @@ def get_effective_plan():
     if not uid or _auth_db is None or not _auth_db.enabled():
         return "free"
     user = _auth_db.get_user(uid)
-    return user["plan"] if user else "free"
+    return _auth_db.get_effective_plan_for_user(uid) if user else "free"
 
 
 def log_data_access(action, target_type=None, target_id=None, metadata=None):
@@ -141,7 +144,23 @@ def require_api_key(fn):
     return wrapper
 
 
-def charge_credits(user_id, action_key, ref_type=None, ref_id=None):
+def wallet_gate(user_id, org_id):
+    """Pre-check for any credit-spending route: returns a ready 403 response if
+    this user may not draw the wallet behind `org_id` (a client's own staff on
+    an agency-paid company, until budgets exist), else None. Runs BEFORE the
+    balance check so the refusal names the real reason instead of a
+    misleading "insufficient credits"."""
+    allowed, reason = _auth_db.wallet_spend_allowed(user_id, org_id)
+    if allowed:
+        return None
+    view = _auth_db.get_credit_view(user_id, org_id=org_id)
+    who = (view["paid_by"] or {}).get("name") or "the company that pays for this one"
+    return jsonify({"error": reason, "paid_by": view["paid_by"],
+                    "detail": f"{who} hasn't set a spending budget for this company yet, "
+                              "so credits can't be used here. Ask them to set one."}), 403
+
+
+def charge_credits(user_id, action_key, ref_type=None, ref_id=None, org_id=None):
     """Thin wrapper: looks up the cost of `action_key` and spends it. Not a
     decorator — deliberately called at a different point in a handler body
     than the balance check (see reports.py/expansion.py): check the balance
@@ -150,4 +169,5 @@ def charge_credits(user_id, action_key, ref_type=None, ref_id=None):
     credits."""
     import _pricing
     cost = _pricing.credit_cost(action_key)
-    return _auth_db.spend_credits(user_id, cost, reason=action_key, ref_type=ref_type, ref_id=ref_id)
+    return _auth_db.spend_credits(user_id, cost, reason=action_key, ref_type=ref_type,
+                                   ref_id=ref_id, org_id=org_id)

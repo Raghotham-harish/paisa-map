@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { api, CreditLedgerEntry, Invoice, PricingConfig } from "../lib/api";
+import { api, CreditLedgerEntry, Invoice, PaidBy, PricingConfig } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { useAuth } from "../lib/auth";
+import { useWorkspace } from "../lib/workspace";
 import { openCheckout } from "../lib/razorpay";
 import { DataList, DataRow } from "../components/DataList";
 import { AsyncBoundary } from "../components/AsyncBoundary";
@@ -20,12 +21,14 @@ const REASON_LABELS: Record<string, string> = {
 /** "Billing" — plan, credits, and invoices together (N5: these used to be two separate nav items that were both "money"). */
 export default function Billing() {
   const { user, refresh } = useAuth();
+  const { activeOrgId } = useWorkspace();
   const [pricing, setPricing] = useState<PricingConfig | null>(null);
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [invoicesError, setInvoicesError] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [balance, setBalance] = useState<number | null>(null);
+  const [paidBy, setPaidBy] = useState<PaidBy | null>(null);
   const [ledger, setLedger] = useState<CreditLedgerEntry[] | null>(null);
   const [creditsError, setCreditsError] = useState<string | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
@@ -38,8 +41,9 @@ export default function Billing() {
 
   const loadCredits = () => {
     setCreditsError(null);
-    api.getCredits().then((data) => {
+    api.getCredits(activeOrgId).then((data) => {
       setBalance(data.balance);
+      setPaidBy(data.paid_by);
       setLedger(data.ledger);
     }).catch(() => setCreditsError("Couldn't load your credit history — try again."));
   };
@@ -47,8 +51,12 @@ export default function Billing() {
   useEffect(() => {
     api.getPricing().then(setPricing);
     loadInvoices();
-    loadCredits();
   }, []);
+
+  // The wallet shown is the selected company's, so reload when the switcher changes.
+  useEffect(() => {
+    loadCredits();
+  }, [activeOrgId]);
 
   const onUpgrade = async (plan: "pro" | "team") => {
     setUpgrading(plan);
@@ -143,11 +151,21 @@ export default function Billing() {
       <p className="kicker" style={{ marginBottom: 10 }}>Credits</p>
       <div className="stat-row" style={{ marginBottom: 14 }}>
         <div className="stat-tile">
-          <div className="label">Balance</div>
+          <div className="label">Balance{paidBy ? ` · paid by ${paidBy.name}` : ""}</div>
           <div className="value">{balance ?? "—"}</div>
         </div>
       </div>
-      {pricing && (
+      {/* A company paid for by someone else (balance hidden): buying here would
+          credit the buyer's OWN company, not this one — so say who pays instead. */}
+      {paidBy && balance == null && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <p className="kicker" style={{ marginBottom: 8 }}>Credits</p>
+          <div style={{ fontSize: 13 }}>
+            This company's credits are paid for by <strong>{paidBy.name}</strong>. Ask them if you need more.
+          </div>
+        </div>
+      )}
+      {pricing && !(paidBy && balance == null) && (
         <div className="card" style={{ marginBottom: 20 }}>
           <p className="kicker" style={{ marginBottom: 14 }}>Buy credits</p>
           {buyError && <div style={{ color: "var(--flame)", fontSize: 12, marginBottom: 10 }}>{buyError}</div>}
@@ -193,7 +211,7 @@ export default function Billing() {
                       {entry.delta >= 0 ? "+" : ""}
                       {entry.delta}
                     </Pill>
-                    <StatChip icon="ti ti-wallet">balance: {entry.balance_after}</StatChip>
+                    {entry.balance_after != null && <StatChip icon="ti ti-wallet">balance: {entry.balance_after}</StatChip>}
                   </>
                 }
               />

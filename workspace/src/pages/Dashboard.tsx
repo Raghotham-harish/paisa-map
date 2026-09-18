@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../lib/auth";
-import { api, ActivityEntry, SavedLocation } from "../lib/api";
+import { api, ActivityEntry, PaidBy, SavedLocation } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { illustrations } from "../lib/illustrations";
 import { MapSessionState, readMapSession } from "../lib/mapSession";
@@ -14,7 +14,17 @@ import { describeActivity } from "../lib/activity";
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const { projects } = useWorkspace();
+  const { projects, activeOrgId } = useWorkspace();
+  // Credits follow the company selected in the switcher (that company's wallet),
+  // falling back to the header value from /me until it loads.
+  const [wallet, setWallet] = useState<{ balance: number | null; paid_by: PaidBy | null } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api.getCredits(activeOrgId, 1)
+      .then((d) => alive && setWallet({ balance: d.balance, paid_by: d.paid_by }))
+      .catch(() => alive && setWallet(null));
+    return () => { alive = false; };
+  }, [activeOrgId]);
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
   const [activityError, setActivityError] = useState<string | null>(null);
   const [locations, setLocations] = useState<SavedLocation[] | null>(null);
@@ -118,8 +128,8 @@ export default function Dashboard() {
           <div className="value plan">{user.plan}</div>
         </Link>
         <Link className="stat-tile stat-tile-link" to="/billing">
-          <div className="label">Credits</div>
-          <div className="value">{user.credits}</div>
+          <div className="label">Credits{wallet?.paid_by ? ` · paid by ${wallet.paid_by.name}` : ""}</div>
+          <div className="value">{wallet ? (wallet.balance ?? "—") : (user.credits ?? "—")}</div>
         </Link>
         <Link className="stat-tile stat-tile-link" to="/locations">
           <div className="label">Saved locations</div>

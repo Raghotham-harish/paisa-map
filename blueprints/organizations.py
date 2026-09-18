@@ -79,6 +79,15 @@ def update_organization(user_id, org_id):
 @organizations_bp.route("/<int:org_id>", methods=["DELETE"])
 @require_login
 def delete_organization(user_id, org_id):
+    # Only the owner may even learn a company has billing state; anyone else
+    # falls through to the same 403 as before.
+    if _auth_db.get_org_role(org_id, user_id) == "owner":
+        blocker = _auth_db.org_delete_blocker(org_id)
+        if blocker:
+            return jsonify({"error": blocker,
+                            "detail": "This company pays for other companies — unlink them first."
+                                      if blocker == "pays_for_companies" else
+                                      "This company has billing history (credits or orders) and can't be deleted."}), 409
     deleted = _auth_db.delete_organization(org_id, user_id)
     if not deleted:
         return jsonify({"error": "forbidden"}), 403
