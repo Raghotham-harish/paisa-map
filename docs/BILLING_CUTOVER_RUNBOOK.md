@@ -15,7 +15,7 @@ Every command below is run from your Mac, in the `paisa-map` folder. Nothing
 prints a secret.
 
 ```
-SSH="ssh -i ~/.ssh/paisamap_lightsail ubuntu@paisamaps.com"
+SSH() { ssh -i ~/.ssh/paisamap_lightsail ubuntu@paisamaps.com "$@"; }
 ```
 
 ---
@@ -27,7 +27,7 @@ they exist, every order and company lookup fails. Old code simply ignores them,
 so adding them first is harmless.
 
 ```
-$SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; exec /home/ubuntu/paisa-map/venv-flask/bin/python3 -'" < paisamap-etl/db/apply_billing_v2_columns.py
+SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; exec /home/ubuntu/paisa-map/venv-flask/bin/python3 -'" < paisamap-etl/db/apply_billing_v2_columns.py
 ```
 
 **Good looks like:** five lines saying `added: ...`, then `OK — all five columns present`.
@@ -44,7 +44,7 @@ signing in, credits, and the map still work.
 ## Step 3 — look before touching anything  *(you, read-only)*
 
 ```
-$SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; cd /home/ubuntu/paisa-map; exec venv-flask/bin/python3 paisamap-etl/db/billing_cutover.py report'"
+SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; cd /home/ubuntu/paisa-map; exec venv-flask/bin/python3 paisamap-etl/db/billing_cutover.py report'"
 ```
 
 **How to read it:**
@@ -59,7 +59,7 @@ $SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; cd /home/ubuntu/pais
 ## Step 4 — the two one-time data steps  *(you, this one writes)*
 
 ```
-$SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; cd /home/ubuntu/paisa-map; exec venv-flask/bin/python3 paisamap-etl/db/billing_cutover.py apply'"
+SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; cd /home/ubuntu/paisa-map; exec venv-flask/bin/python3 paisamap-etl/db/billing_cutover.py apply'"
 ```
 
 It does two things, then prints the report again:
@@ -84,7 +84,7 @@ credits number looks right. There is no rush between steps 4 and 6.
 ## Step 6 — flip the switch  *(you; I can't do this one — server settings edits are blocked for me)*
 
 ```
-$SSH "printf '\nBILLING_SCOPE=wallet\n' | sudo tee -a /etc/paisamap/db.env >/dev/null && sudo systemctl restart paisamap"
+SSH "printf '\nBILLING_SCOPE=wallet\n' | sudo tee -a /etc/paisamap/db.env >/dev/null && sudo systemctl restart paisamap"
 ```
 
 Then check:
@@ -98,7 +98,7 @@ Then check:
 ## Rollback — one line, any time  *(you)*
 
 ```
-$SSH "sudo sed -i '/^BILLING_SCOPE=/d' /etc/paisamap/db.env && sudo systemctl restart paisamap"
+SSH "sudo sed -i '/^BILLING_SCOPE=/d' /etc/paisamap/db.env && sudo systemctl restart paisamap"
 ```
 
 Balances read as they did before the flip, and this is lossless for anyone who
