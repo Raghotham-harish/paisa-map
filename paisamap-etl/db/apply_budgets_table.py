@@ -1,6 +1,7 @@
 """
-apply_budgets_table.py — creates the budget tables (`credit_budgets` and
-`credit_member_budgets`) and adds any of their columns that are missing.
+apply_budgets_table.py — creates the billing-v2 side tables (`credit_budgets`,
+`credit_member_budgets`, `credit_link_requests`) and adds any of their columns
+that are missing.
 
 Needs the NEW code deployed (it uses the code's own table definitions, so the
 tables can never drift from what the app expects). Only ever ADDS: it creates
@@ -22,7 +23,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "etl"))
 import _auth_db as A  # noqa: E402
 from sqlalchemy import inspect, text  # noqa: E402
 
-TABLES = ("credit_budgets", "credit_member_budgets")
+TABLES = ("credit_budgets", "credit_member_budgets", "credit_link_requests")
 
 if not os.environ.get("DATABASE_URL"):
     sys.exit("DATABASE_URL is not set")
@@ -58,4 +59,4 @@ for name in TABLES:
     want = {c.name for c in tables[name].columns}
     if have != want:
         sys.exit(f"{name} exists but its columns differ: missing {sorted(want - have)}, extra {sorted(have - want)}")
-print(f"OK — {len(TABLES)} budget tables present, all columns match")
+print(f"OK — {len(TABLES)} billing tables present, all columns match")

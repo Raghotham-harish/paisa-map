@@ -25,6 +25,13 @@ export default function Dashboard() {
       .catch(() => alive && setWallet(null));
     return () => { alive = false; };
   }, [activeOrgId]);
+  // A company has asked to pay for one of yours — surface it where it can't be missed.
+  const [incomingRequests, setIncomingRequests] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    api.listIncomingLinkRequests().then((d) => alive && setIncomingRequests(d.requests.length)).catch(() => {});
+    return () => { alive = false; };
+  }, []);
   const [activity, setActivity] = useState<ActivityEntry[] | null>(null);
   const [activityError, setActivityError] = useState<string | null>(null);
   const [locations, setLocations] = useState<SavedLocation[] | null>(null);
@@ -81,6 +88,13 @@ export default function Dashboard() {
     <>
       <h1 className="page-title">Welcome back{user.name ? `, ${user.name.split(" ")[0]}` : ""}</h1>
       <p className="page-sub">{user.email}</p>
+      {incomingRequests > 0 && (
+        <Link to="/billing" className="card" data-testid="link-request-banner"
+          style={{ display: "block", marginBottom: 18, borderColor: "var(--amber)", textDecoration: "none", color: "inherit", fontSize: 13.5 }}>
+          <strong>{incomingRequests === 1 ? "A company has asked" : `${incomingRequests} companies have asked`}</strong> to pay for
+          your credits. Review {incomingRequests === 1 ? "it" : "them"} in Billing →
+        </Link>
+      )}
 
       <div className="card map-hero">
         <div className="map-hero-copy">

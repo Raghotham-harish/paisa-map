@@ -58,7 +58,7 @@ def _get_tables():
         return _tables
     engine = _require_engine()
     from sqlalchemy import (MetaData, Table, Column, Text, Integer, Float, Date,
-                             DateTime, ForeignKey, UniqueConstraint, CheckConstraint)
+                             DateTime, ForeignKey, UniqueConstraint, CheckConstraint, Index)
     JSONType = _json_type(engine)
     _metadata = MetaData()
 
@@ -466,6 +466,26 @@ def _get_tables():
         CheckConstraint("amount >= 0", name="ck_credit_member_budgets_amount"),
     )
 
+    # A paying company's REQUEST to pay for another company's credits. It is
+    # addressed to an EMAIL (the person who should decide), never to a specific
+    # company: the recipient picks which company they own to link when approving,
+    # and nothing about who has an account is revealed to the requester.
+    credit_link_requests = Table(
+        "credit_link_requests", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("payer_org_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        Column("requested_by", Integer, nullable=False),
+        Column("target_email", Text, nullable=False),          # lower-cased
+        Column("note", Text),
+        Column("status", Text, nullable=False, server_default="pending"),   # pending|approved|declined|cancelled
+        Column("target_org_id", Integer),                       # set on approval
+        Column("resolved_by", Integer),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("expires_at", DateTime(timezone=True), nullable=False),
+        Column("resolved_at", DateTime(timezone=True)),
+        Index("ix_credit_link_requests_email", "target_email"),
+    )
+
     _tables = {
         "organizations": organizations, "users": users, "org_members": org_members,
         "org_invites": org_invites,
@@ -478,6 +498,7 @@ def _get_tables():
         "api_keys": api_keys,
         "credit_budgets": credit_budgets,
         "credit_member_budgets": credit_member_budgets,
+        "credit_link_requests": credit_link_requests,
     }
     return _tables
 
@@ -501,6 +522,7 @@ def init_schema():
         tables["oauth_connections"], tables["project_connection_selections"],
         tables["orders"], tables["invoices"],
         tables["api_keys"], tables["credit_budgets"], tables["credit_member_budgets"],
+        tables["credit_link_requests"],
     ])
     _ensure_invoice_sequence(engine)
 
@@ -835,28 +857,44 @@ def set_org_payer(org_id, actor_user_id, payer_org_id):
         if get_org_role(payer_org_id, actor_user_id) not in ("owner", "admin"):
             return {"error": "not_found"}
     with engine.begin() as conn:
-        if payer_org_id is not None:
-            if conn.execute(select(orgs.c.billing_org_id).where(orgs.c.id == payer_org_id)).scalar() is not None:
-                return {"error": "payer_has_payer"}
-            if conn.execute(select(func.count()).select_from(orgs)
-                            .where(orgs.c.billing_org_id == org_id)).scalar():
-                return {"error": "already_a_payer"}
-            # A company holding credits in its OWN wallet can't be linked: its
-            # rows would keep pointing at the old wallet and the credits would
-            # be stranded. Spend them down, or merge deliberately.
-            ledger = tables["credits_ledger"]
-            own = conn.execute(
-                select(func.coalesce(func.sum(ledger.c.delta), 0))
-                .where(func.coalesce(ledger.c.billing_org_id, ledger.c.org_id) == org_id)).scalar() or 0
-            if own != 0:
-                return {"error": "company_has_credits"}
-        conn.execute(orgs.update().where(orgs.c.id == org_id).values(billing_org_id=payer_org_id))
-        # A cap belongs to whoever set it as payer: a new payer (or none) starts
-        # clean, and re-linking to the old payer later doesn't resurrect it.
-        if _has_budget_table(conn):
-            conn.execute(tables["credit_budgets"].delete().where(
-                tables["credit_budgets"].c.org_id == org_id, tables["credit_budgets"].c.kind == "cap"))
+        err = _apply_payer(conn, org_id, payer_org_id)
+        if err:
+            return err
     return {"status": "ok"}
+
+
+def _apply_payer(conn, org_id, payer_org_id):
+    """The rules and the write for linking `org_id` under `payer_org_id` (or
+    unlinking with None), on the caller's transaction. Who is ALLOWED to do it
+    is the caller's business (an owner acting directly, or an approved request);
+    what may never happen is here, once. None on success, else {"error": ...}."""
+    tables = _get_tables()
+    orgs = tables["organizations"]
+    from sqlalchemy import select, func
+    if payer_org_id is not None:
+        if payer_org_id == org_id:
+            return {"error": "invalid_payer"}
+        if conn.execute(select(orgs.c.billing_org_id).where(orgs.c.id == payer_org_id)).scalar() is not None:
+            return {"error": "payer_has_payer"}
+        if conn.execute(select(func.count()).select_from(orgs)
+                        .where(orgs.c.billing_org_id == org_id)).scalar():
+            return {"error": "already_a_payer"}
+        # A company holding credits in its OWN wallet can't be linked: its
+        # rows would keep pointing at the old wallet and the credits would
+        # be stranded. Spend them down, or merge deliberately.
+        ledger = tables["credits_ledger"]
+        own = conn.execute(
+            select(func.coalesce(func.sum(ledger.c.delta), 0))
+            .where(func.coalesce(ledger.c.billing_org_id, ledger.c.org_id) == org_id)).scalar() or 0
+        if own != 0:
+            return {"error": "company_has_credits"}
+    conn.execute(orgs.update().where(orgs.c.id == org_id).values(billing_org_id=payer_org_id))
+    # A cap belongs to whoever set it as payer: a new payer (or none) starts
+    # clean, and re-linking to the old payer later doesn't resurrect it.
+    if _has_budget_table(conn):
+        conn.execute(tables["credit_budgets"].delete().where(
+            tables["credit_budgets"].c.org_id == org_id, tables["credit_budgets"].c.kind == "cap"))
+    return None
 
 
 def link_extra_companies_to_primary():
@@ -1610,6 +1648,427 @@ def list_member_budgets(actor_user_id, org_id):
         }
 
 
+# ── Link requests: one company asks to pay for another ───────────────────────
+LINK_REQUEST_TTL_DAYS = 14
+LINK_REQUEST_MAX_PENDING = 10       # open requests per paying company
+LINK_REQUEST_MAX_PER_DAY = 20       # requests a paying company may send in 24 hours
+LINK_NOTE_MAX = 200
+
+
+def _clean_note(note):
+    if not isinstance(note, str):
+        return None
+    import re
+    note = re.sub(r"[\x00-\x1f\x7f]", " ", note)
+    note = re.sub(r"\s+", " ", note).strip()[:LINK_NOTE_MAX]
+    return note or None
+
+
+def _valid_email(value):
+    import re
+    return isinstance(value, str) and len(value) <= 254 and re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value) is not None
+
+
+def _admin_emails(conn, *org_ids):
+    """Emails of the owners/admins of these companies, de-duplicated."""
+    tables = _get_tables()
+    members, users = tables["org_members"], tables["users"]
+    from sqlalchemy import select
+    rows = conn.execute(
+        select(users.c.email).select_from(members.join(users, users.c.id == members.c.user_id))
+        .where(members.c.org_id.in_(set(org_ids)), members.c.role.in_(("owner", "admin")))).all()
+    seen, out = set(), []
+    for (email,) in rows:
+        key = (email or "").strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(email.strip())
+    return out
+
+
+def _send_link_notices(notices):
+    """Each notice: dict(to, kind, payer_name, company_name, actor_name, note).
+    Never raises — a mail problem must not undo a change that already happened."""
+    try:
+        import _email
+        url = (os.environ.get("APP_BASE_URL") or "https://paisamaps.com").rstrip("/") + "/workspace/billing"
+        for n in notices:
+            try:
+                _email.send_billing_link_notice(n["to"], n["kind"], n["payer_name"], n["company_name"], url,
+                                                n.get("actor_name"), n.get("note"))
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _dispatch_link_notices(notices):
+    if notices:
+        threading.Thread(target=_send_link_notices, args=(notices,), daemon=True).start()
+
+
+def _org_name(conn, org_id):
+    orgs = _get_tables()["organizations"]
+    from sqlalchemy import select
+    return conn.execute(select(orgs.c.name).where(orgs.c.id == org_id)).scalar()
+
+
+def _payer_admin_error(actor_user_id, payer_org_id):
+    role = get_org_role(payer_org_id, actor_user_id)
+    if role is None:
+        return {"error": "not_found"}
+    return None if role in ("owner", "admin") else {"error": "forbidden"}
+
+
+def create_link_request(actor_user_id, payer_org_id, target_email, note=None):
+    """An owner/admin of a company asks the person at `target_email` to let it
+    pay for one of their companies. Deliberately UNINFORMATIVE: the answer is
+    the same whether or not that email has an account (so this can't be used to
+    find out who uses PaisaMap), and an email goes out only if the address
+    already has an account (so it can't be used to mail strangers). One open
+    request per (company, email) — asking again refreshes it — and per-company
+    caps on open and daily requests. Returns {"status": "sent", "request_id": n}."""
+    err = _payer_admin_error(actor_user_id, payer_org_id)
+    if err:
+        return err
+    email = target_email.strip().lower() if isinstance(target_email, str) else ""
+    if not _valid_email(email):
+        return {"error": "invalid_email"}
+    note = _clean_note(note)
+    engine = _require_engine()
+    tables = _get_tables()
+    reqs, users = tables["credit_link_requests"], tables["users"]
+    from sqlalchemy import select, func
+    now = _now()
+    notices = []
+    with engine.begin() as conn:
+        if _payer_org_id(conn, payer_org_id) != payer_org_id:
+            return {"error": "payer_has_payer"}         # a company that is itself paid for can't pay for others
+        existing = conn.execute(select(reqs.c.id).where(
+            reqs.c.payer_org_id == payer_org_id, reqs.c.target_email == email, reqs.c.status == "pending")).first()
+        if existing is None:
+            open_n = conn.execute(select(func.count()).select_from(reqs).where(
+                reqs.c.payer_org_id == payer_org_id, reqs.c.status == "pending",
+                reqs.c.expires_at > now)).scalar() or 0
+            if open_n >= LINK_REQUEST_MAX_PENDING:
+                return {"error": "too_many_pending"}
+            day_n = conn.execute(select(func.count()).select_from(reqs).where(
+                reqs.c.payer_org_id == payer_org_id, reqs.c.created_at > now - timedelta(days=1))).scalar() or 0
+            if day_n >= LINK_REQUEST_MAX_PER_DAY:
+                return {"error": "rate_limited"}
+        values = dict(requested_by=actor_user_id, note=note, expires_at=now + timedelta(days=LINK_REQUEST_TTL_DAYS))
+        if existing is not None:
+            conn.execute(reqs.update().where(reqs.c.id == existing.id).values(**values))
+            request_id = existing.id
+        else:
+            request_id = conn.execute(reqs.insert().values(
+                payer_org_id=payer_org_id, target_email=email, status="pending", created_at=now, **values)
+            ).inserted_primary_key[0]
+        known = conn.execute(select(users.c.id).where(func.lower(users.c.email) == email)).first()
+        if known is not None:
+            actor = conn.execute(select(users.c.name, users.c.email).where(users.c.id == actor_user_id)).first()
+            notices.append(dict(to=email, kind="requested", payer_name=_org_name(conn, payer_org_id),
+                                company_name="", actor_name=(actor.name or actor.email) if actor else None, note=note))
+    _dispatch_link_notices(notices)
+    return {"status": "sent", "request_id": request_id}
+
+
+def _request_dict(row, payer_name=None, requester=None):
+    return {
+        "id": row["id"], "payer_org_id": row["payer_org_id"], "payer_name": payer_name,
+        "requested_by_name": requester, "target_email": row["target_email"], "note": row["note"],
+        "status": row["status"], "target_org_id": row["target_org_id"],
+        "created_at": _ensure_aware(row["created_at"]).isoformat(),
+        "expires_at": _ensure_aware(row["expires_at"]).isoformat(),
+        "resolved_at": _ensure_aware(row["resolved_at"]).isoformat() if row["resolved_at"] else None,
+    }
+
+
+def list_incoming_link_requests(user_id):
+    """Open requests addressed to this user's email, each with the companies
+    they could link (ones they OWN that no one else pays for and that pay for no
+    one), and which of those are blocked (holding credits of their own)."""
+    user = get_user(user_id)
+    if user is None:
+        return {"requests": []}
+    engine = _require_engine()
+    tables = _get_tables()
+    reqs, orgs, members, users, ledger = (tables["credit_link_requests"], tables["organizations"],
+                                          tables["org_members"], tables["users"], tables["credits_ledger"])
+    from sqlalchemy import select, func
+    now = _now()
+    email = (user["email"] or "").strip().lower()
+    with engine.connect() as conn:
+        rows = conn.execute(select(reqs).where(
+            func.lower(reqs.c.target_email) == email, reqs.c.status == "pending", reqs.c.expires_at > now)
+            .order_by(reqs.c.created_at.desc())).mappings().all()
+        if not rows:
+            return {"requests": []}
+        owned = conn.execute(
+            select(orgs.c.id, orgs.c.name, orgs.c.billing_org_id)
+            .select_from(orgs.join(members, members.c.org_id == orgs.c.id))
+            .where(members.c.user_id == user_id, members.c.role == "owner")).all()
+        payers = {r[0] for r in conn.execute(select(orgs.c.billing_org_id).where(orgs.c.billing_org_id.is_not(None))).all()}
+        eligible = []
+        for o in owned:
+            if o.billing_org_id is not None or o.id in payers:
+                continue
+            has = conn.execute(select(func.coalesce(func.sum(ledger.c.delta), 0)).where(
+                func.coalesce(ledger.c.billing_org_id, ledger.c.org_id) == o.id)).scalar() or 0
+            eligible.append({"org_id": o.id, "name": o.name, "blocked": "company_has_credits" if has != 0 else None})
+        out = []
+        for r in rows:
+            requester = conn.execute(select(users.c.name, users.c.email).where(users.c.id == r["requested_by"])).first()
+            d = _request_dict(r, _org_name(conn, r["payer_org_id"]), (requester.name or requester.email) if requester else None)
+            d["companies"] = [c for c in eligible if c["org_id"] != r["payer_org_id"]]
+            out.append(d)
+    return {"requests": out}
+
+
+def _own_pending_request(conn, user_id, request_id):
+    """(row, error) — the pending, unexpired request addressed to this user's
+    email. Every mismatch is the same not_found, so ids can't be probed."""
+    reqs = _get_tables()["credit_link_requests"]
+    from sqlalchemy import select, func
+    user_email = (get_user(user_id) or {}).get("email") or ""
+    row = conn.execute(select(reqs).where(reqs.c.id == request_id).with_for_update()
+                       if conn.dialect.name == "postgresql" else select(reqs).where(reqs.c.id == request_id)).mappings().first()
+    if row is None or row["status"] != "pending" or (row["target_email"] or "").lower() != user_email.strip().lower():
+        return None, {"error": "not_found"}
+    if _ensure_aware(row["expires_at"]) <= _now():
+        return None, {"error": "expired"}
+    return row, None
+
+
+def approve_link_request(user_id, request_id, target_org_id):
+    """The person the request was addressed to links one of THEIR companies
+    (they must own it) under the requesting company. Same safety rules as any
+    link (_apply_payer), plus: the requester must still be an owner/admin of the
+    paying company — a request outlives a demotion at its peril."""
+    engine = _require_engine()
+    reqs = _get_tables()["credit_link_requests"]
+    if not isinstance(target_org_id, int) or isinstance(target_org_id, bool):
+        return {"error": "invalid_company"}
+    notices = []
+    with engine.begin() as conn:
+        row, err = _own_pending_request(conn, user_id, request_id)
+        if err:
+            return err
+        role = _role_in(conn, target_org_id, user_id)
+        if role is None:
+            return {"error": "not_found"}
+        if role != "owner":
+            return {"error": "forbidden"}
+        if _role_in(conn, row["payer_org_id"], row["requested_by"]) not in ("owner", "admin"):
+            conn.execute(reqs.update().where(reqs.c.id == request_id).values(status="cancelled", resolved_at=_now()))
+            return {"error": "request_invalid"}
+        # A company someone already pays for must be DETACHED first (which tells
+        # its payer) — a request must never quietly take it from them.
+        orgs = _get_tables()["organizations"]
+        from sqlalchemy import select
+        if conn.execute(select(orgs.c.billing_org_id).where(orgs.c.id == target_org_id)).scalar() is not None:
+            return {"error": "already_linked"}
+        err = _apply_payer(conn, target_org_id, row["payer_org_id"])
+        if err:
+            return err
+        conn.execute(reqs.update().where(reqs.c.id == request_id).values(
+            status="approved", target_org_id=target_org_id, resolved_by=user_id, resolved_at=_now()))
+        payer_name, company_name = _org_name(conn, row["payer_org_id"]), _org_name(conn, target_org_id)
+        notices = [dict(to=e, kind="approved", payer_name=payer_name, company_name=company_name)
+                   for e in _admin_emails(conn, row["payer_org_id"])]
+    _dispatch_link_notices(notices)
+    return {"status": "ok", "org_id": target_org_id}
+
+
+def decline_link_request(user_id, request_id):
+    engine = _require_engine()
+    reqs = _get_tables()["credit_link_requests"]
+    with engine.begin() as conn:
+        row, err = _own_pending_request(conn, user_id, request_id)
+        if err:
+            return err
+        conn.execute(reqs.update().where(reqs.c.id == request_id).values(
+            status="declined", resolved_by=user_id, resolved_at=_now()))
+        payer_name = _org_name(conn, row["payer_org_id"])
+        notices = [dict(to=e, kind="declined", payer_name=payer_name, company_name="the company you asked")
+                   for e in _admin_emails(conn, row["payer_org_id"])]
+    _dispatch_link_notices(notices)
+    return {"status": "ok"}
+
+
+def cancel_link_request(actor_user_id, payer_org_id, request_id):
+    """The paying company withdraws an open request."""
+    err = _payer_admin_error(actor_user_id, payer_org_id)
+    if err:
+        return err
+    engine = _require_engine()
+    reqs = _get_tables()["credit_link_requests"]
+    with engine.begin() as conn:
+        done = conn.execute(reqs.update().where(
+            reqs.c.id == request_id, reqs.c.payer_org_id == payer_org_id, reqs.c.status == "pending")
+            .values(status="cancelled", resolved_by=actor_user_id, resolved_at=_now()))
+    return {"status": "ok"} if done.rowcount else {"error": "not_found"}
+
+
+def list_outgoing_link_requests(actor_user_id, payer_org_id):
+    """A paying company's requests: the open ones, and the last few decided."""
+    err = _payer_admin_error(actor_user_id, payer_org_id)
+    if err:
+        return err
+    engine = _require_engine()
+    tables = _get_tables()
+    reqs, orgs = tables["credit_link_requests"], tables["organizations"]
+    from sqlalchemy import select
+    now = _now()
+    with engine.connect() as conn:
+        rows = conn.execute(select(reqs).where(reqs.c.payer_org_id == payer_org_id)
+                            .order_by(reqs.c.created_at.desc()).limit(30)).mappings().all()
+        out = []
+        for r in rows:
+            d = _request_dict(r)
+            if r["status"] == "pending" and _ensure_aware(r["expires_at"]) <= now:
+                d["status"] = "expired"
+            d["target_org_name"] = _org_name(conn, r["target_org_id"]) if r["target_org_id"] else None
+            out.append(d)
+    return {"requests": out}
+
+
+def unlink_company(actor_user_id, org_id):
+    """EITHER side detaches, immediately: the company's owner, or an owner/admin
+    of the company that pays for it. From then on it pays for itself — its own
+    wallet starts empty, its old spending stays on the payer's books, and the
+    payer's cap on it goes with the link."""
+    engine = _require_engine()
+    orgs = _get_tables()["organizations"]
+    from sqlalchemy import select
+    with engine.begin() as conn:
+        exists = conn.execute(select(orgs.c.id, orgs.c.billing_org_id).where(orgs.c.id == org_id)).first()
+        if exists is None:
+            return {"error": "not_found"}
+        payer = exists.billing_org_id
+        role_org = _role_in(conn, org_id, actor_user_id)
+        role_payer = _role_in(conn, payer, actor_user_id) if payer is not None else None
+        if role_org is None and role_payer is None:
+            return {"error": "not_found"}
+        if payer is None:
+            return {"error": "not_linked"}
+        if role_org != "owner" and role_payer not in ("owner", "admin"):
+            return {"error": "forbidden"}
+        by_payer = role_payer in ("owner", "admin")
+        payer_name, company_name = _org_name(conn, payer), _org_name(conn, org_id)
+        _apply_payer(conn, org_id, None)
+        # tell the OTHER side
+        notices = [dict(to=e, kind="detached", payer_name=payer_name, company_name=company_name)
+                   for e in (_admin_emails(conn, org_id) if by_payer and role_org != "owner" else _admin_emails(conn, payer))]
+    _dispatch_link_notices(notices)
+    return {"status": "ok"}
+
+
+def billing_link_view(user_id, org_id):
+    """What the "who pays" panel shows for a company you belong to: who pays for
+    it (if anyone) and whether you may detach it, and — for an owner/admin of a
+    paying company — the companies it pays for."""
+    engine = _require_engine()
+    orgs = _get_tables()["organizations"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        role = _role_in(conn, org_id, user_id)
+        if role is None:
+            return {"error": "not_found"}
+        payer = conn.execute(select(orgs.c.billing_org_id).where(orgs.c.id == org_id)).scalar()
+        out = {"org_id": org_id, "role": role, "paid_by": None, "can_detach": False,
+               "pays_for": [], "can_manage_links": False}
+        if payer is not None:
+            out["paid_by"] = {"org_id": payer, "name": _org_name(conn, payer)}
+            out["can_detach"] = role == "owner"
+        if role in ("owner", "admin") and payer is None:
+            out["can_manage_links"] = True
+            out["pays_for"] = [{"org_id": r.id, "name": r.name} for r in conn.execute(
+                select(orgs.c.id, orgs.c.name).where(orgs.c.billing_org_id == org_id).order_by(orgs.c.id))]
+    return out
+
+
+# ── Usage statement: who spent what, on whose wallet ─────────────────────────
+STATEMENT_PERIODS = ("this_month", "last_month", "last_30d")
+
+
+def statement_window(period, now=None):
+    """(start, end) aware UTC for a statement period, or None. Months are IST."""
+    now = _ensure_aware(now or _now())
+    if period == "last_30d":
+        return now - timedelta(days=30), now
+    if period not in ("this_month", "last_month"):
+        return None
+    start, end = budget_window("calendar_month", now)
+    if period == "this_month":
+        return start, end
+    return _add_months(start.astimezone(IST), -1).astimezone(timezone.utc), start
+
+
+def usage_statement(actor_user_id, org_id, period="this_month"):
+    """Credits SPENT in a period: per company, per person, per kind of action —
+    and nothing about which project or location (that is the client's business).
+    For an owner/admin of a paying company (org_id = the wallet): every company
+    it paid for, including ones since detached. For an owner/admin of a company
+    that someone else pays for: that company only. Purchases are never included."""
+    win = statement_window(period)
+    if win is None:
+        return {"error": "invalid_period"}
+    engine = _require_engine()
+    tables = _get_tables()
+    ledger, orgs, users = tables["credits_ledger"], tables["organizations"], tables["users"]
+    from sqlalchemy import select, func
+    start, end = win
+    with engine.connect() as conn:
+        role = _role_in(conn, org_id, actor_user_id)
+        if role is None:
+            return {"error": "not_found"}
+        if role not in ("owner", "admin"):
+            return {"error": "forbidden"}
+        wallet = _payer_org_id(conn, org_id)
+        wallet_scope = wallet == org_id        # a company nobody else pays for: the whole wallet
+        where = [ledger.c.delta < 0, ledger.c.created_at >= start, ledger.c.created_at < end]
+        if wallet_scope:
+            where.append(func.coalesce(ledger.c.billing_org_id, ledger.c.org_id) == org_id)
+        else:
+            where.append(ledger.c.org_id == org_id)
+        rows = conn.execute(
+            select(ledger.c.org_id, ledger.c.user_id, ledger.c.reason,
+                   func.sum(-ledger.c.delta).label("credits"), func.count().label("n"))
+            .where(*where).group_by(ledger.c.org_id, ledger.c.user_id, ledger.c.reason)).all()
+        companies = {}
+        if wallet_scope:                       # show every company it currently pays for, even at zero
+            for r in conn.execute(select(orgs.c.id, orgs.c.name).where(
+                    (orgs.c.id == org_id) | (orgs.c.billing_org_id == org_id))):
+                companies[r.id] = {"org_id": r.id, "name": r.name, "credits_used": 0, "_people": {}}
+        else:
+            companies[org_id] = {"org_id": org_id, "name": _org_name(conn, org_id), "credits_used": 0, "_people": {}}
+        for r in rows:
+            c = companies.get(r.org_id)
+            if c is None:
+                c = companies[r.org_id] = {"org_id": r.org_id, "name": _org_name(conn, r.org_id) or "(deleted company)",
+                                           "credits_used": 0, "_people": {}}
+            credits = int(r.credits)
+            c["credits_used"] += credits
+            person = c["_people"].setdefault(r.user_id, {"user_id": r.user_id, "credits_used": 0, "actions": []})
+            person["credits_used"] += credits
+            person["actions"].append({"reason": r.reason, "count": int(r.n), "credits": credits})
+        names = {u.id: (u.name, u.email) for u in conn.execute(select(users.c.id, users.c.name, users.c.email))} if rows else {}
+    out = []
+    for c in companies.values():
+        people = sorted(c.pop("_people").values(), key=lambda p: -p["credits_used"])
+        for p in people:
+            p["name"], p["email"] = names.get(p["user_id"], (None, None))
+            p["actions"].sort(key=lambda a: -a["credits"])
+        c["people"] = people
+        out.append(c)
+    out.sort(key=lambda c: (-c["credits_used"], c["name"] or ""))
+    return {"org_id": org_id, "scope": "wallet" if wallet_scope else "company", "period": period,
+            "periods": list(STATEMENT_PERIODS),
+            "window_start": start.isoformat(), "window_end": end.isoformat(),
+            "total_credits_used": sum(c["credits_used"] for c in out), "companies": out}
+
+
 class InsufficientCreditsError(Exception):
     """Raised by spend_credits() when the balance is short. The caller (a
     blueprint route) turns this into a 402 Payment Required with the current
@@ -2197,6 +2656,9 @@ def delete_organization(org_id, user_id):
         if _has_budget_table(conn, "credit_member_budgets"):
             conn.execute(tables["credit_member_budgets"].delete().where(
                 tables["credit_member_budgets"].c.org_id == org_id))
+        if _has_budget_table(conn, "credit_link_requests"):
+            conn.execute(tables["credit_link_requests"].delete().where(
+                tables["credit_link_requests"].c.payer_org_id == org_id))
         result = conn.execute(orgs.delete().where(orgs.c.id == org_id))
     return result.rowcount > 0
 

@@ -30,6 +30,19 @@ _ERROR_STATUS = {
     "invalid_end_date": 400,
     "exceeds_company_budget": 400,
     "company_budget_required": 409,
+    "invalid_email": 400,
+    "invalid_company": 400,
+    "invalid_period": 400,
+    "invalid_payer": 400,
+    "payer_has_payer": 409,
+    "already_a_payer": 409,
+    "company_has_credits": 409,
+    "request_invalid": 409,
+    "not_linked": 409,
+    "already_linked": 409,
+    "expired": 410,
+    "too_many_pending": 429,
+    "rate_limited": 429,
 }
 
 
@@ -280,4 +293,73 @@ def set_member_budget(user_id, org_id, member_user_id):
 @require_login
 def delete_member_budget(user_id, org_id, member_user_id):
     result = _auth_db.delete_member_budget(user_id, org_id, member_user_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+# ── Who pays for a company: link requests, detaching, usage statement ───────
+# A paying company asks by EMAIL; the person addressed picks which company of
+# theirs to link and approves. Either side can detach at any time.
+@organizations_bp.route("/<int:payer_id>/link-requests", methods=["POST"])
+@require_login
+def create_link_request(user_id, payer_id):
+    body = request.get_json(silent=True) or {}
+    result = _auth_db.create_link_request(user_id, payer_id, body.get("email"), body.get("note"))
+    if "error" in result:
+        return _error_response(result)
+    return jsonify(result), 201
+
+
+@organizations_bp.route("/<int:payer_id>/link-requests", methods=["GET"])
+@require_login
+def list_outgoing_link_requests(user_id, payer_id):
+    result = _auth_db.list_outgoing_link_requests(user_id, payer_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:payer_id>/link-requests/<int:request_id>", methods=["DELETE"])
+@require_login
+def cancel_link_request(user_id, payer_id, request_id):
+    result = _auth_db.cancel_link_request(user_id, payer_id, request_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/link-requests/incoming", methods=["GET"])
+@require_login
+def list_incoming_link_requests(user_id):
+    return jsonify(_auth_db.list_incoming_link_requests(user_id))
+
+
+@organizations_bp.route("/link-requests/<int:request_id>/approve", methods=["POST"])
+@require_login
+def approve_link_request(user_id, request_id):
+    body = request.get_json(silent=True) or {}
+    result = _auth_db.approve_link_request(user_id, request_id, body.get("org_id"))
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/link-requests/<int:request_id>/decline", methods=["POST"])
+@require_login
+def decline_link_request(user_id, request_id):
+    result = _auth_db.decline_link_request(user_id, request_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:org_id>/billing-link", methods=["GET"])
+@require_login
+def billing_link(user_id, org_id):
+    result = _auth_db.billing_link_view(user_id, org_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:org_id>/detach", methods=["POST"])
+@require_login
+def detach_company(user_id, org_id):
+    result = _auth_db.unlink_company(user_id, org_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:org_id>/usage-statement", methods=["GET"])
+@require_login
+def usage_statement(user_id, org_id):
+    result = _auth_db.usage_statement(user_id, org_id, request.args.get("period", "this_month"))
     return _error_response(result) if "error" in result else jsonify(result)

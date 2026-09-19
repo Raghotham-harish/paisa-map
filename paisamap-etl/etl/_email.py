@@ -111,3 +111,47 @@ def send_budget_notice(to_email, org_name, level, used, amount, window_text, bil
     except Exception:
         logger.exception("SES send_email failed for budget alert to %s", to_email)
         return False
+
+
+def send_billing_link_notice(to_email, kind, payer_name, company_name, url, actor_name=None, note=None):
+    """Tell someone about a change to who pays for a company. kind: "requested"
+    (to the person asked), "approved" / "declined" (to the paying company's
+    admins), "detached" (to the other side). Names and the note are user-typed,
+    so the HTML body escapes them. Returns True if SES accepted it."""
+    client = _client()
+    if client is None:
+        logger.warning("SES not configured — billing-link notice (%s) to %s not emailed", kind, to_email)
+        return False
+    who = actor_name or "Someone"
+    if kind == "requested":
+        subject = f"{payer_name} has asked to pay for your PaisaMap credits"
+        lead = (f"{who} at {payer_name} has asked to cover the PaisaMap credits your company uses. "
+                "Nothing changes unless you approve it, and either side can undo it at any time.")
+    elif kind == "approved":
+        subject = f"{company_name} accepted — {payer_name} now pays for it"
+        lead = f"{company_name} approved your request. Its credit use now draws from {payer_name}'s credits."
+    elif kind == "declined":
+        subject = f"{company_name} declined your request to pay for it"
+        lead = f"The owner of {company_name} declined your request to pay for its credits."
+    else:
+        subject = f"{company_name} is no longer paid for by {payer_name}"
+        lead = f"{payer_name} no longer pays for {company_name}'s credits. From now on it uses its own."
+    text_body = lead + (f"\n\nMessage: {note}" if note else "") + f"\n\nReview: {url}\n"
+    html_body = f"<p>{html.escape(lead)}</p>"
+    if note:
+        html_body += f"<p style=\"color:#444\">Message: {html.escape(note)}</p>"
+    html_body += f'<p><a href="{html.escape(url, quote=True)}">Open PaisaMap</a></p>'
+    try:
+        client.send_email(
+            Source=os.environ["SES_FROM_EMAIL"],
+            Destination={"ToAddresses": [to_email]},
+            Message={
+                "Subject": {"Data": subject, "Charset": "UTF-8"},
+                "Body": {"Text": {"Data": text_body, "Charset": "UTF-8"},
+                         "Html": {"Data": html_body, "Charset": "UTF-8"}},
+            },
+        )
+        return True
+    except Exception:
+        logger.exception("SES send_email failed for billing-link notice to %s", to_email)
+        return False

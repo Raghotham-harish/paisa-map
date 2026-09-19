@@ -109,6 +109,62 @@ export interface MemberBudgets {
   members: MemberBudgetRow[];
 }
 
+// A request from a paying company to cover another company's credits, as the person it was sent to sees it.
+export interface IncomingLinkRequest {
+  id: number;
+  payer_org_id: number;
+  payer_name: string | null;
+  requested_by_name: string | null;
+  note: string | null;
+  created_at: string;
+  expires_at: string;
+  // Companies they own that could be linked; `blocked` says why one can't be (it holds credits of its own).
+  companies: Array<{ org_id: number; name: string; blocked: "company_has_credits" | null }>;
+}
+
+export interface OutgoingLinkRequest {
+  id: number;
+  target_email: string;
+  note: string | null;
+  status: "pending" | "approved" | "declined" | "cancelled" | "expired";
+  target_org_name: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface BillingLink {
+  org_id: number;
+  role: OrgRole;
+  paid_by: PaidBy | null;
+  can_detach: boolean;
+  pays_for: Array<{ org_id: number; name: string }>;
+  can_manage_links: boolean;
+}
+
+export type StatementPeriod = "this_month" | "last_month" | "last_30d";
+
+export interface UsageStatement {
+  org_id: number;
+  scope: "wallet" | "company";
+  period: StatementPeriod;
+  periods: StatementPeriod[];
+  window_start: string;
+  window_end: string;
+  total_credits_used: number;
+  companies: Array<{
+    org_id: number;
+    name: string;
+    credits_used: number;
+    people: Array<{
+      user_id: number;
+      name: string | null;
+      email: string | null;
+      credits_used: number;
+      actions: Array<{ reason: string; count: number; credits: number }>;
+    }>;
+  }>;
+}
+
 // A budget rule stopped a spend (403). The server's `detail` already says why and who can fix it.
 export function isSpendGate(body: any): boolean {
   return body?.error === "budget_required" || body?.error === "budget_exceeded" || body?.error === "wallet_reserve";
@@ -954,6 +1010,24 @@ export const api = {
     request(`/api/organizations/${orgId}/member-budgets/${userId}`, { method: "PUT", body: JSON.stringify(body) }) as Promise<{ budget: BudgetStatus }>,
   deleteMemberBudget: (orgId: number, userId: number) =>
     request(`/api/organizations/${orgId}/member-budgets/${userId}`, { method: "DELETE" }) as Promise<{ status: string }>,
+  // Who pays for a company — requests are addressed to an EMAIL and the answer never says whether it has an account.
+  getBillingLink: (orgId: number) => request(`/api/organizations/${orgId}/billing-link`) as Promise<BillingLink>,
+  createLinkRequest: (payerOrgId: number, email: string, note?: string) =>
+    request(`/api/organizations/${payerOrgId}/link-requests`, { method: "POST", body: JSON.stringify({ email, note }) }) as Promise<{ status: string; request_id: number }>,
+  listOutgoingLinkRequests: (payerOrgId: number) =>
+    request(`/api/organizations/${payerOrgId}/link-requests`) as Promise<{ requests: OutgoingLinkRequest[] }>,
+  cancelLinkRequest: (payerOrgId: number, requestId: number) =>
+    request(`/api/organizations/${payerOrgId}/link-requests/${requestId}`, { method: "DELETE" }) as Promise<{ status: string }>,
+  listIncomingLinkRequests: () =>
+    request("/api/organizations/link-requests/incoming") as Promise<{ requests: IncomingLinkRequest[] }>,
+  approveLinkRequest: (requestId: number, orgId: number) =>
+    request(`/api/organizations/link-requests/${requestId}/approve`, { method: "POST", body: JSON.stringify({ org_id: orgId }) }) as Promise<{ status: string }>,
+  declineLinkRequest: (requestId: number) =>
+    request(`/api/organizations/link-requests/${requestId}/decline`, { method: "POST" }) as Promise<{ status: string }>,
+  detachCompany: (orgId: number) =>
+    request(`/api/organizations/${orgId}/detach`, { method: "POST" }) as Promise<{ status: string }>,
+  getUsageStatement: (orgId: number, period: StatementPeriod) =>
+    request(`/api/organizations/${orgId}/usage-statement?period=${period}`) as Promise<UsageStatement>,
   setReserve: (walletOrgId: number, credits: number | null) =>
     request(`/api/organizations/${walletOrgId}/reserve`, { method: "PUT", body: JSON.stringify({ credits }) }) as Promise<{ reserve: number | null }>,
 

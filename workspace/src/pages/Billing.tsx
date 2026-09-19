@@ -11,6 +11,7 @@ import { Pill } from "../components/Pill";
 import { BudgetMeter } from "../components/BudgetMeter";
 import { BudgetsManager } from "../components/BudgetsManager";
 import { MemberBudgetsManager } from "../components/MemberBudgetsManager";
+import { LinkRequestsInbox, WhoPaysPanel } from "../components/WhoPays";
 
 const PLAN_ORDER: Array<"free" | "pro" | "team"> = ["free", "pro", "team"];
 
@@ -33,6 +34,8 @@ export default function Billing() {
   const [balance, setBalance] = useState<number | null>(null);
   const [paidBy, setPaidBy] = useState<PaidBy | null>(null);
   const [budget, setBudget] = useState<BudgetStatus | null>(null);
+  // Bumped when a link request is decided, so the "Who pays" panel reloads.
+  const [linkTick, setLinkTick] = useState(0);
   const [memberBudget, setMemberBudget] = useState<BudgetStatus | null>(null);
   const [ledger, setLedger] = useState<CreditLedgerEntry[] | null>(null);
   const [creditsError, setCreditsError] = useState<string | null>(null);
@@ -155,6 +158,9 @@ export default function Billing() {
         </div>
       )}
 
+      {/* Someone asked to pay for one of your companies — decided by the person the request was sent to. */}
+      <LinkRequestsInbox onChanged={() => { loadCredits(); refresh(); setLinkTick((t) => t + 1); }} />
+
       <p className="kicker" style={{ marginBottom: 10 }}>Credits</p>
       <div className="stat-row" style={{ marginBottom: 14 }}>
         <div className="stat-tile">
@@ -164,6 +170,8 @@ export default function Billing() {
       </div>
       {/* This company's own budget (set by whoever pays for it) — warns at 80%, stops at 100%. */}
       {budget && <BudgetMeter budget={budget} paidByName={paidBy?.name} />}
+      {/* Who pays for this company, who it pays for, requests in between, and the usage statement. */}
+      {activeOrgId != null && <WhoPaysPanel orgId={activeOrgId} refreshKey={linkTick} onChanged={loadCredits} />}
       {/* Your own allowance inside this company, if an admin set one. */}
       {memberBudget && <BudgetMeter budget={memberBudget} personal />}
       {/* Owners/admins of a paying company set budgets for the companies drawing from it. */}
