@@ -50,7 +50,7 @@ def forecast(user_id):
         return jsonify({"error": "budget_required",
                          "detail": "Pass ?budget= or set a total investment on the project."}), 400
 
-    gated = wallet_gate(user_id, project.get("org_id"))
+    gated = wallet_gate(user_id, project.get("org_id"), "forecast")
     if gated:
         return gated
     cost = _pricing.credit_cost("forecast")

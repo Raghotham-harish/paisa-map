@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, Forecast as ForecastResult, ForecastResponse, ForecastSite, PricingConfig, api, insufficientCreditsMessage } from "../lib/api";
+import { ApiError, Forecast as ForecastResult, ForecastResponse, ForecastSite, PricingConfig, api, insufficientCreditsMessage, isSpendGate } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { ForecastPreview } from "../components/ForecastPreview";
 import { DataList, DataRow } from "../components/DataList";
@@ -134,7 +134,7 @@ export default function Forecast() {
       setReportError(
         e instanceof ApiError && e.body?.error === "insufficient_credits"
           ? insufficientCreditsMessage(e.body, "needs")
-          : e instanceof ApiError && e.body?.error === "budget_required"
+          : e instanceof ApiError && isSpendGate(e.body)
             ? String(e.body.detail)
           : e instanceof ApiError && e.body?.error === "no_locations"
             ? "This project has no saved locations yet — save some from the map first."

@@ -25,6 +25,9 @@ _ERROR_STATUS = {
     "not_found": 404,
     "invalid_invite": 404,
     "email_mismatch": 409,
+    "invalid_amount": 400,
+    "invalid_period": 400,
+    "invalid_end_date": 400,
 }
 
 
@@ -214,3 +217,38 @@ def audit_log(user_id, org_id):
     if entries is None:
         return jsonify({"error": "forbidden"}), 403
     return jsonify({"entries": entries})
+
+
+# ── Credit budgets (billing-v2) ─────────────────────────────────────────────
+# Managed by an owner/admin of the PAYING company (the wallet). Non-members get
+# the same 404 as a company that doesn't exist; plain members get 403.
+@organizations_bp.route("/<int:wallet_id>/budgets", methods=["GET"])
+@require_login
+def list_budgets(user_id, wallet_id):
+    result = _auth_db.list_wallet_budgets(user_id, wallet_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:wallet_id>/budgets/<int:org_id>", methods=["PUT"])
+@require_login
+def set_budget(user_id, wallet_id, org_id):
+    body = request.get_json(silent=True) or {}
+    result = _auth_db.set_credit_budget(
+        user_id, wallet_id, org_id, body.get("amount"),
+        period=body.get("period") or "billing_cycle", ends_at=body.get("ends_at"))
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:wallet_id>/budgets/<int:org_id>", methods=["DELETE"])
+@require_login
+def delete_budget(user_id, wallet_id, org_id):
+    result = _auth_db.delete_credit_budget(user_id, wallet_id, org_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:wallet_id>/reserve", methods=["PUT"])
+@require_login
+def set_reserve(user_id, wallet_id):
+    body = request.get_json(silent=True) or {}
+    result = _auth_db.set_wallet_reserve(user_id, wallet_id, body.get("credits"))
+    return _error_response(result) if "error" in result else jsonify(result)

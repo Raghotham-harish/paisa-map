@@ -27,5 +27,6 @@ def get_credits(user_id):
     return jsonify({
         "balance": view["balance"],          # None if the wallet belongs to a company you don't belong to
         "paid_by": view["paid_by"],
+        "budget": view["budget"],            # this company's own cap + usage (None if none set)
         "ledger": _auth_db.list_credit_ledger(user_id, limit=limit, org_id=org_id),
     })

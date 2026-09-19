@@ -30,6 +30,7 @@ def _user_payload(user_id, org_id=None):
         "plan": _auth_db.get_effective_plan_for_user(user_id),
         "credits": view["balance"],
         "credits_paid_by": view["paid_by"],
+        "credits_budget": view["budget"],
     }
 
 

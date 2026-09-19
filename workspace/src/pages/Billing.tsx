@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, CreditLedgerEntry, Invoice, PaidBy, PricingConfig } from "../lib/api";
+import { api, BudgetStatus, CreditLedgerEntry, Invoice, PaidBy, PricingConfig } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { useAuth } from "../lib/auth";
 import { useWorkspace } from "../lib/workspace";
@@ -8,6 +8,8 @@ import { DataList, DataRow } from "../components/DataList";
 import { AsyncBoundary } from "../components/AsyncBoundary";
 import { StatChip } from "../components/StatChip";
 import { Pill } from "../components/Pill";
+import { BudgetMeter } from "../components/BudgetMeter";
+import { BudgetsManager } from "../components/BudgetsManager";
 
 const PLAN_ORDER: Array<"free" | "pro" | "team"> = ["free", "pro", "team"];
 
@@ -21,7 +23,7 @@ const REASON_LABELS: Record<string, string> = {
 /** "Billing" — plan, credits, and invoices together (N5: these used to be two separate nav items that were both "money"). */
 export default function Billing() {
   const { user, refresh } = useAuth();
-  const { activeOrgId } = useWorkspace();
+  const { activeOrgId, activeOrg } = useWorkspace();
   const [pricing, setPricing] = useState<PricingConfig | null>(null);
   const [invoices, setInvoices] = useState<Invoice[] | null>(null);
   const [invoicesError, setInvoicesError] = useState<string | null>(null);
@@ -29,6 +31,7 @@ export default function Billing() {
   const [error, setError] = useState<string | null>(null);
   const [balance, setBalance] = useState<number | null>(null);
   const [paidBy, setPaidBy] = useState<PaidBy | null>(null);
+  const [budget, setBudget] = useState<BudgetStatus | null>(null);
   const [ledger, setLedger] = useState<CreditLedgerEntry[] | null>(null);
   const [creditsError, setCreditsError] = useState<string | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
@@ -44,6 +47,7 @@ export default function Billing() {
     api.getCredits(activeOrgId).then((data) => {
       setBalance(data.balance);
       setPaidBy(data.paid_by);
+      setBudget(data.budget ?? null);
       setLedger(data.ledger);
     }).catch(() => setCreditsError("Couldn't load your credit history — try again."));
   };
@@ -155,6 +159,12 @@ export default function Billing() {
           <div className="value">{balance ?? "—"}</div>
         </div>
       </div>
+      {/* This company's own budget (set by whoever pays for it) — warns at 80%, stops at 100%. */}
+      {budget && <BudgetMeter budget={budget} paidByName={paidBy?.name} />}
+      {/* Owners/admins of a paying company set budgets for the companies drawing from it. */}
+      {activeOrgId != null && !paidBy && (activeOrg?.role === "owner" || activeOrg?.role === "admin") && (
+        <BudgetsManager walletOrgId={activeOrgId} />
+      )}
       {/* A company paid for by someone else (balance hidden): buying here would
           credit the buyer's OWN company, not this one — so say who pays instead. */}
       {paidBy && balance == null && (

@@ -78,7 +78,7 @@ def generate_report(user_id):
             return jsonify({"error": "invalid_order"}), 400
         paid_via_order = order
     else:
-        gated = wallet_gate(user_id, (project or {}).get("org_id"))
+        gated = wallet_gate(user_id, (project or {}).get("org_id"), "report_generate")
         if gated:
             return gated
         cost = _pricing.credit_cost("report_generate")

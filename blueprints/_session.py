@@ -144,20 +144,35 @@ def require_api_key(fn):
     return wrapper
 
 
-def wallet_gate(user_id, org_id):
+def wallet_gate(user_id, org_id, action_key=None):
     """Pre-check for any credit-spending route: returns a ready 403 response if
-    this user may not draw the wallet behind `org_id` (a client's own staff on
-    an agency-paid company, until budgets exist), else None. Runs BEFORE the
-    balance check so the refusal names the real reason instead of a
-    misleading "insufficient credits"."""
-    allowed, reason = _auth_db.wallet_spend_allowed(user_id, org_id)
-    if allowed:
+    a budget rule stops this user spending the wallet behind `org_id`, else None.
+    Runs BEFORE the balance check so the refusal names the real reason instead
+    of a misleading "insufficient credits". Pass the `action_key` being bought
+    so the budget is checked against its real cost; spend_credits() re-checks
+    atomically at charge time. Reasons: budget_required (a client's own staff
+    and no budget set), budget_exceeded (the company's budget is used up),
+    wallet_reserve (the rest is kept back by the paying company)."""
+    import _pricing
+    cost = _pricing.credit_cost(action_key) if action_key else 0
+    block = _auth_db.wallet_spend_block(user_id, org_id, cost)
+    if block is None:
         return None
+    reason = block["reason"]
     view = _auth_db.get_credit_view(user_id, org_id=org_id)
-    who = (view["paid_by"] or {}).get("name") or "the company that pays for this one"
-    return jsonify({"error": reason, "paid_by": view["paid_by"],
-                    "detail": f"{who} hasn't set a spending budget for this company yet, "
-                              "so credits can't be used here. Ask them to set one."}), 403
+    who = (view["paid_by"] or {}).get("name") or "an admin of this company"
+    body = {"error": reason, "paid_by": view["paid_by"]}
+    if reason == "budget_exceeded":
+        b = block["info"]
+        body["budget"] = b
+        body["detail"] = (f"This company's credit budget is used up ({b['used']} of {b['amount']} credits). "
+                          f"Ask {who} to raise it.")
+    elif reason == "wallet_reserve":
+        body["detail"] = f"{who} is keeping the remaining credits in reserve, so they can't be used here."
+    else:
+        body["detail"] = (f"{who} hasn't set a spending budget for this company yet, "
+                          "so credits can't be used here. Ask them to set one.")
+    return jsonify(body), 403
 
 
 def charge_credits(user_id, action_key, ref_type=None, ref_id=None, org_id=None):

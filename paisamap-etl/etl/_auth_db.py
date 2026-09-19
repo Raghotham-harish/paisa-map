@@ -18,9 +18,10 @@ Set DATABASE_URL to enable, e.g.:
   sqlite:///paisamap_dev.db                                        (local testing only)
 """
 
+import calendar
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import _db  # sibling module — reuses its engine, not its tables
 
@@ -418,6 +419,29 @@ def _get_tables():
         Column("usage_reset_at", Date),
     )
 
+    # Billing-v2 budgets: a cap, in credits, on what one COMPANY may spend from
+    # its wallet per period (kind='cap'), and an optional floor a wallet keeps
+    # back for its own company (kind='reserve', org_id = wallet_org_id). The
+    # PERIOD TYPE is stored, never dates — recurring windows are computed from
+    # it at check time (see budget_window). `wallet_org_id` records who set the
+    # cap: a row whose wallet is no longer the company's payer is ignored.
+    credit_budgets = Table(
+        "credit_budgets", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("wallet_org_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        Column("org_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        Column("kind", Text, nullable=False, server_default="cap"),
+        Column("amount", Integer, nullable=False),
+        Column("period", Text, nullable=False, server_default="billing_cycle"),
+        Column("starts_at", DateTime(timezone=True)),   # one_off / until_date: when counting began
+        Column("ends_at", DateTime(timezone=True)),     # until_date: when the budget lapses
+        Column("created_by", Integer),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+        UniqueConstraint("org_id", "kind", name="uq_credit_budgets_org_kind"),
+        CheckConstraint("amount >= 0", name="ck_credit_budgets_amount"),
+    )
+
     _tables = {
         "organizations": organizations, "users": users, "org_members": org_members,
         "org_invites": org_invites,
@@ -428,6 +452,7 @@ def _get_tables():
         "project_connection_selections": project_connection_selections,
         "orders": orders, "invoices": invoices,
         "api_keys": api_keys,
+        "credit_budgets": credit_budgets,
     }
     return _tables
 
@@ -450,7 +475,7 @@ def init_schema():
         tables["customer_uploads"], tables["customer_locations"],
         tables["oauth_connections"], tables["project_connection_selections"],
         tables["orders"], tables["invoices"],
-        tables["api_keys"],
+        tables["api_keys"], tables["credit_budgets"],
     ])
     _ensure_invoice_sequence(engine)
 
@@ -708,7 +733,9 @@ def get_credit_view(user_id, org_id=None):
     """What a USER is allowed to be shown about credits — distinct from
     get_credit_balance(), which is the exact number the server decides with.
 
-    Returns {"balance": int | None, "paid_by": {"org_id", "name"} | None}.
+    Returns {"balance": int | None, "paid_by": {"org_id", "name"} | None,
+    "budget": <the company's budget status> | None} — the budget is the company's
+    OWN cap and usage, safe for its staff to see (it never reveals the wallet).
     A wallet's balance belongs to the paying company: someone who works in a
     client company but is NOT a member of the company that pays for it (e.g. a
     client's own staff, on an agency-paid company) sees balance=None and who
@@ -718,19 +745,20 @@ def get_credit_view(user_id, org_id=None):
     tables = _get_tables()
     with engine.connect() as conn:
         if billing_scope() != "wallet":
-            return {"balance": max(0, _user_chain_balance(conn, user_id)), "paid_by": None}
+            return {"balance": max(0, _user_chain_balance(conn, user_id)), "paid_by": None, "budget": None}
         oid = org_id if org_id is not None else _primary_org_id(conn, user_id)
         wallet = _payer_org_id(conn, oid)
         if wallet is None:
-            return {"balance": max(0, _user_chain_balance(conn, user_id)), "paid_by": None}
+            return {"balance": max(0, _user_chain_balance(conn, user_id)), "paid_by": None, "budget": None}
         paid_by = None
         if wallet != oid:
             name = conn.execute(_org_name_query(tables, wallet)).scalar()
             paid_by = {"org_id": wallet, "name": name}
         balance = _wallet_balance(conn, wallet, user_id)
+        budget = _budget_status(conn, oid, wallet)
     if get_org_role(wallet, user_id) is None:
         balance = None
-    return {"balance": balance, "paid_by": paid_by}
+    return {"balance": balance, "paid_by": paid_by, "budget": budget}
 
 
 def _org_name_query(tables, org_id):
@@ -796,6 +824,11 @@ def set_org_payer(org_id, actor_user_id, payer_org_id):
             if own != 0:
                 return {"error": "company_has_credits"}
         conn.execute(orgs.update().where(orgs.c.id == org_id).values(billing_org_id=payer_org_id))
+        # A cap belongs to whoever set it as payer: a new payer (or none) starts
+        # clean, and re-linking to the old payer later doesn't resurrect it.
+        if _has_budget_table(conn):
+            conn.execute(tables["credit_budgets"].delete().where(
+                tables["credit_budgets"].c.org_id == org_id, tables["credit_budgets"].c.kind == "cap"))
     return {"status": "ok"}
 
 
@@ -991,30 +1024,335 @@ def credit_org_parity():
             "orgs": orgs_out, "mismatches": mismatches}
 
 
+# ── Budgets (billing-v2) ─────────────────────────────────────────────────────
+# A budget caps what one COMPANY may spend from its wallet in a period. It is
+# set by an owner/admin of the company that PAYS (the wallet), in credits, and
+# enforced in the same transaction as the wallet's balance check, so two
+# simultaneous spends can't both slip under a cap. Warn at BUDGET_WARN_PCT, then
+# a hard stop — never a surprise bill. Only enforced under BILLING_SCOPE=wallet.
+BUDGET_WARN_PCT = 80
+BUDGET_MAX_CREDITS = 10_000_000
+BUDGET_PERIODS = ("billing_cycle", "calendar_month", "weekly", "quarterly", "one_off", "until_date")
+IST = timezone(timedelta(hours=5, minutes=30))   # India has no DST: a fixed offset is exact
+
+
 class SpendNotAllowedError(Exception):
-    """Raised by spend_credits() in wallet scope when the spender is OUTSIDE the
-    company that pays for the wallet (e.g. a client's own staff working in an
-    agency-paid company) and no spending budget allows it. Interim rule until
-    budgets exist: outside spenders can't draw a wallet at all — otherwise one
-    client's people could drain the agency's credits for every other client."""
-    def __init__(self, reason="budget_required"):
+    """Raised by spend_credits() in wallet scope when a budget rule stops the
+    spend. `reason` is one of:
+      budget_required  the spender is OUTSIDE the paying company (a client's own
+                       staff on an agency-paid company) and no active budget
+                       exists for the company — otherwise one client's people
+                       could drain the agency's credits for every other client;
+      budget_exceeded  this spend would take the company past its budget;
+      wallet_reserve   this spend would dip into the credits the paying company
+                       has kept back for its own use.
+    `info` carries the budget status for budget_exceeded."""
+    def __init__(self, reason="budget_required", info=None):
         self.reason = reason
+        self.info = info or {}
         super().__init__(reason)
 
 
-def wallet_spend_allowed(user_id, org_id=None):
-    """(allowed, reason). Legacy scope: always allowed. Wallet scope: allowed for
-    anyone who is a member of the company that owns the wallet (their own
-    company, or the paying agency); NOT for someone who only belongs to a client
-    company paid for by another. This is the single seam budgets plug into."""
+def _add_months(dt, n):
+    """dt shifted by n calendar months, clamping the day (Jan 31 + 1 -> Feb 28)."""
+    y, m = divmod(dt.month - 1 + n, 12)
+    year, month = dt.year + y, m + 1
+    return dt.replace(year=year, month=month, day=min(dt.day, calendar.monthrange(year, month)[1]))
+
+
+def budget_window(period, now, starts_at=None, ends_at=None, cycle_anchor=None):
+    """(start, end) of the budget window containing `now`, both aware UTC
+    datetimes; end is None for an open-ended one_off. Calendar periods follow
+    the IST calendar (a month/quarter starts at 00:00 IST on the 1st, a week on
+    Monday). billing_cycle follows the wallet owner's subscription anniversary
+    when there is one (`cycle_anchor`), and until subscriptions exist falls
+    back to the calendar month — the caller stores the TYPE, never the dates,
+    so it starts following real renewals the day they exist. No rollover: each
+    window counts only its own spend."""
+    now = _ensure_aware(now)
+    local = now.astimezone(IST)
+    if period == "one_off":
+        return _ensure_aware(starts_at), None
+    if period == "until_date":
+        return _ensure_aware(starts_at), _ensure_aware(ends_at)
+    if period == "billing_cycle" and cycle_anchor is not None:
+        anchor = _ensure_aware(cycle_anchor).astimezone(IST)
+        k = max(0, (local.year - anchor.year) * 12 + local.month - anchor.month)
+        if _add_months(anchor, k) > local:
+            k = max(0, k - 1)
+        start, end = _add_months(anchor, k), _add_months(anchor, k + 1)
+    elif period == "weekly":
+        start = (local - timedelta(days=local.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        end = start + timedelta(days=7)
+    elif period == "quarterly":
+        start = local.replace(month=((local.month - 1) // 3) * 3 + 1, day=1,
+                              hour=0, minute=0, second=0, microsecond=0)
+        end = _add_months(start, 3)
+    else:   # calendar_month, and billing_cycle with no subscription yet
+        start = local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        end = _add_months(start, 1)
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+
+
+def _cycle_anchor(conn, wallet_id):
+    """When the wallet owner's subscription renews (an aware datetime) — the
+    anchor a 'billing_cycle' budget follows. There are no subscriptions yet, so
+    None: budgets fall back to the calendar month. This is the ONE place to
+    change when subscriptions ship."""
+    return None
+
+
+def _role_in(conn, org_id, user_id):
+    members = _get_tables()["org_members"]
+    from sqlalchemy import select
+    return conn.execute(select(members.c.role).where(
+        members.c.org_id == org_id, members.c.user_id == user_id)).scalar()
+
+
+def _budget_used(conn, org_id, wallet_id, start, end):
+    """Credits this company spent from this wallet inside [start, end)."""
+    ledger = _get_tables()["credits_ledger"]
+    from sqlalchemy import select, func
+    cond = [ledger.c.org_id == org_id, ledger.c.delta < 0,
+            func.coalesce(ledger.c.billing_org_id, ledger.c.org_id) == wallet_id,
+            ledger.c.created_at >= start]
+    if end is not None:
+        cond.append(ledger.c.created_at < end)
+    return int(conn.execute(select(func.coalesce(func.sum(-ledger.c.delta), 0)).where(*cond)).scalar() or 0)
+
+
+def _has_budget_table(conn):
+    """False until apply_budgets_table.py has run on this database. The two
+    housekeeping deletes below (relink, company delete) run in EVERY scope, so
+    they must not fail on a deploy that reaches the server before the table."""
+    from sqlalchemy import inspect
+    return inspect(conn).has_table("credit_budgets")
+
+
+def _budget_row(conn, org_id, kind):
+    b = _get_tables()["credit_budgets"]
+    from sqlalchemy import select
+    return conn.execute(select(b).where(b.c.org_id == org_id, b.c.kind == kind)).mappings().first()
+
+
+def _budget_status(conn, org_id, wallet_id, now=None):
+    """The active cap on `org_id` as a dict, or None if there isn't one (none
+    set, or set by someone who no longer pays for this company). `active` is
+    False once an until_date budget has lapsed — a lapsed budget behaves as no
+    budget."""
+    row = _budget_row(conn, org_id, "cap")
+    if row is None or row["wallet_org_id"] != wallet_id:
+        return None
+    now = now or _now()
+    period = row["period"]
+    anchor = _cycle_anchor(conn, wallet_id) if period == "billing_cycle" else None
+    start, end = budget_window(period, now, row["starts_at"], row["ends_at"], anchor)
+    used = _budget_used(conn, org_id, wallet_id, start, end)
+    amount = int(row["amount"])
+    pct = 100 if amount <= 0 else int(used * 100 // amount)
+    active = end is None or now < end
+    return {
+        "amount": amount, "period": period,
+        # what the window really follows — billing_cycle is the calendar month until subscriptions exist
+        "resolved_period": "calendar_month" if (period == "billing_cycle" and anchor is None) else period,
+        "used": used, "remaining": max(0, amount - used), "pct": pct,
+        "warn": active and pct >= BUDGET_WARN_PCT, "exhausted": used >= amount,
+        "active": active,
+        "window_start": start.isoformat(), "window_end": end.isoformat() if end else None,
+    }
+
+
+def _reserve_floor(conn, wallet_id):
+    row = _budget_row(conn, wallet_id, "reserve")
+    return int(row["amount"]) if row is not None and row["wallet_org_id"] == wallet_id else 0
+
+
+def _spend_block(conn, wallet_id, org_id, user_id, amount, balance):
+    """None if this spend may go ahead, else {"reason": ..., ...} (see
+    SpendNotAllowedError). Runs on the caller's connection so that, inside
+    spend_credits, it shares the wallet-locked transaction with the balance
+    check. `balance` is the wallet's balance before the spend."""
+    insider = _role_in(conn, wallet_id, user_id) is not None
+    status = _budget_status(conn, org_id, wallet_id)
+    capped = status is not None and status["active"]
+    if not insider and not capped:
+        return {"reason": "budget_required"}
+    if capped and status["used"] + amount > status["amount"]:
+        return {"reason": "budget_exceeded", "info": status}
+    if org_id != wallet_id:
+        floor = _reserve_floor(conn, wallet_id)
+        if floor and balance - amount < floor:
+            return {"reason": "wallet_reserve"}
+    return None
+
+
+def wallet_spend_block(user_id, org_id=None, amount=0):
+    """None if `user_id` may spend `amount` credits working in `org_id`, else
+    {"reason": ..., "info": ...}. Legacy scope: never blocked. A read-only
+    pre-check for the routes — spend_credits() re-checks atomically."""
     if billing_scope() != "wallet":
-        return True, None
+        return None
     engine = _require_engine()
     with engine.connect() as conn:
-        wallet = _wallet_for(conn, user_id, org_id)
-    if wallet is None or get_org_role(wallet, user_id) is not None:
-        return True, None
-    return False, "budget_required"
+        oid = org_id if org_id is not None else _primary_org_id(conn, user_id)
+        wallet = _payer_org_id(conn, oid)
+        if wallet is None:
+            return None
+        return _spend_block(conn, wallet, oid, user_id, max(int(amount), 1),
+                            _wallet_balance(conn, wallet, user_id))
+
+
+def wallet_spend_allowed(user_id, org_id=None, amount=0):
+    """(allowed, reason) — the boolean form of wallet_spend_block()."""
+    block = wallet_spend_block(user_id, org_id, amount)
+    return (True, None) if block is None else (False, block["reason"])
+
+
+def _parse_budget_end(value):
+    """A date ('YYYY-MM-DD', or a datetime) -> the aware UTC instant that day
+    ENDS in IST (start of the next day), or None if unusable or already past."""
+    from datetime import date
+    if isinstance(value, datetime):
+        d = value.astimezone(IST).date() if value.tzinfo else value.date()
+    elif isinstance(value, date):
+        d = value
+    elif isinstance(value, str):
+        try:
+            d = date.fromisoformat(value.strip()[:10])
+        except ValueError:
+            return None
+    else:
+        return None
+    end = datetime(d.year, d.month, d.day, tzinfo=IST) + timedelta(days=1)
+    end = end.astimezone(timezone.utc)
+    return end if end > _now() else None
+
+
+def _wallet_admin_error(actor_user_id, wallet_org_id):
+    """None if the actor is an owner/admin of the wallet company, else the error
+    dict: non-members get the same not_found as a company that doesn't exist."""
+    role = get_org_role(wallet_org_id, actor_user_id)
+    if role is None:
+        return {"error": "not_found"}
+    if role not in ("owner", "admin"):
+        return {"error": "forbidden"}
+    return None
+
+
+def set_credit_budget(actor_user_id, wallet_org_id, org_id, amount, period="billing_cycle", ends_at=None):
+    """Set (or replace) the credit budget on `org_id` — the wallet company
+    itself or a company it pays for. Only an owner/admin of the WALLET may.
+    period: one of BUDGET_PERIODS; 'until_date' also needs `ends_at` (a future
+    date). One-off and until-date budgets count from the moment they're set.
+    Returns {"status": "ok", "budget": <status>} or {"error": ...}."""
+    err = _wallet_admin_error(actor_user_id, wallet_org_id)
+    if err:
+        return err
+    if isinstance(amount, bool) or not isinstance(amount, int) or not 0 <= amount <= BUDGET_MAX_CREDITS:
+        return {"error": "invalid_amount"}
+    if period not in BUDGET_PERIODS:
+        return {"error": "invalid_period"}
+    end = None
+    if period == "until_date":
+        end = _parse_budget_end(ends_at)
+        if end is None:
+            return {"error": "invalid_end_date"}
+    engine = _require_engine()
+    b = _get_tables()["credit_budgets"]
+    with engine.begin() as conn:
+        if _payer_org_id(conn, org_id) != wallet_org_id:
+            return {"error": "not_found"}      # not the wallet itself, nor a company it pays for
+        now = _now()
+        existing = _budget_row(conn, org_id, "cap")
+        starts = None
+        if period in ("one_off", "until_date"):
+            starts = now
+            if existing is not None and existing["wallet_org_id"] == wallet_org_id \
+                    and existing["period"] == period and existing["starts_at"] is not None:
+                old_end = _ensure_aware(existing["ends_at"])
+                if old_end is None or old_end > now:      # keep counting, unless it had lapsed
+                    starts = _ensure_aware(existing["starts_at"])
+        values = dict(wallet_org_id=wallet_org_id, amount=amount, period=period,
+                      starts_at=starts, ends_at=end, created_by=actor_user_id, updated_at=now)
+        if existing is None:
+            conn.execute(b.insert().values(org_id=org_id, kind="cap", created_at=now, **values))
+        else:
+            conn.execute(b.update().where(b.c.id == existing["id"]).values(**values))
+        return {"status": "ok", "budget": _budget_status(conn, org_id, wallet_org_id)}
+
+
+def delete_credit_budget(actor_user_id, wallet_org_id, org_id):
+    """Remove a company's cap. A company that another company pays for is then
+    back to "no budget" — its own staff can't spend until one is set again."""
+    err = _wallet_admin_error(actor_user_id, wallet_org_id)
+    if err:
+        return err
+    engine = _require_engine()
+    b = _get_tables()["credit_budgets"]
+    with engine.begin() as conn:
+        if _payer_org_id(conn, org_id) != wallet_org_id:
+            return {"error": "not_found"}
+        conn.execute(b.delete().where(b.c.org_id == org_id, b.c.kind == "cap"))
+    return {"status": "ok"}
+
+
+def set_wallet_reserve(actor_user_id, wallet_org_id, credits):
+    """Credits the wallet keeps back for its OWN company: spends attributed to
+    any other company it pays for can't take the balance below this. None or 0
+    clears it."""
+    err = _wallet_admin_error(actor_user_id, wallet_org_id)
+    if err:
+        return err
+    if credits is not None and (isinstance(credits, bool) or not isinstance(credits, int)
+                                or not 0 <= credits <= BUDGET_MAX_CREDITS):
+        return {"error": "invalid_amount"}
+    engine = _require_engine()
+    b = _get_tables()["credit_budgets"]
+    with engine.begin() as conn:
+        now = _now()
+        existing = _budget_row(conn, wallet_org_id, "reserve")
+        if not credits:
+            if existing is not None:
+                conn.execute(b.delete().where(b.c.id == existing["id"]))
+        elif existing is None:
+            conn.execute(b.insert().values(
+                wallet_org_id=wallet_org_id, org_id=wallet_org_id, kind="reserve", amount=credits,
+                period="one_off", created_by=actor_user_id, created_at=now, updated_at=now))
+        else:
+            conn.execute(b.update().where(b.c.id == existing["id"]).values(
+                amount=credits, updated_at=now, created_by=actor_user_id))
+    return {"status": "ok", "reserve": credits or None}
+
+
+def list_wallet_budgets(actor_user_id, wallet_org_id):
+    """Everything an owner/admin of a paying company needs to manage budgets:
+    the wallet's balance and reserve, and for the company itself plus each
+    company it pays for — its budget status (or None) and its spend over the
+    last 30 days, so a sensible budget is easy to pick."""
+    err = _wallet_admin_error(actor_user_id, wallet_org_id)
+    if err:
+        return err
+    engine = _require_engine()
+    orgs = _get_tables()["organizations"]
+    from sqlalchemy import select
+    now = _now()
+    with engine.connect() as conn:
+        rows = conn.execute(
+            select(orgs.c.id, orgs.c.name).where(
+                (orgs.c.id == wallet_org_id) | (orgs.c.billing_org_id == wallet_org_id))
+            .order_by(orgs.c.id)).all()
+        companies = [{
+            "org_id": r.id, "name": r.name, "is_wallet": r.id == wallet_org_id,
+            "budget": _budget_status(conn, r.id, wallet_org_id, now),
+            "used_30d": _budget_used(conn, r.id, wallet_org_id, now - timedelta(days=30), None),
+        } for r in rows]
+        return {"wallet_org_id": wallet_org_id,
+                "balance": _wallet_balance(conn, wallet_org_id, actor_user_id),
+                "reserve": _reserve_floor(conn, wallet_org_id) or None,
+                "warn_pct": BUDGET_WARN_PCT, "periods": list(BUDGET_PERIODS),
+                # False until BILLING_SCOPE=wallet: budgets can be prepared but aren't enforced yet
+                "enforced": billing_scope() == "wallet",
+                "companies": companies}
 
 
 class InsufficientCreditsError(Exception):
@@ -1047,12 +1385,15 @@ def spend_credits(user_id, amount, reason, ref_type=None, ref_id=None, org_id=No
         oid = org_id if org_id is not None else _primary_org_id(conn, user_id)
         wallet = _payer_org_id(conn, oid)
         if billing_scope() == "wallet" and wallet is not None:
-            if get_org_role(wallet, user_id) is None:
-                raise SpendNotAllowedError("budget_required")
             if engine.dialect.name == "postgresql":
                 conn.execute(select(tables["organizations"].c.id)
                              .where(tables["organizations"].c.id == wallet).with_for_update())
             balance = _wallet_balance(conn, wallet, user_id)
+            # After the wallet lock, in the same transaction: budget/reserve
+            # rules see exactly the state this spend will be written against.
+            block = _spend_block(conn, wallet, oid, user_id, amount, balance)
+            if block is not None:
+                raise SpendNotAllowedError(block["reason"], block.get("info"))
             if balance < amount:
                 raise InsufficientCreditsError(balance, amount)
             conn.execute(ledger.insert().values(
@@ -1145,6 +1486,10 @@ def wallet_mode_preflight():
                         f"{wp['mismatches']} (one user's credits split across wallets) — "
                         "a wallet-level balance would visibly change for these users; decide each one")
     orgs = tables["organizations"]
+    from sqlalchemy import inspect
+    if not inspect(engine).has_table("credit_budgets"):
+        problems.append("the credit_budgets table doesn't exist — run paisamap-etl/db/apply_budgets_table.py "
+                        "(wallet mode reads it on every spend)")
     with engine.connect() as conn:
         no_org = conn.execute(select(func.count()).select_from(users).where(users.c.org_id.is_(None))).scalar() or 0
         extra_unlinked = conn.execute(
@@ -1574,7 +1919,11 @@ def delete_organization(org_id, user_id):
     engine = _require_engine()
     tables = _get_tables()
     orgs = tables["organizations"]
+    from sqlalchemy import or_
+    budgets = tables["credit_budgets"]
     with engine.begin() as conn:
+        if _has_budget_table(conn):
+            conn.execute(budgets.delete().where(or_(budgets.c.org_id == org_id, budgets.c.wallet_org_id == org_id)))
         result = conn.execute(orgs.delete().where(orgs.c.id == org_id))
     return result.rowcount > 0
 

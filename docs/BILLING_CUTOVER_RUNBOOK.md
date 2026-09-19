@@ -81,6 +81,24 @@ changes an amount.
 Nothing has changed for users yet. Use the site normally, make sure the header
 credits number looks right. There is no rush between steps 4 and 6.
 
+## Step 5b — create the budgets table  *(you; do this any time after the budgets code is deployed, and before step 6)*
+
+Budgets need one new table, `credit_budgets`. The script uses the deployed code's own
+definition and only creates what is missing — it never alters or drops anything, and it is
+safe to run twice.
+
+```
+SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; cd /home/ubuntu/paisa-map; exec venv-flask/bin/python3 paisamap-etl/db/apply_budgets_table.py'"
+```
+
+**Good looks like:** `created:  credit_budgets` (or `already there`), then `OK — credit_budgets present with 11 columns`.
+
+The site keeps working if you run it late: until the table exists, only the budget screens
+(which are hidden anyway while there is nothing to budget) can fail, and relinking or deleting a
+company skips the budget cleanup. Step 3's report also lists a missing table as a blocker
+before the flip, and the flip itself must not happen without it, because wallet mode reads
+the table on every spend.
+
 ## Step 6 — flip the switch  *(you; I can't do this one — server settings edits are blocked for me)*
 
 ```
@@ -131,10 +149,19 @@ been spending from a shared wallet, prefer fixing forward.
 - **Done since first written:** the header, Dashboard and Billing page now follow
   the company selected in the switcher, and a client company's own staff no longer
   see the paying company's wallet balance (they see who pays instead).
-- **Interim rule until budgets exist:** in wallet mode, a person who only belongs to a
-  *client* company paid for by another company cannot spend that wallet (they get a
-  clear "ask <payer> to set a budget" message). Members of the paying company, and
-  people in their own company, are unaffected. Nothing changes for a solo account.
+- **Budgets (built; enforced only in wallet mode).** An owner/admin of the paying company
+  sets a credit budget per company (Billing page -> "Credit budgets", shown once the company
+  pays for another one): a period (billing cycle - the calendar month until subscriptions
+  exist - calendar month, weekly, quarterly, one-off total, or until a date), an amount, and
+  optionally a reserve the paying company keeps back for its own work. Warning at 80%, hard
+  stop at 100%, no rollover. A person who only belongs to a *client* company paid for by
+  another can spend **only** once that company has an active budget (otherwise: "ask <payer>
+  to set a budget"). Once a budget is set it caps EVERYONE spending on that company, agency
+  staff and the owner included. The paying company's own spending is never limited by its own
+  reserve. Nothing changes for a solo account with no budget.
+- **Not built yet:** a budget can only be set by a paying admin (a client's own admin can't
+  carve sub-budgets yet); no email when a budget hits 80% (the warning shows on the Billing
+  page and Dashboard); a screen to link/unlink companies; the usage statement.
 - **Concurrent spends on Postgres are untested here.** The wallet is locked
   during a spend (the same technique the old per-user path used) and the test
   suite proves the rule, but SQLite cannot reproduce two simultaneous spends.

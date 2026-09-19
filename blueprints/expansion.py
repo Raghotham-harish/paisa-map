@@ -281,7 +281,7 @@ def recommend(user_id):
     if budget is None or budget <= 0:
         return jsonify({"error": "budget must be a positive number"}), 400
 
-    gated = wallet_gate(user_id, project.get("org_id"))
+    gated = wallet_gate(user_id, project.get("org_id"), "expansion_recommend")
     if gated:
         return gated
     cost = _pricing.credit_cost("expansion_recommend")

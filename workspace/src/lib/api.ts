@@ -45,6 +45,50 @@ export interface User {
   // company paid for by an agency): you're told who pays, never their balance.
   credits: number | null;
   credits_paid_by?: PaidBy | null;
+  // This company's own credit budget and usage, if one is set (safe for its staff to see).
+  credits_budget?: BudgetStatus | null;
+}
+
+export type BudgetPeriod = "billing_cycle" | "calendar_month" | "weekly" | "quarterly" | "one_off" | "until_date";
+
+// One company's cap on what it may spend from its wallet. `warn` turns on at 80%;
+// `exhausted` means a hard stop. billing_cycle resolves to the calendar month
+// until subscriptions exist (resolved_period says what the window really follows).
+export interface BudgetStatus {
+  amount: number;
+  period: BudgetPeriod;
+  resolved_period: BudgetPeriod;
+  used: number;
+  remaining: number;
+  pct: number;
+  warn: boolean;
+  exhausted: boolean;
+  active: boolean;
+  window_start: string;
+  window_end: string | null;
+}
+
+export interface WalletBudgetCompany {
+  org_id: number;
+  name: string;
+  is_wallet: boolean;
+  budget: BudgetStatus | null;
+  used_30d: number;
+}
+
+export interface WalletBudgets {
+  wallet_org_id: number;
+  balance: number;
+  reserve: number | null;
+  warn_pct: number;
+  periods: BudgetPeriod[];
+  enforced: boolean;
+  companies: WalletBudgetCompany[];
+}
+
+// A budget rule stopped a spend (403). The server's `detail` already says why and who can fix it.
+export function isSpendGate(body: any): boolean {
+  return body?.error === "budget_required" || body?.error === "budget_exceeded" || body?.error === "wallet_reserve";
 }
 
 // The company whose wallet pays for the company you're working in — only
@@ -868,9 +912,19 @@ export const api = {
     if (limit != null) qs.set("limit", String(limit));
     const q = qs.toString();
     return request(`/api/credits${q ? `?${q}` : ""}`) as Promise<{
-      balance: number | null; paid_by: PaidBy | null; ledger: CreditLedgerEntry[];
+      balance: number | null; paid_by: PaidBy | null; budget: BudgetStatus | null; ledger: CreditLedgerEntry[];
     }>;
   },
+
+  // Credit budgets — managed by an owner/admin of the PAYING company (wallet).
+  listBudgets: (walletOrgId: number) =>
+    request(`/api/organizations/${walletOrgId}/budgets`) as Promise<WalletBudgets>,
+  setBudget: (walletOrgId: number, orgId: number, body: { amount: number; period: BudgetPeriod; ends_at?: string }) =>
+    request(`/api/organizations/${walletOrgId}/budgets/${orgId}`, { method: "PUT", body: JSON.stringify(body) }) as Promise<{ budget: BudgetStatus }>,
+  deleteBudget: (walletOrgId: number, orgId: number) =>
+    request(`/api/organizations/${walletOrgId}/budgets/${orgId}`, { method: "DELETE" }) as Promise<{ status: string }>,
+  setReserve: (walletOrgId: number, credits: number | null) =>
+    request(`/api/organizations/${walletOrgId}/reserve`, { method: "PUT", body: JSON.stringify({ credits }) }) as Promise<{ reserve: number | null }>,
 
   listReports: () => request("/api/reports") as Promise<{ reports: Report[] }>,
   generateReport: (projectId: number, title?: string, orderId?: number) =>

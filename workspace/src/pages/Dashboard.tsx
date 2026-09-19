@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../lib/auth";
-import { api, ActivityEntry, PaidBy, SavedLocation } from "../lib/api";
+import { api, ActivityEntry, BudgetStatus, PaidBy, SavedLocation } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { illustrations } from "../lib/illustrations";
 import { MapSessionState, readMapSession } from "../lib/mapSession";
@@ -17,11 +17,11 @@ export default function Dashboard() {
   const { projects, activeOrgId } = useWorkspace();
   // Credits follow the company selected in the switcher (that company's wallet),
   // falling back to the header value from /me until it loads.
-  const [wallet, setWallet] = useState<{ balance: number | null; paid_by: PaidBy | null } | null>(null);
+  const [wallet, setWallet] = useState<{ balance: number | null; paid_by: PaidBy | null; budget: BudgetStatus | null } | null>(null);
   useEffect(() => {
     let alive = true;
     api.getCredits(activeOrgId, 1)
-      .then((d) => alive && setWallet({ balance: d.balance, paid_by: d.paid_by }))
+      .then((d) => alive && setWallet({ balance: d.balance, paid_by: d.paid_by, budget: d.budget ?? null }))
       .catch(() => alive && setWallet(null));
     return () => { alive = false; };
   }, [activeOrgId]);
@@ -130,6 +130,11 @@ export default function Dashboard() {
         <Link className="stat-tile stat-tile-link" to="/billing">
           <div className="label">Credits{wallet?.paid_by ? ` · paid by ${wallet.paid_by.name}` : ""}</div>
           <div className="value">{wallet ? (wallet.balance ?? "—") : (user.credits ?? "—")}</div>
+          {wallet?.budget?.active && wallet.budget.warn && (
+            <div className="stat-tile-delta" style={{ color: wallet.budget.exhausted ? "var(--flame)" : "#8A6410" }}>
+              {wallet.budget.exhausted ? "Budget used up" : `Budget ${wallet.budget.pct}% used`}
+            </div>
+          )}
         </Link>
         <Link className="stat-tile stat-tile-link" to="/locations">
           <div className="label">Saved locations</div>
