@@ -57,8 +57,8 @@ def _get_tables():
     if _tables is not None:
         return _tables
     engine = _require_engine()
-    from sqlalchemy import (MetaData, Table, Column, Text, Integer, Float, Date,
-                             DateTime, ForeignKey, UniqueConstraint, CheckConstraint, Index)
+    from sqlalchemy import (MetaData, Table, Column, Text, Integer, Float, Date, Boolean,
+                             DateTime, ForeignKey, UniqueConstraint, CheckConstraint, Index, text)
     JSONType = _json_type(engine)
     _metadata = MetaData()
 
@@ -417,6 +417,39 @@ def _get_tables():
         Column("revoked_at", DateTime(timezone=True)),
         Column("usage_count_today", Integer, nullable=False, server_default="0"),
         Column("usage_reset_at", Date),
+        # Billing-v2: the COMPANY a key belongs to (chosen when it is created).
+        # Its admins can see and revoke it, capacity is counted per company, and
+        # it stops working the moment its owner leaves that company. NULL = a
+        # key made before this existed (works as before until backfilled). No
+        # foreign key on purpose: a deleted company must not be able to block or
+        # cascade — delete_organization revokes its keys explicitly.
+        Column("org_id", Integer),
+        Index("ix_api_keys_org", "org_id"),
+    )
+
+    # Billing-v2: proof that a company controls the website it says it has.
+    # One row per company (its website's normalised host). `status` stays
+    # 'pending' until a check passes; `token` is what the site owner puts in a
+    # <meta> tag. Only a VERIFIED row can ever be matched by another company's
+    # "request to connect" — and only one company can hold a given verified
+    # domain (the partial unique index below is the safety net for the check
+    # in code). `discoverable` is the company's own choice to be findable.
+    org_domains = Table(
+        "org_domains", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("org_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, unique=True),
+        Column("domain", Text, nullable=False),
+        Column("token", Text, nullable=False),
+        Column("status", Text, nullable=False, server_default="pending"),   # pending | verified
+        Column("method", Text),                                              # meta_tag | search_console
+        Column("discoverable", Boolean, nullable=False, server_default="1"),
+        Column("verified_at", DateTime(timezone=True)),
+        Column("verified_by", Integer),
+        Column("last_checked_at", DateTime(timezone=True)),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Index("ix_org_domains_domain", "domain"),
+        Index("uq_org_domains_verified", "domain", unique=True,
+              postgresql_where=text("status = 'verified'"), sqlite_where=text("status = 'verified'")),
     )
 
     # Billing-v2 budgets: a cap, in credits, on what one COMPANY may spend from
@@ -478,11 +511,20 @@ def _get_tables():
         Column("target_email", Text, nullable=False),          # lower-cased
         Column("note", Text),
         Column("status", Text, nullable=False, server_default="pending"),   # pending|approved|declined|cancelled
-        Column("target_org_id", Integer),                       # set on approval
+        Column("target_org_id", Integer),                       # email: set on approval; website: the company it is addressed to
         Column("resolved_by", Integer),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("expires_at", DateTime(timezone=True), nullable=False),
         Column("resolved_at", DateTime(timezone=True)),
+        # 'email' (asked a person) | 'website' (asked whoever owns the company
+        # that verified `target_domain`). A website request is addressed to a
+        # COMPANY, never to a visible person: target_email holds a placeholder
+        # ('website:<domain>', which no real address can equal) and the
+        # requester is never shown the company's name, owners or id until it
+        # approves. target_org_id is set at creation for these, on approval for
+        # email requests.
+        Column("via", Text, nullable=False, server_default="email"),
+        Column("target_domain", Text),
         Index("ix_credit_link_requests_email", "target_email"),
     )
 
@@ -499,6 +541,7 @@ def _get_tables():
         "credit_budgets": credit_budgets,
         "credit_member_budgets": credit_member_budgets,
         "credit_link_requests": credit_link_requests,
+        "org_domains": org_domains,
     }
     return _tables
 
@@ -522,7 +565,7 @@ def init_schema():
         tables["oauth_connections"], tables["project_connection_selections"],
         tables["orders"], tables["invoices"],
         tables["api_keys"], tables["credit_budgets"], tables["credit_member_budgets"],
-        tables["credit_link_requests"],
+        tables["credit_link_requests"], tables["org_domains"],
     ])
     _ensure_invoice_sequence(engine)
 
@@ -575,6 +618,10 @@ _MIGRATIONS = [
     ("customer_uploads", "org_id", "INTEGER"),
     ("customer_locations", "org_id", "INTEGER"),
     ("oauth_connections", "org_id", "INTEGER"),
+    # Billing-v2 round 4 (company-attributed API keys; website requests).
+    ("api_keys", "org_id", "INTEGER"),
+    ("credit_link_requests", "via", "TEXT DEFAULT 'email'"),
+    ("credit_link_requests", "target_domain", "TEXT"),
     # Phase E3/E2 — additive, nothing reads these until the functions below ship.
     ("projects", "archived_at", "TIMESTAMP"),
     ("projects", "share_token", "TEXT"),
@@ -1773,11 +1820,332 @@ def create_link_request(actor_user_id, payer_org_id, target_email, note=None):
     return {"status": "sent", "request_id": request_id}
 
 
+# ── Website verification ─────────────────────────────────────────────────────
+# A company says it has a website (organizations.website_url). Until it PROVES
+# it controls that site, the claim means nothing: an unverified entry is only
+# "verification pending" and can never be matched by anyone. Once verified, the
+# company may be found by a paying company that types the same website and asks
+# to connect — the request still needs the owner's approval (never auto-linked).
+DOMAIN_CHECK_MIN_INTERVAL = 10          # seconds between checks of one company's site
+WEBSITE_LOOKUPS_PER_DAY = 30            # "is there a company with this website?" probes per person per day
+_LOOKUP_ACTION = "website_lookup"
+
+
+def _org_admin_error(conn, actor_user_id, org_id):
+    role = _role_in(conn, org_id, actor_user_id)
+    if role is None:
+        return {"error": "not_found"}
+    return None if role in ("owner", "admin") else {"error": "forbidden"}
+
+
+def _domain_of(conn, org_id):
+    """(website_url, normalised domain or None) for a company."""
+    import _site_verify
+    orgs = _get_tables()["organizations"]
+    from sqlalchemy import select
+    url = conn.execute(select(orgs.c.website_url).where(orgs.c.id == org_id)).scalar()
+    return url, (_site_verify.normalize_domain(url) if url else None)
+
+
+def _domain_row(conn, org_id):
+    if not _has_budget_table(conn, "org_domains"):
+        return None
+    t = _get_tables()["org_domains"]
+    from sqlalchemy import select
+    return conn.execute(select(t).where(t.c.org_id == org_id)).mappings().first()
+
+
+def _domain_view(conn, org_id, role):
+    import _site_verify
+    url, domain = _domain_of(conn, org_id)
+    row = _domain_row(conn, org_id)
+    if row is not None and row["domain"] != domain:
+        row = None                      # the website changed under a stale row; it counts for nothing
+    can_manage = role in ("owner", "admin")
+    out = {
+        "org_id": org_id, "website": url, "domain": domain,
+        "invalid_website": bool(url) and domain is None,
+        "status": "none" if row is None else row["status"],
+        "method": row["method"] if row is not None and row["status"] == "verified" else None,
+        "verified_at": _ensure_aware(row["verified_at"]).isoformat() if row is not None and row["verified_at"] else None,
+        "discoverable": bool(row["discoverable"]) if row is not None else True,
+        "can_manage": can_manage,
+    }
+    if can_manage and row is not None:
+        out["token"] = row["token"]
+        out["tag"] = _site_verify.tag_snippet(row["token"])
+    return out
+
+
+def get_domain_verification(actor_user_id, org_id):
+    """Any member sees the status; only owners/admins see the token."""
+    engine = _require_engine()
+    with engine.connect() as conn:
+        role = _role_in(conn, org_id, actor_user_id)
+        if role is None:
+            return {"error": "not_found"}
+        return _domain_view(conn, org_id, role)
+
+
+def start_domain_verification(actor_user_id, org_id):
+    """Create (or keep) the pending verification for the company's current
+    website and hand back the tag to put in its <head>. Idempotent: the same
+    website keeps its token; a different one gets a fresh token."""
+    import _site_verify
+    engine = _require_engine()
+    t = _get_tables()["org_domains"]
+    with engine.begin() as conn:
+        err = _org_admin_error(conn, actor_user_id, org_id)
+        if err:
+            return err
+        url, domain = _domain_of(conn, org_id)
+        if not url:
+            return {"error": "no_website"}
+        if domain is None:
+            return {"error": "invalid_website"}
+        row = _domain_row(conn, org_id)
+        if row is None or row["domain"] != domain:
+            if row is not None:
+                conn.execute(t.delete().where(t.c.org_id == org_id))
+            conn.execute(t.insert().values(
+                org_id=org_id, domain=domain, token=_site_verify.new_token(), status="pending",
+                discoverable=True, created_at=_now()))
+        return _domain_view(conn, org_id, _role_in(conn, org_id, actor_user_id))
+
+
+def check_domain_verification(actor_user_id, org_id, meta_check=None, gsc_check=None):
+    """Run the checks now. `meta_check(domain, token) -> (ok, reason)` and
+    `gsc_check(org_id, domain) -> bool` are injectable (tests; the route supplies
+    the Search Console one). Result is the view plus `verified` (this call) and,
+    when it didn't pass, a plain-language `reason`."""
+    import _site_verify
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+    engine = _require_engine()
+    t = _get_tables()["org_domains"]
+    with engine.begin() as conn:
+        err = _org_admin_error(conn, actor_user_id, org_id)
+        if err:
+            return err
+        url, domain = _domain_of(conn, org_id)
+        row = _domain_row(conn, org_id)
+        if row is None or domain is None or row["domain"] != domain:
+            return {"error": "not_started"}
+        if row["status"] == "verified":
+            return dict(_domain_view(conn, org_id, _role_in(conn, org_id, actor_user_id)), verified=True)
+        last = _ensure_aware(row["last_checked_at"])
+        now = _now()
+        if last is not None and (now - last).total_seconds() < DOMAIN_CHECK_MIN_INTERVAL:
+            return {"error": "too_soon", "retry_after": int(DOMAIN_CHECK_MIN_INTERVAL - (now - last).total_seconds()) + 1}
+        # Stamped BEFORE the network call, in this transaction, so a second click
+        # (or a script hammering the button) is throttled even while the first is still running.
+        conn.execute(t.update().where(t.c.org_id == org_id).values(last_checked_at=now))
+        token = row["token"]
+    method, reason = None, None
+    ok, reason = (meta_check or _site_verify.check_meta_tag)(domain, token)
+    if ok:
+        method = "meta_tag"
+    elif gsc_check is not None:
+        try:
+            if gsc_check(org_id, domain):
+                method, reason = "search_console", None
+        except Exception:
+            pass
+    try:
+        with engine.begin() as conn:
+            role = _role_in(conn, org_id, actor_user_id)
+            if method is None:
+                return dict(_domain_view(conn, org_id, role), verified=False, reason=reason)
+            # Re-read: the website may have changed while we were checking the old one.
+            _u, domain_now = _domain_of(conn, org_id)
+            if domain_now != domain:
+                return {"error": "website_changed"}
+            # Only said AFTER the caller proved control of the site, so this can't be used to
+            # learn who else is on PaisaMap: another company already holds this verified domain.
+            if conn.execute(select(t.c.id).where(t.c.domain == domain, t.c.status == "verified",
+                                                 t.c.org_id != org_id)).first() is not None:
+                return {"error": "domain_taken"}
+            conn.execute(t.update().where(t.c.org_id == org_id, t.c.domain == domain).values(
+                status="verified", method=method, verified_at=_now(), verified_by=actor_user_id))
+            log_activity(actor_user_id, "website_verified", "organization", org_id,
+                         {"domain": domain, "method": method}, conn=conn)
+            return dict(_domain_view(conn, org_id, role), verified=True)
+    except IntegrityError:
+        return {"error": "domain_taken"}         # two companies proved the same domain at once; the index let one through
+
+
+def set_domain_discoverable(actor_user_id, org_id, value):
+    """Whether paying companies may find this company by its (verified) website."""
+    if not isinstance(value, bool):
+        return {"error": "invalid_value"}
+    engine = _require_engine()
+    t = _get_tables()["org_domains"]
+    with engine.begin() as conn:
+        err = _org_admin_error(conn, actor_user_id, org_id)
+        if err:
+            return err
+        if _domain_row(conn, org_id) is None:
+            return {"error": "not_started"}
+        conn.execute(t.update().where(t.c.org_id == org_id).values(discoverable=value))
+        return _domain_view(conn, org_id, _role_in(conn, org_id, actor_user_id))
+
+
+def remove_domain_verification(actor_user_id, org_id):
+    engine = _require_engine()
+    t = _get_tables()["org_domains"]
+    with engine.begin() as conn:
+        err = _org_admin_error(conn, actor_user_id, org_id)
+        if err:
+            return err
+        if _has_budget_table(conn, "org_domains"):
+            conn.execute(t.delete().where(t.c.org_id == org_id))
+        return _domain_view(conn, org_id, _role_in(conn, org_id, actor_user_id))
+
+
+def _forget_stale_verification(conn, org_id, new_url):
+    """The website was edited: a verification only ever covers the domain it
+    proved, so a different domain (or none) drops it and the company must prove
+    the new one."""
+    import _site_verify
+    if not _has_budget_table(conn, "org_domains"):
+        return
+    t = _get_tables()["org_domains"]
+    new_domain = _site_verify.normalize_domain(new_url) if new_url else None
+    row = _domain_row(conn, org_id)
+    if row is not None and row["domain"] != new_domain:
+        conn.execute(t.delete().where(t.c.org_id == org_id))
+
+
+def _lookup_allowed(conn, actor_user_id):
+    """Record one 'is there a company with this website?' probe and say whether
+    the person is still within today's allowance."""
+    log = _get_tables()["activity_log"]
+    from sqlalchemy import select, func
+    used = conn.execute(select(func.count()).select_from(log).where(
+        log.c.user_id == actor_user_id, log.c.action == _LOOKUP_ACTION,
+        log.c.created_at > _now() - timedelta(days=1))).scalar() or 0
+    if used >= WEBSITE_LOOKUPS_PER_DAY:
+        return False
+    log_activity(actor_user_id, _LOOKUP_ACTION, conn=conn)
+    return True
+
+
+def _company_for_website(conn, payer_org_id, domain):
+    """The company a paying company may ask to connect to via `domain`, or None:
+    it must hold this domain VERIFIED and have chosen to be findable, must not be
+    the payer itself, and must be linkable at all (nobody pays for it, it pays
+    for nobody). Never distinguishes 'no such company' from 'not eligible'."""
+    if not _has_budget_table(conn, "org_domains"):
+        return None
+    tables = _get_tables()
+    t, orgs = tables["org_domains"], tables["organizations"]
+    from sqlalchemy import select, func
+    row = conn.execute(select(t.c.org_id).where(
+        t.c.domain == domain, t.c.status == "verified", t.c.discoverable.is_(True))).first()
+    if row is None or row.org_id == payer_org_id:
+        return None
+    org = conn.execute(select(orgs.c.id, orgs.c.billing_org_id).where(orgs.c.id == row.org_id)).first()
+    if org is None or org.billing_org_id is not None:
+        return None
+    if conn.execute(select(func.count()).select_from(orgs).where(orgs.c.billing_org_id == org.id)).scalar():
+        return None
+    return org.id
+
+
+def find_company_by_website(actor_user_id, payer_org_id, website):
+    """Would a request to this website reach a verified company? The answer is
+    only yes/no — never a name, an owner, an id or an email — and it is
+    rate-limited per person, so it can't be used to list who uses PaisaMap."""
+    import _site_verify
+    engine = _require_engine()
+    with engine.begin() as conn:
+        err = _org_admin_error(conn, actor_user_id, payer_org_id)
+        if err:
+            return err
+        domain = _site_verify.normalize_domain(website)
+        if domain is None:
+            return {"error": "invalid_website"}
+        if not _lookup_allowed(conn, actor_user_id):
+            return {"error": "rate_limited"}
+        return {"found": _company_for_website(conn, payer_org_id, domain) is not None, "domain": domain}
+
+
+def create_website_link_request(actor_user_id, payer_org_id, website, note=None):
+    """Ask the company that verified this website to let `payer_org_id` pay for
+    it. Addressed to the COMPANY: whoever owns it can answer, and the requester
+    is told nothing about who that is. Same caps as an emailed request, and it
+    counts as a lookup (so this can't be used to probe around the lookup limit).
+    Returns {"status": "sent", "request_id": n}, or {"error": "no_match"}."""
+    import _site_verify
+    err = _payer_admin_error(actor_user_id, payer_org_id)
+    if err:
+        return err
+    domain = _site_verify.normalize_domain(website)
+    if domain is None:
+        return {"error": "invalid_website"}
+    note = _clean_note(note)
+    engine = _require_engine()
+    tables = _get_tables()
+    reqs = tables["credit_link_requests"]
+    from sqlalchemy import select, func
+    now = _now()
+    notices = []
+    with engine.begin() as conn:
+        if _payer_org_id(conn, payer_org_id) != payer_org_id:
+            return {"error": "payer_has_payer"}
+        if not _lookup_allowed(conn, actor_user_id):
+            return {"error": "rate_limited"}
+        target = _company_for_website(conn, payer_org_id, domain)
+        if target is None:
+            return {"error": "no_match"}
+        placeholder = "website:" + domain           # no real address can equal this (no '@')
+        existing = conn.execute(select(reqs.c.id).where(
+            reqs.c.payer_org_id == payer_org_id, reqs.c.target_email == placeholder, reqs.c.status == "pending")).first()
+        if existing is None:
+            open_n = conn.execute(select(func.count()).select_from(reqs).where(
+                reqs.c.payer_org_id == payer_org_id, reqs.c.status == "pending", reqs.c.expires_at > now)).scalar() or 0
+            if open_n >= LINK_REQUEST_MAX_PENDING:
+                return {"error": "too_many_pending"}
+            day_n = conn.execute(select(func.count()).select_from(reqs).where(
+                reqs.c.payer_org_id == payer_org_id, reqs.c.created_at > now - timedelta(days=1))).scalar() or 0
+            if day_n >= LINK_REQUEST_MAX_PER_DAY:
+                return {"error": "rate_limited"}
+        values = dict(requested_by=actor_user_id, note=note, expires_at=now + timedelta(days=LINK_REQUEST_TTL_DAYS),
+                      via="website", target_domain=domain, target_org_id=target)
+        if existing is not None:
+            conn.execute(reqs.update().where(reqs.c.id == existing.id).values(**values))
+            request_id = existing.id
+        else:
+            request_id = conn.execute(reqs.insert().values(
+                payer_org_id=payer_org_id, target_email=placeholder, status="pending", created_at=now, **values)
+            ).inserted_primary_key[0]
+        actor = conn.execute(select(tables["users"].c.name, tables["users"].c.email)
+                             .where(tables["users"].c.id == actor_user_id)).first()
+        payer_name = _org_name(conn, payer_org_id)
+        # Only the company's OWNERS are asked (they alone can approve), and they
+        # are people who already have accounts — nothing is ever mailed to a stranger.
+        members, users = tables["org_members"], tables["users"]
+        for (email,) in conn.execute(select(users.c.email).select_from(members.join(users, users.c.id == members.c.user_id))
+                                     .where(members.c.org_id == target, members.c.role == "owner")).all():
+            if email:
+                notices.append(dict(to=email.strip(), kind="requested", payer_name=payer_name,
+                                    company_name=_org_name(conn, target),
+                                    actor_name=(actor.name or actor.email) if actor else None, note=note))
+    _dispatch_link_notices(notices)
+    return {"status": "sent", "request_id": request_id}
+
+
 def _request_dict(row, payer_name=None, requester=None):
+    website = (row["via"] or "email") == "website"
     return {
         "id": row["id"], "payer_org_id": row["payer_org_id"], "payer_name": payer_name,
-        "requested_by_name": requester, "target_email": row["target_email"], "note": row["note"],
-        "status": row["status"], "target_org_id": row["target_org_id"],
+        "requested_by_name": requester, "note": row["note"],
+        "via": "website" if website else "email", "target_domain": row["target_domain"],
+        # A website request is addressed to a COMPANY the requester was never told
+        # about: no email, and no company id until it has been approved.
+        "target_email": None if website else row["target_email"],
+        "status": row["status"],
+        "target_org_id": None if (website and row["status"] != "approved") else row["target_org_id"],
         "created_at": _ensure_aware(row["created_at"]).isoformat(),
         "expires_at": _ensure_aware(row["expires_at"]).isoformat(),
         "resolved_at": _ensure_aware(row["resolved_at"]).isoformat() if row["resolved_at"] else None,
@@ -1795,12 +2163,16 @@ def list_incoming_link_requests(user_id):
     tables = _get_tables()
     reqs, orgs, members, users, ledger = (tables["credit_link_requests"], tables["organizations"],
                                           tables["org_members"], tables["users"], tables["credits_ledger"])
-    from sqlalchemy import select, func
+    from sqlalchemy import select, func, or_, and_
     now = _now()
     email = (user["email"] or "").strip().lower()
     with engine.connect() as conn:
+        owned_ids = [r[0] for r in conn.execute(
+            select(members.c.org_id).where(members.c.user_id == user_id, members.c.role == "owner")).all()]
         rows = conn.execute(select(reqs).where(
-            func.lower(reqs.c.target_email) == email, reqs.c.status == "pending", reqs.c.expires_at > now)
+            or_(func.lower(reqs.c.target_email) == email,
+                and_(reqs.c.via == "website", reqs.c.target_org_id.in_(owned_ids or [-1]))),
+            reqs.c.status == "pending", reqs.c.expires_at > now)
             .order_by(reqs.c.created_at.desc())).mappings().all()
         if not rows:
             return {"requests": []}
@@ -1820,7 +2192,8 @@ def list_incoming_link_requests(user_id):
         for r in rows:
             requester = conn.execute(select(users.c.name, users.c.email).where(users.c.id == r["requested_by"])).first()
             d = _request_dict(r, _org_name(conn, r["payer_org_id"]), (requester.name or requester.email) if requester else None)
-            d["companies"] = [c for c in eligible if c["org_id"] != r["payer_org_id"]]
+            d["companies"] = [c for c in eligible if c["org_id"] != r["payer_org_id"]
+                              and ((r["via"] or "email") != "website" or c["org_id"] == r["target_org_id"])]
             out.append(d)
     return {"requests": out}
 
@@ -1833,7 +2206,12 @@ def _own_pending_request(conn, user_id, request_id):
     user_email = (get_user(user_id) or {}).get("email") or ""
     row = conn.execute(select(reqs).where(reqs.c.id == request_id).with_for_update()
                        if conn.dialect.name == "postgresql" else select(reqs).where(reqs.c.id == request_id)).mappings().first()
-    if row is None or row["status"] != "pending" or (row["target_email"] or "").lower() != user_email.strip().lower():
+    if row is None or row["status"] != "pending":
+        return None, {"error": "not_found"}
+    if (row["via"] or "email") == "website":
+        if row["target_org_id"] is None or _role_in(conn, row["target_org_id"], user_id) != "owner":
+            return None, {"error": "not_found"}
+    elif (row["target_email"] or "").lower() != user_email.strip().lower():
         return None, {"error": "not_found"}
     if _ensure_aware(row["expires_at"]) <= _now():
         return None, {"error": "expired"}
@@ -1859,6 +2237,15 @@ def approve_link_request(user_id, request_id, target_org_id):
             return {"error": "not_found"}
         if role != "owner":
             return {"error": "forbidden"}
+        if (row["via"] or "email") == "website":
+            if target_org_id != row["target_org_id"]:
+                return {"error": "invalid_company"}       # it was addressed to one specific company
+            dom = _domain_row(conn, target_org_id)
+            if dom is None or dom["status"] != "verified" or dom["domain"] != row["target_domain"]:
+                # The company no longer holds that verified website — what the requester
+                # asked for isn't true any more, so the request lapses.
+                conn.execute(reqs.update().where(reqs.c.id == request_id).values(status="cancelled", resolved_at=_now()))
+                return {"error": "request_invalid"}
         if _role_in(conn, row["payer_org_id"], row["requested_by"]) not in ("owner", "admin"):
             conn.execute(reqs.update().where(reqs.c.id == request_id).values(status="cancelled", resolved_at=_now()))
             return {"error": "request_invalid"}
@@ -1928,7 +2315,7 @@ def list_outgoing_link_requests(actor_user_id, payer_org_id):
             d = _request_dict(r)
             if r["status"] == "pending" and _ensure_aware(r["expires_at"]) <= now:
                 d["status"] = "expired"
-            d["target_org_name"] = _org_name(conn, r["target_org_id"]) if r["target_org_id"] else None
+            d["target_org_name"] = _org_name(conn, d["target_org_id"]) if d["target_org_id"] else None
             out.append(d)
     return {"requests": out}
 
@@ -2151,9 +2538,11 @@ def get_effective_plan_for_user(user_id):
     """The plan that gates a user's features. user scope: users.plan, exactly
     as before. wallet scope: the BEST of their own plan and the plan of every
     paying company they belong to (a seat in a paid company comes with its
-    plan) — it can only raise a user's plan, never lower it. Only legacy plan
-    ids ('free'/'pro'/'team') count here; anything else (a v2 id, junk) is
-    ignored, fail-closed, until v2 enforcement exists."""
+    plan) — it can only raise a user's plan, never lower it. A company plan may
+    be a legacy id ('free'/'pro'/'team') or a v2 tier id ('v2_growth', ...);
+    anything else is junk and ignored, fail-closed. Returns a plan id in EITHER
+    vocabulary — go through _pricing.entitlements()/compat_plan(), never compare
+    the string."""
     import _pricing
     user = get_user(user_id)
     own = user["plan"] if user else "free"
@@ -2171,9 +2560,8 @@ def get_effective_plan_for_user(user_id):
             .where(members.c.user_id == user_id)).all()
         for payer in {r.billing_org_id or r.id for r in rows}:
             plan = conn.execute(select(orgs.c.plan).where(orgs.c.id == payer)).scalar()
-            if _pricing.parse_plan(plan)[0] in ("free", "legacy") and \
-                    _pricing.plan_rank(plan) > _pricing.plan_rank(best):
-                best = plan
+            if _pricing.parse_plan(plan)[0] != "unknown":
+                best = _pricing.best_plan(best, plan)
     return best
 
 
@@ -2192,7 +2580,14 @@ def plan_org_parity():
             select(users.c.id, users.c.plan, orgs.c.id.label("org_id"), orgs.c.plan.label("org_plan"))
             .select_from(users.join(orgs, orgs.c.id == users.c.org_id))
             .where(orgs.c.owner_user_id == users.c.id, users.c.plan != orgs.c.plan)).all()
-    return [{"user_id": r.id, "user_plan": r.plan, "org_id": r.org_id, "org_plan": r.org_plan} for r in rows]
+    import _pricing
+    # A company already mapped onto a v2 tier that gives everything the owner's
+    # own plan does is the INTENDED end state (not a disagreement) — only a
+    # company plan that gives less is a real gap.
+    return [{"user_id": r.id, "user_plan": r.plan, "org_id": r.org_id, "org_plan": r.org_plan}
+            for r in rows
+            if not (_pricing.parse_plan(r.org_plan)[0] == "v2"
+                    and _pricing.plan_strength(r.org_plan) >= _pricing.plan_strength(r.plan))]
 
 
 def wallet_mode_preflight():
@@ -2243,6 +2638,7 @@ def set_user_plan(user_id, plan):
     tables = _get_tables()
     users = tables["users"]
     orgs = tables["organizations"]
+    from sqlalchemy import select
     with engine.begin() as conn:
         conn.execute(users.update().where(users.c.id == user_id).values(plan=plan))
         # Billing-v2 stage 2a dual-write: keep the caller's OWN company's plan
@@ -2252,9 +2648,16 @@ def set_user_plan(user_id, plan):
         # enforced value; nothing reads organizations.plan yet.
         org_id = _primary_org_id(conn, user_id)
         if org_id is not None:
-            conn.execute(orgs.update()
-                         .where(orgs.c.id == org_id, orgs.c.owner_user_id == user_id)
-                         .values(plan=plan))
+            import _pricing
+            # Never overwrite a v2 tier with a legacy plan: once an account has
+            # been mapped onto a v2 tier (plan_mapping), a later legacy purchase
+            # must not quietly replace it. The effective plan is the best of the
+            # two, so the buyer still gets what they paid for.
+            current = conn.execute(select(orgs.c.plan).where(orgs.c.id == org_id)).scalar()
+            if _pricing.parse_plan(current)[0] != "v2":
+                conn.execute(orgs.update()
+                             .where(orgs.c.id == org_id, orgs.c.owner_user_id == user_id)
+                             .values(plan=plan))
     return get_user(user_id)
 
 
@@ -2636,6 +3039,8 @@ def update_organization(org_id, user_id, **fields):
     tables = _get_tables()
     orgs = tables["organizations"]
     with engine.begin() as conn:
+        if "website_url" in allowed:
+            _forget_stale_verification(conn, org_id, allowed["website_url"])
         conn.execute(orgs.update().where(orgs.c.id == org_id).values(**allowed))
     return get_organization(org_id, user_id)
 
@@ -2659,6 +3064,15 @@ def delete_organization(org_id, user_id):
         if _has_budget_table(conn, "credit_link_requests"):
             conn.execute(tables["credit_link_requests"].delete().where(
                 tables["credit_link_requests"].c.payer_org_id == org_id))
+        if _has_budget_table(conn, "org_domains"):
+            conn.execute(tables["org_domains"].delete().where(tables["org_domains"].c.org_id == org_id))
+        if _has_budget_table(conn, "credit_link_requests"):
+            reqs_t = tables["credit_link_requests"]
+            conn.execute(reqs_t.update().where(reqs_t.c.target_org_id == org_id, reqs_t.c.status == "pending")
+                         .values(status="cancelled", resolved_at=_now()))
+        conn.execute(tables["api_keys"].update().where(
+            tables["api_keys"].c.org_id == org_id, tables["api_keys"].c.revoked_at.is_(None)
+        ).values(revoked_at=_now()))
         result = conn.execute(orgs.delete().where(orgs.c.id == org_id))
     return result.rowcount > 0
 
@@ -2784,6 +3198,7 @@ def remove_org_member(org_id, actor_user_id, target_user_id):
         conn.execute(
             members.delete().where(members.c.org_id == org_id, members.c.user_id == target_user_id)
         )
+        _revoke_member_api_keys(conn, org_id, target_user_id)
     return {"status": "ok"}
 
 
@@ -3538,7 +3953,7 @@ def list_activity(user_id, limit=50):
     from sqlalchemy import select
     with engine.connect() as conn:
         rows = conn.execute(
-            select(log).where(log.c.user_id == user_id)
+            select(log).where(log.c.user_id == user_id, log.c.action != _LOOKUP_ACTION)
             .order_by(log.c.id.desc()).limit(limit)
         ).mappings().all()
     return [dict(r) for r in rows]
@@ -4171,6 +4586,19 @@ def list_org_connections(project_id, user_id, provider=None):
     return [dict(r) for r in rows]
 
 
+def list_org_search_console_connections(org_id):
+    """A company's connected Search Console accounts WITH their encrypted tokens —
+    for server-side use only (website verification); never returned to a client."""
+    engine = _require_engine()
+    conns = _get_tables()["oauth_connections"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        rows = conn.execute(select(conns).where(
+            conns.c.org_id == org_id, conns.c.provider == "search_console",
+            conns.c.status == "connected")).mappings().all()
+    return [dict(r) for r in rows]
+
+
 def select_org_connection_for_project(project_id, user_id, provider, oauth_connection_id):
     """Points this project at an existing connection from its company's pool
     instead of its own. Refuses (returns None) if the connection isn't
@@ -4327,15 +4755,43 @@ def backfill_connection_selections():
 
 
 # ── API keys (Track 1 — B2B data-API product) ───────────────────────────────
-def create_api_key(user_id, key_hash, key_prefix, label=None):
+# Billing-v2: every key belongs to a COMPANY (api_keys.org_id) as well as to the
+# person who made it. Its company's owners/admins — and those of the company
+# that pays for it — can see it, its usage and revoke it; capacity is counted
+# per company (_ops.check); and it stops working the moment its owner leaves the
+# company. API access itself stays a plan entitlement, not per-call credits.
+def resolve_api_key_company(user_id, org_id=None):
+    """(org_id, error) — the company a new key will belong to: the one asked
+    for if the user is a member of it, else their primary company. A company
+    the user isn't in is not_found (never a hint that it exists)."""
+    engine = _require_engine()
+    with engine.connect() as conn:
+        if org_id is None:
+            org_id = _primary_org_id(conn, user_id)
+            if org_id is None:
+                return None, {"error": "no_company"}
+        elif not isinstance(org_id, int) or isinstance(org_id, bool):
+            return None, {"error": "invalid_company"}
+        if _role_in(conn, org_id, user_id) is None:
+            return None, {"error": "not_found"}
+    return org_id, None
+
+
+def create_api_key(user_id, key_hash, key_prefix, label=None, org_id=None):
+    """Callers resolve the company first (resolve_api_key_company); with none
+    given it is the user's primary company. A user with no company yet (only
+    possible on a database that predates companies) gets a company-less key,
+    which behaves exactly as keys always did."""
     engine = _require_engine()
     tables = _get_tables()
     keys = tables["api_keys"]
     with engine.begin() as conn:
+        if org_id is None:
+            org_id = _primary_org_id(conn, user_id)
         result = conn.execute(
             keys.insert().values(
                 user_id=user_id, key_hash=key_hash, key_prefix=key_prefix, label=label,
-                created_at=_now(), usage_count_today=0,
+                org_id=org_id, created_at=_now(), usage_count_today=0,
             )
         )
         new_id = result.inserted_primary_key[0]
@@ -4351,15 +4807,17 @@ def get_api_key(key_id, user_id):
         row = conn.execute(
             select(keys).where(keys.c.id == key_id, keys.c.user_id == user_id)
         ).mappings().first()
-    if not row:
-        return None
-    d = dict(row)
+        if not row:
+            return None
+        d = dict(row)
+        d["org_name"] = _org_name(conn, d["org_id"]) if d.get("org_id") is not None else None
     d.pop("key_hash", None)  # never returned past this module — see list_api_keys
     return d
 
 
 def list_api_keys(user_id):
-    """Never includes key_hash — the raw key is shown exactly once at creation
+    """The caller's OWN keys, across all their companies. Never includes
+    key_hash — the raw key is shown exactly once at creation
     (blueprints/api_keys.py) and isn't recoverable after that; every response
     from this module strips it, same convention as
     analytics_connections.py's _connection_public() for OAuth tokens."""
@@ -4371,37 +4829,136 @@ def list_api_keys(user_id):
         rows = conn.execute(
             select(keys).where(keys.c.user_id == user_id).order_by(keys.c.created_at.desc())
         ).mappings().all()
-    out = []
-    for r in rows:
-        d = dict(r)
-        d.pop("key_hash", None)
-        out.append(d)
+        names = {}
+        out = []
+        for r in rows:
+            d = dict(r)
+            d.pop("key_hash", None)
+            oid = d.get("org_id")
+            if oid is not None:
+                if oid not in names:
+                    names[oid] = _org_name(conn, oid)
+                d["org_name"] = names[oid]
+            else:
+                d["org_name"] = None
+            out.append(d)
     return out
+
+
+def _api_key_admin_error(conn, actor_user_id, org_id):
+    """None if the actor may administer this company's keys: an owner/admin of
+    the company itself, or of the company that pays for it (the payer carries
+    the cost, so it may see and revoke — never read a key, only its prefix)."""
+    orgs = _get_tables()["organizations"]
+    from sqlalchemy import select
+    if _role_in(conn, org_id, actor_user_id) in ("owner", "admin"):
+        return None
+    payer = conn.execute(select(orgs.c.billing_org_id).where(orgs.c.id == org_id)).scalar()
+    if payer is not None and _role_in(conn, payer, actor_user_id) in ("owner", "admin"):
+        return None
+    if _role_in(conn, org_id, actor_user_id) is not None:
+        return {"error": "forbidden"}
+    if payer is not None and _role_in(conn, payer, actor_user_id) is not None:
+        return {"error": "forbidden"}
+    return {"error": "not_found"}
+
+
+def list_company_api_keys(actor_user_id, org_id):
+    """Every key attributed to this company, with who made it, its usage and
+    whether its owner is still a member — for the company's admins (and its
+    payer's). `usage_today` is the company total that capacity is counted on."""
+    engine = _require_engine()
+    tables = _get_tables()
+    keys, users, members = tables["api_keys"], tables["users"], tables["org_members"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        err = _api_key_admin_error(conn, actor_user_id, org_id)
+        if err:
+            return err
+        rows = conn.execute(
+            select(keys, users.c.name.label("owner_name"), users.c.email.label("owner_email"))
+            .select_from(keys.join(users, users.c.id == keys.c.user_id))
+            .where(keys.c.org_id == org_id).order_by(keys.c.created_at.desc())).mappings().all()
+        today = _now().date()
+        out, total = [], 0
+        for r in rows:
+            d = dict(r)
+            d.pop("key_hash", None)
+            d["owner_is_member"] = _role_in(conn, org_id, d["user_id"]) is not None
+            # The daily counter is only meaningful for today (it rolls over on the
+            # key's next use, so a key idle since yesterday still holds yesterday's).
+            used_today = d["usage_count_today"] if d["usage_reset_at"] == today else 0
+            d["usage_today"] = used_today
+            if d["revoked_at"] is None and d["owner_is_member"]:
+                total += used_today
+            out.append(d)
+        return {"org_id": org_id, "org_name": _org_name(conn, org_id), "keys": out, "usage_today": total}
+
+
+def revoke_company_api_key(actor_user_id, org_id, key_id):
+    """An admin of the company (or its payer) revokes any key attributed to it."""
+    engine = _require_engine()
+    keys = _get_tables()["api_keys"]
+    with engine.begin() as conn:
+        err = _api_key_admin_error(conn, actor_user_id, org_id)
+        if err:
+            return err
+        done = conn.execute(keys.update().where(
+            keys.c.id == key_id, keys.c.org_id == org_id, keys.c.revoked_at.is_(None)
+        ).values(revoked_at=_now()))
+        if not done.rowcount:
+            return {"error": "not_found"}
+        log_activity(actor_user_id, "api_key_revoked", "api_key", key_id, {"org_id": org_id, "by": "admin"}, conn=conn)
+    return {"status": "ok"}
+
+
+def _revoke_member_api_keys(conn, org_id, user_id):
+    """Revoke a person's keys for one company — used when they leave it, so the
+    key can't come back to life if they are re-added later."""
+    keys = _get_tables()["api_keys"]
+    conn.execute(keys.update().where(
+        keys.c.org_id == org_id, keys.c.user_id == user_id, keys.c.revoked_at.is_(None)
+    ).values(revoked_at=_now()))
 
 
 def get_api_key_by_hash(key_hash):
     """Auth lookup for an incoming request (see _api_keys.py's resolve()).
     Resolves to the key owner's LIVE plan, not a tier frozen on the key
     itself — a plan upgrade elevates every existing key immediately. Returns
-    None for an unknown or revoked key."""
+    None for an unknown or revoked key, or one whose owner is no longer a
+    member of the company it belongs to."""
     engine = _require_engine()
     tables = _get_tables()
     keys = tables["api_keys"]
     users = tables["users"]
     from sqlalchemy import select
+    from sqlalchemy.exc import DBAPIError
     with engine.connect() as conn:
-        row = conn.execute(
-            select(keys.c.id, keys.c.user_id)
-            .where(keys.c.key_hash == key_hash, keys.c.revoked_at.is_(None))
-        ).mappings().first()
+        try:
+            row = conn.execute(
+                select(keys.c.id, keys.c.user_id, keys.c.org_id)
+                .where(keys.c.key_hash == key_hash, keys.c.revoked_at.is_(None))
+            ).mappings().first()
+        except DBAPIError:
+            # api_keys.org_id doesn't exist yet on this database (the deploy
+            # reached the server before the column was added): keep every
+            # existing key working exactly as before rather than lock customers out.
+            conn.rollback()
+            row = conn.execute(
+                select(keys.c.id, keys.c.user_id)
+                .where(keys.c.key_hash == key_hash, keys.c.revoked_at.is_(None))
+            ).mappings().first()
+            row = dict(row, org_id=None) if row else None
         if not row:
             return None
         user = conn.execute(
             select(users.c.plan).where(users.c.id == row["user_id"])
         ).mappings().first()
-    if not user:
-        return None
-    return {"key_id": row["id"], "user_id": row["user_id"],
+        if not user:
+            return None
+        if row["org_id"] is not None and _role_in(conn, row["org_id"], row["user_id"]) is None:
+            return None
+    return {"key_id": row["id"], "user_id": row["user_id"], "org_id": row["org_id"],
             "plan": get_effective_plan_for_user(row["user_id"])}
 
 

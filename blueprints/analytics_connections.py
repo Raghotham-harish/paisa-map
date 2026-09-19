@@ -86,28 +86,37 @@ def _get_valid_access_token(project_id, provider, user_id):
     conn = _auth_db.get_connection_for_project(project_id, user_id, provider, include_tokens=True)
     if conn is None:
         return None, None
+    return _access_token_for_connection(conn), conn
+
+
+def _access_token_for_connection(conn):
+    """A usable access token for a connection row (with its encrypted tokens),
+    refreshed if needed, or None (and the connection marked errored) when it
+    can't be. The half of _get_valid_access_token that doesn't need a project,
+    so a company-level check (website verification) can use a company's
+    connection too."""
     now = datetime.now(timezone.utc)
     expiry = _ensure_aware(conn.get("token_expiry"))
     if expiry is not None and expiry > now + timedelta(seconds=60):
-        return _token_crypto.decrypt(conn["access_token_encrypted"]), conn
+        return _token_crypto.decrypt(conn["access_token_encrypted"])
 
     refresh_enc = conn.get("refresh_token_encrypted")
     if not refresh_enc:
         _auth_db.mark_oauth_connection_error(
             conn["id"], "Access token expired and no refresh token was stored — reconnect required."
         )
-        return None, conn
+        return None
     try:
         refresh_token = _token_crypto.decrypt(refresh_enc)
         token_resp = _google_oauth.refresh_access_token(refresh_token)
         access_token = token_resp["access_token"]
     except (GoogleOAuthError, KeyError) as e:
         _auth_db.mark_oauth_connection_error(conn["id"], str(e))
-        return None, conn
+        return None
 
     new_expiry = now + timedelta(seconds=token_resp.get("expires_in", 3600))
     _auth_db.mark_oauth_connection_tokens(conn["id"], _token_crypto.encrypt(access_token), new_expiry)
-    return access_token, conn
+    return access_token
 
 
 def get_project_digital_baseline(project_id, user_id):

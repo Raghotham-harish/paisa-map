@@ -115,7 +115,7 @@ export default function App() {
             )}
             <div className="user-info">
               <div className="user-name">{user.name || user.email}</div>
-              <span className={`pill plan-${user.plan}`}>{user.plan}</span>
+              <span className={`pill plan-${user.plan}`}>{user.tier_label ?? user.plan}</span>
             </div>
           </div>
           <a className="back" href="/">

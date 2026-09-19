@@ -139,7 +139,7 @@ export default function Dashboard() {
       <div className="stat-row">
         <Link className="stat-tile stat-tile-link" to="/billing">
           <div className="label">Plan</div>
-          <div className="value plan">{user.plan}</div>
+          <div className="value plan">{user.tier_label ?? user.plan}</div>
         </Link>
         <Link className="stat-tile stat-tile-link" to="/billing">
           <div className="label">Credits{wallet?.paid_by ? ` · paid by ${wallet.paid_by.name}` : ""}</div>

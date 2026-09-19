@@ -128,7 +128,18 @@ export default function Billing() {
       {error && <div style={{ color: "var(--flame)", fontSize: 12, marginBottom: 10 }}>{error}</div>}
 
       <p className="kicker" style={{ marginBottom: 10 }}>Plan</p>
-      {pricing && user && (
+      {/* An account on a price-book tier isn't on the legacy Pro/Team ladder below: offering it "Upgrade to Team
+          ₹2,999" would be both wrong and cheaper than the tier it holds. Its plan is set up with PaisaMap directly. */}
+      {pricing && user && user.tier?.startsWith("v2_") && (
+        <div className="card" style={{ borderColor: "var(--rupee)", marginBottom: 28 }} data-testid="v2-plan-card">
+          <p style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700 }}>{user.tier_label}</p>
+          <span className={`pill plan-${user.plan}`}>Current plan</span>
+          <p style={{ margin: "12px 0 0", fontSize: 13, color: "var(--ink-soft)" }}>
+            Your plan is set up with you directly by PaisaMap, so it can't be changed from this page.
+          </p>
+        </div>
+      )}
+      {pricing && user && !user.tier?.startsWith("v2_") && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 28 }}>
           {PLAN_ORDER.map((plan) => {
             const isCurrent = user.plan === plan;

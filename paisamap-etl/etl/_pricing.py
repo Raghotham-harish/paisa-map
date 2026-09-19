@@ -201,6 +201,67 @@ def is_dashboard_tier(plan_id: str) -> bool:
     return tier_rank(plan_id) >= TIER_ORDER.index("trial")
 
 
+# ── What a plan actually unlocks TODAY (the enforced surface) ────────────────
+# Only two things are gated by plan in the running product: the Pro signal
+# columns on /api/export (and in the map's Pro rows), and the raised rate limit
+# on an API key. Everything else is gated by credits, not plan. Both plan
+# vocabularies answer through here so no gate compares a raw plan string.
+#   legacy 'pro' / 'team'  -> both (exactly what they had before v2)
+#   v2 dashboard tiers     -> the Pro columns (a dashboard tier includes all 20
+#                             signals); the raised API limit only where the
+#                             tier's price-book row includes export_api
+#   free / unknown         -> neither (fail closed)
+def entitlements(plan_id) -> dict:
+    kind, name = parse_plan(plan_id)
+    if kind == "legacy":
+        return {"pro_columns": True, "api_elevated": True}
+    if kind == "v2":
+        return {"pro_columns": True, "api_elevated": TIERS[name]["export_api"] is not None}
+    return {"pro_columns": False, "api_elevated": False}
+
+
+def plan_strength(plan_id) -> tuple:
+    """Total order across both vocabularies, used to pick the BEST of several
+    plans and to prove a mapping never lowers anyone: more entitlements first,
+    then the higher tier."""
+    e = entitlements(plan_id)
+    return (int(e["pro_columns"]) + int(e["api_elevated"]), tier_rank(plan_id))
+
+
+def best_plan(*plans) -> str:
+    """The strongest of these plan ids (a v2 tier wins a tie against a legacy plan, else the first); 'free' if none."""
+    best = "free"
+    for p in plans:
+        gain, held = plan_strength(p), plan_strength(best)
+        # On a tie a v2 tier wins over a legacy plan, so an account that has been
+        # mapped (or bought a v2 tier) reads as its v2 tier everywhere.
+        if gain > held or (gain == held and parse_plan(p)[0] == "v2" and parse_plan(best)[0] != "v2"):
+            best = p
+    return best
+
+
+def compat_plan(plan_id) -> str:
+    """The plan as the pre-v2 surfaces understand it — 'free' | 'pro' | 'team' —
+    for /api/auth/me's `plan`, the map's Pro pill and require_plan(). A v2
+    tier from Scale up reads as 'team', any other dashboard tier as 'pro'."""
+    kind, name = parse_plan(plan_id)
+    if kind == "legacy":
+        return name
+    if kind == "v2":
+        return "team" if tier_rank(plan_id) >= TIER_ORDER.index("scale") else "pro"
+    return "free"
+
+
+def tier_label(plan_id) -> str:
+    """Human label for any plan id ('Growth', 'Pro (legacy)', 'Free')."""
+    kind, name = parse_plan(plan_id)
+    if kind == "v2":
+        return TIERS[name]["label"]
+    if kind == "legacy":
+        return f"{PLAN_PRICES[name]['label']} (legacy)"
+    return "Free"
+
+
 def annual_credits_per_month(tier: str) -> int:
     """Monthly credit grant on an annual term (+5%, rounded up). Takes a bare
     v2 tier name ('starter'), not a stored plan id."""

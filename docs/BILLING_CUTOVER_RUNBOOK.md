@@ -112,6 +112,64 @@ SSH "sudo grep -c '^SES_FROM_EMAIL=' /etc/paisamap/db.env"
 
 `1` means it is set, `0` means invite and alert emails are not being sent.
 
+## Step 5c — schema for company-attributed API keys and website verification  *(you; before or right after the deploy that carries them)*
+
+Round 4 adds: a company on every API key (`api_keys.org_id`), proof that a company owns its website
+(`org_domains` table) and requests addressed by website (`credit_link_requests.via` / `.target_domain`).
+
+**Recommended, BEFORE the push (so the API-keys page never errors in between):** three empty columns,
+harmless to the old code.
+
+```
+SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; exec /home/ubuntu/paisa-map/venv-flask/bin/python3 -'" < paisamap-etl/db/apply_billing_v2_round4_columns.py
+```
+
+**Good looks like:** three `added:` (or `already there:`) lines, then `OK — the round 4 columns are present`.
+
+**After the deploy:** the script creates the new table, gives every existing API key the company of the person
+who made it, and checks every column. Idempotent; only ever adds.
+
+```
+SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; cd /home/ubuntu/paisa-map; exec venv-flask/bin/python3 paisamap-etl/db/apply_billing_v2_round4.py'"
+```
+
+**Good looks like:** `created table: org_domains`, the `added column:` / `already there:` lines, one `api keys: N total, M still
+without a company` line, then `OK — company-attributed keys, website verification and website requests are ready`.
+A key whose maker has no company keeps working exactly as before (it just isn't in any company's admin view).
+
+If the deploy reaches the server before this step: every existing API key still authenticates (the lookup falls back to
+the old query), and the API-keys page and the Who-pays request list show an error until the columns exist.
+
+## Step 5d — map legacy accounts onto v2 tiers  *(you; the LAST step before the flip — nothing before it depends on this)*
+
+Sets `organizations.plan = v2_<tier>` on each company owned by an account that is on a legacy paid plan. It never touches
+`users.plan`, so it changes **nothing anyone can see until step 6**, and even then only raises an account. The default
+tier is the lowest that keeps everything the account can do today — **Growth** for both legacy `pro` and `team` (Growth is
+the lowest tier that keeps the raised API limit). Use `--override` for anything else, e.g. your own account.
+
+Look first (read-only; prints ids and tier names, never emails):
+
+```
+SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; cd /home/ubuntu/paisa-map; exec venv-flask/bin/python3 paisamap-etl/db/plan_mapping.py report --override YOUR_EMAIL=pro'"
+```
+
+Read the list. Anything under **BLOCKED** would give an account less than it has now — it is never written unless you add
+`--allow-downgrade`. Then write it (same flags plus `--yes`; without `--yes` it is only a preview):
+
+```
+SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; cd /home/ubuntu/paisa-map; exec venv-flask/bin/python3 paisamap-etl/db/plan_mapping.py apply --yes --override YOUR_EMAIL=pro'"
+```
+
+Undo (puts back exactly what `apply` changed; a company whose plan has changed since is left alone and listed):
+
+```
+SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; cd /home/ubuntu/paisa-map; exec venv-flask/bin/python3 paisamap-etl/db/plan_mapping.py rollback --yes'"
+```
+
+After `apply`, step 3's report (`billing_cutover.py report`) shows, under "plan now / plan after flip", exactly who changes and to what.
+While `BILLING_SCOPE` is unset, the Billing page still shows a mapped account the legacy plan cards (the mapping isn't read yet);
+once it is `wallet`, that account sees "Growth" and no upgrade buttons.
+
 ## Step 6 — flip the switch  *(you; I can't do this one — server settings edits are blocked for me)*
 
 ```
@@ -154,11 +212,10 @@ been spending from a shared wallet, prefer fixing forward.
   linked under your own wallet automatically. Until the button exists, linking
   an agency's client company is one database call that has to be run on the
   server (I can prepare the exact command; running it needs your approval).
-- **Your own plan** stays a hand-set `pro`, deliberately (the tier mapping is the
-  last step before go-live). One consequence: in wallet mode a teammate inherits
-  their *company's* plan, and your company's plan is still `free` (only your
-  personal plan is `pro`), so a teammate you invite would not inherit `pro`
-  until that mapping step sets the company's plan. It never lowers anyone.
+- **Your own plan** stays a hand-set `pro` until you run step 5d (the tier mapping is the last step before
+  go-live, and is built — see 5d). One consequence until then: in wallet mode a teammate inherits their *company's*
+  plan, and your company's plan is still `free` (only your personal plan is `pro`), so a teammate you invite would
+  not inherit `pro` until 5d sets the company's plan. It never lowers anyone.
 - **Done since first written:** the header, Dashboard and Billing page now follow
   the company selected in the switcher, and a client company's own staff no longer
   see the paying company's wallet balance (they see who pays instead).
@@ -188,10 +245,23 @@ been spending from a shared wallet, prefer fixing forward.
   holding credits of its own can't be linked until they're spent. The payer's **usage statement**
   shows credits spent per company, per person, per kind of action — never a project or location —
   and a client's own owner/admin sees the same for just their company.
-- **Not built yet:** alerts for personal allowances (banner only); domain verification and the
-  "a company with that website exists — request to connect?" suggestion (deliberately left out of the
-  request flow: it needs verification first, or it would reveal who uses PaisaMap); company-attributed
-  API keys; usage-statement export/PDF.
+- **Website verification + "request to connect" by website (built, round 4; step 5c).** A company lists a website
+  (Company settings) and proves it owns it: a `<meta name="paisamap-site-verification">` tag in its home page's head, or
+  a Google Search Console account already connected to the company that is a verified **owner** of the domain
+  (GA4 and "full user" access are deliberately NOT accepted — agencies are routinely given them for a client's site).
+  An unverified website is only "verification pending": nobody can find or connect to the company by it. A paying
+  company can type a website; if a company has verified it (and left "let a company that types your website ask to
+  connect" on, its default) the asker learns only that one exists — never its name, owner or email — and can send a
+  request, which every owner of that company sees and only an owner can approve. One verified company per domain.
+  Lookups are limited to 30 a day per person. Changing the website to a different domain drops the verification.
+- **API keys belong to a company (built, round 4; step 5c).** Every key is attributed to the company chosen when it
+  was made (default: the person's own). That company's owners/admins — and its payer's — see every key with who made it
+  and today's usage, and can revoke any; all keys of one company share one rate limit (more keys buy no throughput); a key
+  stops working the moment its owner leaves the company, and stays dead if they are re-added. API access remains a plan
+  entitlement, not per-call credits.
+- **Not built yet:** alerts for personal allowances (banner only); usage-statement export/PDF; DNS-record verification;
+  re-checking a verified website later (a domain that changes hands keeps its verification until someone removes it);
+  seat / company-count limits from the price book (they arrive with subscriptions).
 - **Concurrent spends on Postgres are untested here.** The wallet is locked
   during a spend (the same technique the old per-user path used) and the test
   suite proves the rule, but SQLite cannot reproduce two simultaneous spends.
@@ -206,6 +276,8 @@ been spending from a shared wallet, prefer fixing forward.
 |---|---|
 | The switch | `BILLING_SCOPE` in `/etc/paisamap/db.env` |
 | Column script | `paisamap-etl/db/apply_billing_v2_columns.py` |
+| Round 4 schema | `paisamap-etl/db/apply_billing_v2_round4.py` |
+| Legacy -> v2 tier mapping | `paisamap-etl/db/plan_mapping.py` (logic in `_plan_mapping.py`) |
 | Report + one-time steps | `paisamap-etl/db/billing_cutover.py` |
-| Tests | `tests/test_billing_wallet_cutover.py` (both scopes, incl. the client-privacy checks), `tests/test_billing_org_staging.py` |
+| Tests | `tests/test_billing_wallet_cutover.py` (both scopes, incl. the client-privacy checks), `tests/test_billing_org_staging.py`, round 4: `tests/test_billing_api_keys.py`, `tests/test_billing_domains.py`, `tests/test_billing_round4_http.py`, `tests/test_plan_mapping.py` |
 | Decisions | `docs/PRICING_MODEL.md` decisions #15 and #16 and their session log |

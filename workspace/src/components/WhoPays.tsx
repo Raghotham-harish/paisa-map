@@ -58,9 +58,14 @@ export function LinkRequestsInbox({ onChanged }: { onChanged?: () => void }) {
         return (
           <div key={r.id} style={{ padding: "12px 0", borderTop: "1px solid var(--border)" }} data-testid={`link-request-${r.id}`}>
             <div style={{ fontSize: 14 }}>
-              <strong>{r.payer_name}</strong> has asked to cover the credits one of your companies uses
+              <strong>{r.payer_name}</strong> has asked to cover the credits {r.via === "website" ? "your company uses" : "one of your companies uses"}
               {r.requested_by_name ? <> (sent by {r.requested_by_name})</> : null}.
             </div>
+            {r.via === "website" && (
+              <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4 }} data-testid="website-request-note">
+                They found you by your verified website, <strong>{r.target_domain}</strong>. Nothing is linked unless you approve it.
+              </div>
+            )}
             {r.note && <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginTop: 4 }}>“{r.note}”</div>}
             <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 8, lineHeight: 1.5 }}>
               If you approve: that company's credit use draws from {r.payer_name}'s credits, {r.payer_name} sees a usage
@@ -122,6 +127,12 @@ export function WhoPaysPanel({ orgId, refreshKey = 0, onChanged }: { orgId: numb
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+  const [site, setSite] = useState("");
+  const [siteNote, setSiteNote] = useState("");
+  const [siteBusy, setSiteBusy] = useState(false);
+  // What the last lookup said about `domain`: only ever yes or no — never who the company is.
+  const [siteResult, setSiteResult] = useState<{ domain: string; found: boolean } | null>(null);
+  const [siteMsg, setSiteMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
 
   const load = () => {
     api.getBillingLink(orgId).then((l) => {
@@ -152,6 +163,46 @@ export function WhoPaysPanel({ orgId, refreshKey = 0, onChanged }: { orgId: numb
         : "Couldn't send that — try again." });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const findSite = async () => {
+    setSiteBusy(true);
+    setSiteMsg(null);
+    setSiteResult(null);
+    try {
+      setSiteResult(await api.findCompanyByWebsite(orgId, site.trim()));
+    } catch (e) {
+      const code = e instanceof ApiError ? e.body?.error : null;
+      setSiteMsg({ tone: "err", text:
+        code === "invalid_website" ? "That doesn't look like a website address — try something like theirbusiness.com."
+        : code === "rate_limited" ? "You've looked up a lot of websites today — try again tomorrow."
+        : "Couldn't look that up — try again." });
+    } finally {
+      setSiteBusy(false);
+    }
+  };
+
+  const askSite = async () => {
+    if (!siteResult) return;
+    setSiteBusy(true);
+    setSiteMsg(null);
+    try {
+      await api.createWebsiteLinkRequest(orgId, siteResult.domain, siteNote.trim() || undefined);
+      setSite("");
+      setSiteResult(null);
+      setSiteNote("");
+      setSiteMsg({ tone: "ok", text: "Request sent. The company's owner will see it under Billing — you'll see their answer here." });
+      load();
+    } catch (e) {
+      const code = e instanceof ApiError ? e.body?.error : null;
+      setSiteMsg({ tone: "err", text:
+        code === "no_match" ? "That company can no longer be reached this way."
+        : code === "too_many_pending" ? "You have too many open requests — withdraw one first."
+        : code === "rate_limited" ? "You've sent a lot of requests today — try again tomorrow."
+        : "Couldn't send that — try again." });
+    } finally {
+      setSiteBusy(false);
     }
   };
 
@@ -199,11 +250,37 @@ export function WhoPaysPanel({ orgId, refreshKey = 0, onChanged }: { orgId: numb
               <button className="btn secondary" disabled={busy || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())} onClick={send}>Send request</button>
             </div>
             {msg && <div style={{ fontSize: 12.5, marginTop: 8, color: msg.tone === "err" ? "var(--flame)" : "var(--rupee-deep)" }} data-testid="link-msg">{msg.text}</div>}
+            <div style={{ borderTop: "1px dashed var(--border)", marginTop: 14, paddingTop: 12 }} data-testid="find-by-website">
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Or find a company by its website</div>
+              <div style={{ fontSize: 12.5, color: "var(--ink-soft)", marginBottom: 8 }}>
+                Only companies that have verified their website can be found this way. You'll only learn whether one exists —
+                never its name or owner — and it still has to approve.
+              </div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <input type="text" value={site} placeholder="theirbusiness.com" onChange={(e) => { setSite(e.target.value); setSiteResult(null); setSiteMsg(null); }} style={{ width: 260 }} aria-label="Their website" />
+                <button className="btn secondary" disabled={siteBusy || !site.trim()} onClick={findSite}>Find</button>
+              </div>
+              {siteResult && siteResult.found && (
+                <div style={{ marginTop: 10, fontSize: 13 }} data-testid="site-found">
+                  A company with the verified website <strong>{siteResult.domain}</strong> is on PaisaMap. Ask it to let you pay for it?
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                    <input type="text" value={siteNote} maxLength={200} placeholder="Optional message" onChange={(e) => setSiteNote(e.target.value)} style={{ width: 240 }} aria-label="Message to the company" />
+                    <button className="btn" disabled={siteBusy} onClick={askSite}>Request to connect</button>
+                  </div>
+                </div>
+              )}
+              {siteResult && !siteResult.found && (
+                <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--ink-soft)" }} data-testid="site-not-found">
+                  No company has verified <strong>{siteResult.domain}</strong> on PaisaMap. You can still ask its owner by email above.
+                </div>
+              )}
+              {siteMsg && <div style={{ fontSize: 12.5, marginTop: 8, color: siteMsg.tone === "err" ? "var(--flame)" : "var(--rupee-deep)" }} data-testid="site-msg">{siteMsg.text}</div>}
+            </div>
             {outgoing.length > 0 && (
               <div style={{ marginTop: 12 }} data-testid="outgoing-requests">
                 {outgoing.map((r) => (
                   <div key={r.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12.5, padding: "4px 0", flexWrap: "wrap" }}>
-                    <span>{r.target_email}{r.target_org_name ? ` → ${r.target_org_name}` : ""}</span>
+                    <span>{r.target_email ?? r.target_domain}{r.via === "website" ? " (by website)" : ""}{r.target_org_name ? ` → ${r.target_org_name}` : ""}</span>
                     <span style={{ color: r.status === "pending" ? "inherit" : "var(--ink-soft)" }}>
                       {STATUS_LABEL[r.status]}
                       {r.status === "pending" && (

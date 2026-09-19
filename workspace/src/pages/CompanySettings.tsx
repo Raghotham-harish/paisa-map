@@ -6,6 +6,8 @@ import { EmptyState } from "../components/EmptyState";
 import { DataList, DataRow } from "../components/DataList";
 import { StatChip } from "../components/StatChip";
 import { describeActivity } from "../lib/activity";
+import { WebsiteVerification } from "../components/WebsiteVerification";
+import { planLabel } from "../lib/planLabel";
 
 // Metadata detail beyond describeActivity's own pincode suffix — the two
 // D4 action types whose metadata is actually worth surfacing here.
@@ -248,7 +250,7 @@ export default function CompanySettings() {
             </label>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 14, flexWrap: "wrap" }}>
-            <StatChip icon="ti ti-crown">Plan: {activeOrg?.plan}</StatChip>
+            <StatChip icon="ti ti-crown">Plan: {planLabel(activeOrg?.plan)}</StatChip>
             {isOwnerOrAdmin && (
               <button className="btn" disabled={saving || !editName.trim()} onClick={onSave}>
                 {saving ? "Saving…" : "Save"}
@@ -256,6 +258,8 @@ export default function CompanySettings() {
             )}
           </div>
         </div>
+
+        {activeOrgId != null && <WebsiteVerification orgId={activeOrgId} website={activeOrg?.website_url ?? null} />}
 
         <div className="card" style={{ marginBottom: 20 }}>
           <p className="kicker" style={{ marginBottom: 14 }}>Members</p>

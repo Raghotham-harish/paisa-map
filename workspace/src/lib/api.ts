@@ -40,7 +40,12 @@ export interface User {
   email: string;
   name: string | null;
   picture_url: string | null;
+  // What the map and workspace already understand. `tier` is the same plan as
+  // the price book names it ('v2_growth', or a legacy 'pro'/'team'); `tier_label`
+  // is what to show a person ('Growth', 'Pro (legacy)').
   plan: "free" | "pro" | "team";
+  tier?: string;
+  tier_label?: string;
   // null = the wallet belongs to a company you don't belong to (e.g. a client
   // company paid for by an agency): you're told who pays, never their balance.
   credits: number | null;
@@ -116,6 +121,9 @@ export interface IncomingLinkRequest {
   payer_name: string | null;
   requested_by_name: string | null;
   note: string | null;
+  // 'website': addressed to the company that verified `target_domain` (you're an owner of it).
+  via: "email" | "website";
+  target_domain: string | null;
   created_at: string;
   expires_at: string;
   // Companies they own that could be linked; `blocked` says why one can't be (it holds credits of its own).
@@ -124,7 +132,10 @@ export interface IncomingLinkRequest {
 
 export interface OutgoingLinkRequest {
   id: number;
-  target_email: string;
+  // null for a website request: the requester is never told who owns the company.
+  target_email: string | null;
+  via: "email" | "website";
+  target_domain: string | null;
   note: string | null;
   status: "pending" | "approved" | "declined" | "cancelled" | "expired";
   target_org_name: string | null;
@@ -381,6 +392,43 @@ export interface ApiKey {
   revoked_at: string | null;
   usage_count_today: number;
   usage_reset_at: string | null;
+  // The company the key belongs to: its admins can see and revoke it.
+  org_id?: number | null;
+  org_name?: string | null;
+}
+
+// A key as a company's admins see it: who made it and how much it was used today.
+export interface CompanyApiKey extends ApiKey {
+  owner_name: string | null;
+  owner_email: string;
+  owner_is_member: boolean;
+  usage_today: number;
+}
+
+export interface CompanyApiKeys {
+  org_id: number;
+  org_name: string | null;
+  keys: CompanyApiKey[];
+  // What the company's capacity is counted on: today's requests across its live keys.
+  usage_today: number;
+}
+
+// Proof that a company controls the website it lists. `token`/`tag` are only sent to owners/admins.
+export interface WebsiteVerification {
+  org_id: number;
+  website: string | null;
+  domain: string | null;
+  invalid_website: boolean;
+  status: "none" | "pending" | "verified";
+  method: "meta_tag" | "search_console" | null;
+  verified_at: string | null;
+  discoverable: boolean;
+  can_manage: boolean;
+  token?: string;
+  tag?: string;
+  // Present on the answer to a check.
+  verified?: boolean;
+  reason?: string;
 }
 
 export interface Report {
@@ -1134,9 +1182,30 @@ export const api = {
   listApiKeys: () => request("/api/developer/keys") as Promise<{ api_keys: ApiKey[] }>,
   // The raw `key` field only ever appears in THIS response, exactly once —
   // there is no endpoint that can return it again after creation.
-  createApiKey: (label?: string) =>
+  createApiKey: (label?: string, orgId?: number) =>
     request("/api/developer/keys", {
-      method: "POST", body: JSON.stringify({ label }),
+      method: "POST", body: JSON.stringify({ label, org_id: orgId }),
     }) as Promise<{ api_key: ApiKey; key: string }>,
   revokeApiKey: (id: number) => request(`/api/developer/keys/${id}`, { method: "DELETE" }),
+  // A company's admins (and its payer's) see every key attributed to it and can revoke any of them.
+  listCompanyApiKeys: (orgId: number) => request(`/api/organizations/${orgId}/api-keys`) as Promise<CompanyApiKeys>,
+  revokeCompanyApiKey: (orgId: number, keyId: number) =>
+    request(`/api/organizations/${orgId}/api-keys/${keyId}`, { method: "DELETE" }) as Promise<{ status: string }>,
+
+  // Website verification — a website means nothing until the company proves it controls it.
+  getWebsiteVerification: (orgId: number) =>
+    request(`/api/organizations/${orgId}/website-verification`) as Promise<WebsiteVerification>,
+  startWebsiteVerification: (orgId: number) =>
+    request(`/api/organizations/${orgId}/website-verification`, { method: "POST" }) as Promise<WebsiteVerification>,
+  checkWebsiteVerification: (orgId: number) =>
+    request(`/api/organizations/${orgId}/website-verification/check`, { method: "POST" }) as Promise<WebsiteVerification>,
+  setWebsiteDiscoverable: (orgId: number, discoverable: boolean) =>
+    request(`/api/organizations/${orgId}/website-verification`, { method: "PATCH", body: JSON.stringify({ discoverable }) }) as Promise<WebsiteVerification>,
+  removeWebsiteVerification: (orgId: number) =>
+    request(`/api/organizations/${orgId}/website-verification`, { method: "DELETE" }) as Promise<WebsiteVerification>,
+  // Ask a company to connect by its (verified) website. The answer is only yes/no: never a name, owner or email.
+  findCompanyByWebsite: (payerOrgId: number, website: string) =>
+    request(`/api/organizations/${payerOrgId}/link-requests/find-website`, { method: "POST", body: JSON.stringify({ website }) }) as Promise<{ found: boolean; domain: string }>,
+  createWebsiteLinkRequest: (payerOrgId: number, website: string, note?: string) =>
+    request(`/api/organizations/${payerOrgId}/link-requests/by-website`, { method: "POST", body: JSON.stringify({ website, note }) }) as Promise<{ status: string; request_id: number }>,
 };

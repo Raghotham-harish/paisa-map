@@ -155,8 +155,16 @@ def check(ip, path, api_key=None):
         group = _group_for(path)
         cap, rps = _LIMITS[group]
         if api_key:
-            key = ("apikey", api_key["key_id"])
-            if api_key.get("plan") in ("pro", "team"):
+            # Capacity is a COMPANY's, not a key's: every key attributed to one
+            # company draws from one bucket, so minting more keys never buys
+            # more throughput. A key with no company (made before keys were
+            # attributed) keeps its own bucket.
+            if api_key.get("org_id") is not None:
+                key = ("apikey_org", api_key["org_id"])
+            else:
+                key = ("apikey", api_key["key_id"])
+            import _pricing
+            if _pricing.entitlements(api_key.get("plan"))["api_elevated"]:
                 cap *= _API_KEY_PRO_MULTIPLIER
                 rps *= _API_KEY_PRO_MULTIPLIER
         else:

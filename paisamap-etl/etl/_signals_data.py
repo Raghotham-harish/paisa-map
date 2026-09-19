@@ -86,7 +86,8 @@ def columns_for_plan(requested_columns, plan):
     (server.py's existing columns_param opt-in logic) — this is the actual
     enforcement point: a free or anonymous caller's PRO_COLUMNS entries are
     stripped no matter what was requested."""
-    if plan in ("pro", "team"):
+    import _pricing
+    if _pricing.entitlements(plan)["pro_columns"]:
         return requested_columns
     return [c for c in requested_columns if c not in PRO_COLUMNS]
 

@@ -43,6 +43,15 @@ _ERROR_STATUS = {
     "expired": 410,
     "too_many_pending": 429,
     "rate_limited": 429,
+    "no_website": 409,
+    "invalid_website": 400,
+    "not_started": 409,
+    "website_changed": 409,
+    "domain_taken": 409,
+    "too_soon": 429,
+    "no_match": 404,
+    "invalid_value": 400,
+    "no_company": 409,
 }
 
 
@@ -341,6 +350,95 @@ def approve_link_request(user_id, request_id):
 @require_login
 def decline_link_request(user_id, request_id):
     result = _auth_db.decline_link_request(user_id, request_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+# ── Website verification, and asking a company to connect by its website ─────
+def _search_console_owns(org_id, domain):
+    """True if a Search Console account connected to this company is a verified
+    OWNER of `domain`. Any failure to reach Google just means 'not proven this way'."""
+    import _google_oauth
+    import _site_verify
+    from . import analytics_connections as ac
+    for conn in _auth_db.list_org_search_console_connections(org_id):
+        token = ac._access_token_for_connection(conn)
+        if token is None:
+            continue
+        try:
+            sites = _google_oauth.list_gsc_sites(token)
+        except _google_oauth.GoogleOAuthError:
+            continue
+        if _site_verify.gsc_owner_of(sites, domain):
+            return True
+    return False
+
+
+@organizations_bp.route("/<int:org_id>/website-verification", methods=["GET"])
+@require_login
+def get_website_verification(user_id, org_id):
+    result = _auth_db.get_domain_verification(user_id, org_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:org_id>/website-verification", methods=["POST"])
+@require_login
+def start_website_verification(user_id, org_id):
+    result = _auth_db.start_domain_verification(user_id, org_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:org_id>/website-verification/check", methods=["POST"])
+@require_login
+def check_website_verification(user_id, org_id):
+    result = _auth_db.check_domain_verification(user_id, org_id, gsc_check=_search_console_owns)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:org_id>/website-verification", methods=["PATCH"])
+@require_login
+def update_website_verification(user_id, org_id):
+    body = request.get_json(silent=True) or {}
+    result = _auth_db.set_domain_discoverable(user_id, org_id, body.get("discoverable"))
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:org_id>/website-verification", methods=["DELETE"])
+@require_login
+def remove_website_verification(user_id, org_id):
+    result = _auth_db.remove_domain_verification(user_id, org_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:payer_id>/link-requests/find-website", methods=["POST"])
+@require_login
+def find_company_by_website(user_id, payer_id):
+    body = request.get_json(silent=True) or {}
+    result = _auth_db.find_company_by_website(user_id, payer_id, body.get("website"))
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:payer_id>/link-requests/by-website", methods=["POST"])
+@require_login
+def create_website_link_request(user_id, payer_id):
+    body = request.get_json(silent=True) or {}
+    result = _auth_db.create_website_link_request(user_id, payer_id, body.get("website"), body.get("note"))
+    if "error" in result:
+        return _error_response(result)
+    return jsonify(result), 201
+
+
+# ── API keys attributed to a company ─────────────────────────────────────────
+@organizations_bp.route("/<int:org_id>/api-keys", methods=["GET"])
+@require_login
+def list_company_api_keys(user_id, org_id):
+    result = _auth_db.list_company_api_keys(user_id, org_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:org_id>/api-keys/<int:key_id>", methods=["DELETE"])
+@require_login
+def revoke_company_api_key(user_id, org_id, key_id):
+    result = _auth_db.revoke_company_api_key(user_id, org_id, key_id)
     return _error_response(result) if "error" in result else jsonify(result)
 
 

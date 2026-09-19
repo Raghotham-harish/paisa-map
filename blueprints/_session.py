@@ -66,7 +66,7 @@ def require_plan(min_plan):
             # Effective plan: users.plan, or (BILLING_SCOPE=wallet) the best of
             # that and the caller's paying companies' plans.
             plan = _auth_db.get_effective_plan_for_user(user_id) if user is not None else "free"
-            if user is None or _pricing.plan_rank(plan) < _pricing.plan_rank(min_plan):
+            if user is None or _pricing.plan_rank(_pricing.compat_plan(plan)) < _pricing.plan_rank(min_plan):
                 return jsonify({"error": "plan_required",
                                  "detail": f"requires {min_plan} plan or higher"}), 403
             return fn(user_id, *args, **kwargs)

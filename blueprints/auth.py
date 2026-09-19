@@ -22,12 +22,20 @@ def _user_payload(user_id, org_id=None):
     if user is None:
         return None
     view = _auth_db.get_credit_view(user_id, org_id=org_id)
+    import _pricing
+    plan = _auth_db.get_effective_plan_for_user(user_id)
     return {
         "id": user["id"],
         "email": user["email"],
         "name": user["name"],
         "picture_url": user["picture_url"],
-        "plan": _auth_db.get_effective_plan_for_user(user_id),
+        # `plan` is what the map and the workspace already understand
+        # ('free' | 'pro' | 'team'); `tier` / `tier_label` are the same plan as
+        # the price book names it (a v2 company plan reads e.g. 'v2_growth' /
+        # 'Growth'; a legacy one 'pro' / 'Pro (legacy)').
+        "plan": _pricing.compat_plan(plan),
+        "tier": plan,
+        "tier_label": _pricing.tier_label(plan),
         "credits": view["balance"],
         "credits_paid_by": view["paid_by"],
         "credits_budget": view["budget"],
