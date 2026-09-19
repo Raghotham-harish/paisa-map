@@ -28,6 +28,8 @@ _ERROR_STATUS = {
     "invalid_amount": 400,
     "invalid_period": 400,
     "invalid_end_date": 400,
+    "exceeds_company_budget": 400,
+    "company_budget_required": 409,
 }
 
 
@@ -251,4 +253,31 @@ def delete_budget(user_id, wallet_id, org_id):
 def set_reserve(user_id, wallet_id):
     body = request.get_json(silent=True) or {}
     result = _auth_db.set_wallet_reserve(user_id, wallet_id, body.get("credits"))
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+# ── Personal allowances inside a company (billing-v2 budgets) ────────────────
+# Managed by an owner/admin of the company itself (a client's own admin) or of
+# the wallet that pays for it; never above the company's own budget.
+@organizations_bp.route("/<int:org_id>/member-budgets", methods=["GET"])
+@require_login
+def list_member_budgets(user_id, org_id):
+    result = _auth_db.list_member_budgets(user_id, org_id)
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:org_id>/member-budgets/<int:member_user_id>", methods=["PUT"])
+@require_login
+def set_member_budget(user_id, org_id, member_user_id):
+    body = request.get_json(silent=True) or {}
+    result = _auth_db.set_member_budget(
+        user_id, org_id, member_user_id, body.get("amount"),
+        period=body.get("period") or "billing_cycle", ends_at=body.get("ends_at"))
+    return _error_response(result) if "error" in result else jsonify(result)
+
+
+@organizations_bp.route("/<int:org_id>/member-budgets/<int:member_user_id>", methods=["DELETE"])
+@require_login
+def delete_member_budget(user_id, org_id, member_user_id):
+    result = _auth_db.delete_member_budget(user_id, org_id, member_user_id)
     return _error_response(result) if "error" in result else jsonify(result)

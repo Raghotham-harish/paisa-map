@@ -28,5 +28,6 @@ def get_credits(user_id):
         "balance": view["balance"],          # None if the wallet belongs to a company you don't belong to
         "paid_by": view["paid_by"],
         "budget": view["budget"],            # this company's own cap + usage (None if none set)
+        "member_budget": view["member_budget"],   # this person's own allowance inside it (None if none)
         "ledger": _auth_db.list_credit_ledger(user_id, limit=limit, org_id=org_id),
     })

@@ -10,6 +10,7 @@ import { StatChip } from "../components/StatChip";
 import { Pill } from "../components/Pill";
 import { BudgetMeter } from "../components/BudgetMeter";
 import { BudgetsManager } from "../components/BudgetsManager";
+import { MemberBudgetsManager } from "../components/MemberBudgetsManager";
 
 const PLAN_ORDER: Array<"free" | "pro" | "team"> = ["free", "pro", "team"];
 
@@ -32,6 +33,7 @@ export default function Billing() {
   const [balance, setBalance] = useState<number | null>(null);
   const [paidBy, setPaidBy] = useState<PaidBy | null>(null);
   const [budget, setBudget] = useState<BudgetStatus | null>(null);
+  const [memberBudget, setMemberBudget] = useState<BudgetStatus | null>(null);
   const [ledger, setLedger] = useState<CreditLedgerEntry[] | null>(null);
   const [creditsError, setCreditsError] = useState<string | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
@@ -48,6 +50,7 @@ export default function Billing() {
       setBalance(data.balance);
       setPaidBy(data.paid_by);
       setBudget(data.budget ?? null);
+      setMemberBudget(data.member_budget ?? null);
       setLedger(data.ledger);
     }).catch(() => setCreditsError("Couldn't load your credit history — try again."));
   };
@@ -161,9 +164,15 @@ export default function Billing() {
       </div>
       {/* This company's own budget (set by whoever pays for it) — warns at 80%, stops at 100%. */}
       {budget && <BudgetMeter budget={budget} paidByName={paidBy?.name} />}
+      {/* Your own allowance inside this company, if an admin set one. */}
+      {memberBudget && <BudgetMeter budget={memberBudget} personal />}
       {/* Owners/admins of a paying company set budgets for the companies drawing from it. */}
       {activeOrgId != null && !paidBy && (activeOrg?.role === "owner" || activeOrg?.role === "admin") && (
         <BudgetsManager walletOrgId={activeOrgId} />
+      )}
+      {/* Owners/admins of ANY company (a client's own admin included) split its budget between colleagues. */}
+      {activeOrgId != null && (activeOrg?.role === "owner" || activeOrg?.role === "admin") && (
+        <MemberBudgetsManager orgId={activeOrgId} />
       )}
       {/* A company paid for by someone else (balance hidden): buying here would
           credit the buyer's OWN company, not this one — so say who pays instead. */}

@@ -31,6 +31,7 @@ def _user_payload(user_id, org_id=None):
         "credits": view["balance"],
         "credits_paid_by": view["paid_by"],
         "credits_budget": view["budget"],
+        "credits_member_budget": view["member_budget"],
     }
 
 

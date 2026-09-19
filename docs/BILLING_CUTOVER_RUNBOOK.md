@@ -81,23 +81,36 @@ changes an amount.
 Nothing has changed for users yet. Use the site normally, make sure the header
 credits number looks right. There is no rush between steps 4 and 6.
 
-## Step 5b — create the budgets table  *(you; do this any time after the budgets code is deployed, and before step 6)*
+## Step 5b — create the budget tables  *(you; once the budgets code is deployed, and before step 6)*
 
-Budgets need one new table, `credit_budgets`. The script uses the deployed code's own
-definition and only creates what is missing — it never alters or drops anything, and it is
-safe to run twice.
+Budgets need two new tables, `credit_budgets` (company budgets + the reserve) and
+`credit_member_budgets` (personal allowances). The script uses the deployed code's own
+definitions and only ever ADDS: it creates missing tables and adds missing nullable columns to a
+table an earlier version of the script already made. It never alters or drops anything, so it is
+safe to run any number of times — including once now and again after a later deploy.
 
 ```
 SSH "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; cd /home/ubuntu/paisa-map; exec venv-flask/bin/python3 paisamap-etl/db/apply_budgets_table.py'"
 ```
 
-**Good looks like:** `created:  credit_budgets` (or `already there`), then `OK — credit_budgets present with 11 columns`.
+**Good looks like:** `created:` (or `added column:` / `already there:`) lines, then `OK — 2 budget tables present, all columns match`.
 
-The site keeps working if you run it late: until the table exists, only the budget screens
-(which are hidden anyway while there is nothing to budget) can fail, and relinking or deleting a
-company skips the budget cleanup. Step 3's report also lists a missing table as a blocker
-before the flip, and the flip itself must not happen without it, because wallet mode reads
-the table on every spend.
+The site keeps working if you run it late: until the tables exist, only the budget screens (hidden
+anyway while there is nothing to budget) can fail, and relinking or deleting a company skips the budget
+cleanup. Step 3's report also lists a missing table as a blocker before the flip, and the flip itself
+must not happen without both tables, because wallet mode reads them on every spend.
+
+**80% / 100% alert emails** go to the owners and admins of the paying company and of the budgeted
+company, once per level per period. They send only if email is configured on the server
+(`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` and `SES_FROM_EMAIL` in `/etc/paisamap/db.env`
+— the same setting that makes invite emails send). Without it nothing breaks: the alert is logged and
+the banner on the Billing page and Dashboard is still the warning. To check without printing any secret:
+
+```
+SSH "sudo grep -c '^SES_FROM_EMAIL=' /etc/paisamap/db.env"
+```
+
+`1` means it is set, `0` means invite and alert emails are not being sent.
 
 ## Step 6 — flip the switch  *(you; I can't do this one — server settings edits are blocked for me)*
 
@@ -159,9 +172,14 @@ been spending from a shared wallet, prefer fixing forward.
   to set a budget"). Once a budget is set it caps EVERYONE spending on that company, agency
   staff and the owner included. The paying company's own spending is never limited by its own
   reserve. Nothing changes for a solo account with no budget.
-- **Not built yet:** a budget can only be set by a paying admin (a client's own admin can't
-  carve sub-budgets yet); no email when a budget hits 80% (the warning shows on the Billing
-  page and Dashboard); a screen to link/unlink companies; the usage statement.
+- **Personal allowances (built).** An owner/admin of a company — a client's own admin included — can
+  give each colleague a spending allowance inside the company (Billing page -> "Personal allowances"),
+  never above the company's own budget; the payer's admins can too. The lower of the personal
+  allowance and the company budget binds. A client admin can only work inside an existing company budget.
+- **Alert emails (built; need email configured — see step 5b).** 80% and 100% of a company budget, once
+  per period, to the owners/admins of both companies. At-most-once: if a send is lost, the banner is the fallback.
+- **Not built yet:** alerts for personal allowances (banner only); a screen to link/unlink
+  companies; the usage statement.
 - **Concurrent spends on Postgres are untested here.** The wallet is locked
   during a spend (the same technique the old per-user path used) and the test
   suite proves the rule, but SQLite cannot reproduce two simultaneous spends.

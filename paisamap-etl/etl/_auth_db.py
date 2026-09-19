@@ -438,8 +438,32 @@ def _get_tables():
         Column("created_by", Integer),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("updated_at", DateTime(timezone=True), nullable=False),
+        # Alert de-duplication: the window start and highest level (80 / 100)
+        # already announced, so each threshold emails at most once per window.
+        Column("notified_window_start", DateTime(timezone=True)),
+        Column("notified_level", Integer),
         UniqueConstraint("org_id", "kind", name="uq_credit_budgets_org_kind"),
         CheckConstraint("amount >= 0", name="ck_credit_budgets_amount"),
+    )
+
+    # A per-PERSON allowance inside a company: what one member may spend in the
+    # company's name per period. Set by an owner/admin of that company (or of
+    # the wallet that pays for it) and never above the company's own budget —
+    # the company cap still applies on top, so the lower of the two binds.
+    credit_member_budgets = Table(
+        "credit_member_budgets", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("org_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        Column("amount", Integer, nullable=False),
+        Column("period", Text, nullable=False, server_default="billing_cycle"),
+        Column("starts_at", DateTime(timezone=True)),
+        Column("ends_at", DateTime(timezone=True)),
+        Column("created_by", Integer),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+        UniqueConstraint("org_id", "user_id", name="uq_credit_member_budgets_org_user"),
+        CheckConstraint("amount >= 0", name="ck_credit_member_budgets_amount"),
     )
 
     _tables = {
@@ -453,6 +477,7 @@ def _get_tables():
         "orders": orders, "invoices": invoices,
         "api_keys": api_keys,
         "credit_budgets": credit_budgets,
+        "credit_member_budgets": credit_member_budgets,
     }
     return _tables
 
@@ -475,7 +500,7 @@ def init_schema():
         tables["customer_uploads"], tables["customer_locations"],
         tables["oauth_connections"], tables["project_connection_selections"],
         tables["orders"], tables["invoices"],
-        tables["api_keys"], tables["credit_budgets"],
+        tables["api_keys"], tables["credit_budgets"], tables["credit_member_budgets"],
     ])
     _ensure_invoice_sequence(engine)
 
@@ -734,8 +759,9 @@ def get_credit_view(user_id, org_id=None):
     get_credit_balance(), which is the exact number the server decides with.
 
     Returns {"balance": int | None, "paid_by": {"org_id", "name"} | None,
-    "budget": <the company's budget status> | None} — the budget is the company's
-    OWN cap and usage, safe for its staff to see (it never reveals the wallet).
+    "budget": <the company's budget status> | None, "member_budget": <this
+    person's own allowance in it> | None} — both are the company's / the person's
+    OWN limits and usage, safe to show (they never reveal the wallet).
     A wallet's balance belongs to the paying company: someone who works in a
     client company but is NOT a member of the company that pays for it (e.g. a
     client's own staff, on an agency-paid company) sees balance=None and who
@@ -745,20 +771,21 @@ def get_credit_view(user_id, org_id=None):
     tables = _get_tables()
     with engine.connect() as conn:
         if billing_scope() != "wallet":
-            return {"balance": max(0, _user_chain_balance(conn, user_id)), "paid_by": None, "budget": None}
+            return {"balance": max(0, _user_chain_balance(conn, user_id)), "paid_by": None, "budget": None, "member_budget": None}
         oid = org_id if org_id is not None else _primary_org_id(conn, user_id)
         wallet = _payer_org_id(conn, oid)
         if wallet is None:
-            return {"balance": max(0, _user_chain_balance(conn, user_id)), "paid_by": None, "budget": None}
+            return {"balance": max(0, _user_chain_balance(conn, user_id)), "paid_by": None, "budget": None, "member_budget": None}
         paid_by = None
         if wallet != oid:
             name = conn.execute(_org_name_query(tables, wallet)).scalar()
             paid_by = {"org_id": wallet, "name": name}
         balance = _wallet_balance(conn, wallet, user_id)
         budget = _budget_status(conn, oid, wallet)
+        member_budget = _member_budget_status(conn, oid, user_id, wallet)
     if get_org_role(wallet, user_id) is None:
         balance = None
-    return {"balance": balance, "paid_by": paid_by, "budget": budget}
+    return {"balance": balance, "paid_by": paid_by, "budget": budget, "member_budget": member_budget}
 
 
 def _org_name_query(tables, org_id):
@@ -1109,24 +1136,27 @@ def _role_in(conn, org_id, user_id):
         members.c.org_id == org_id, members.c.user_id == user_id)).scalar()
 
 
-def _budget_used(conn, org_id, wallet_id, start, end):
-    """Credits this company spent from this wallet inside [start, end)."""
+def _budget_used(conn, org_id, wallet_id, start, end, user_id=None):
+    """Credits this company (or, with `user_id`, one person in it) spent from
+    this wallet inside [start, end)."""
     ledger = _get_tables()["credits_ledger"]
     from sqlalchemy import select, func
     cond = [ledger.c.org_id == org_id, ledger.c.delta < 0,
             func.coalesce(ledger.c.billing_org_id, ledger.c.org_id) == wallet_id,
             ledger.c.created_at >= start]
+    if user_id is not None:
+        cond.append(ledger.c.user_id == user_id)
     if end is not None:
         cond.append(ledger.c.created_at < end)
     return int(conn.execute(select(func.coalesce(func.sum(-ledger.c.delta), 0)).where(*cond)).scalar() or 0)
 
 
-def _has_budget_table(conn):
-    """False until apply_budgets_table.py has run on this database. The two
+def _has_budget_table(conn, name="credit_budgets"):
+    """False until apply_budgets_table.py has run on this database. The
     housekeeping deletes below (relink, company delete) run in EVERY scope, so
     they must not fail on a deploy that reaches the server before the table."""
     from sqlalchemy import inspect
-    return inspect(conn).has_table("credit_budgets")
+    return inspect(conn).has_table(name)
 
 
 def _budget_row(conn, org_id, kind):
@@ -1135,23 +1165,20 @@ def _budget_row(conn, org_id, kind):
     return conn.execute(select(b).where(b.c.org_id == org_id, b.c.kind == kind)).mappings().first()
 
 
-def _budget_status(conn, org_id, wallet_id, now=None):
-    """The active cap on `org_id` as a dict, or None if there isn't one (none
-    set, or set by someone who no longer pays for this company). `active` is
-    False once an until_date budget has lapsed — a lapsed budget behaves as no
-    budget."""
-    row = _budget_row(conn, org_id, "cap")
-    if row is None or row["wallet_org_id"] != wallet_id:
-        return None
+def _status_from_row(conn, row, wallet_id, org_id, user_id=None, now=None, scope="company"):
+    """The status dict for one budget row (a company cap, or with `user_id` a
+    person's allowance inside the company). `active` is False once an
+    until_date budget has lapsed — a lapsed budget behaves as no budget."""
     now = now or _now()
     period = row["period"]
     anchor = _cycle_anchor(conn, wallet_id) if period == "billing_cycle" else None
     start, end = budget_window(period, now, row["starts_at"], row["ends_at"], anchor)
-    used = _budget_used(conn, org_id, wallet_id, start, end)
+    used = _budget_used(conn, org_id, wallet_id, start, end, user_id)
     amount = int(row["amount"])
     pct = 100 if amount <= 0 else int(used * 100 // amount)
     active = end is None or now < end
     return {
+        "scope": scope,
         "amount": amount, "period": period,
         # what the window really follows — billing_cycle is the calendar month until subscriptions exist
         "resolved_period": "calendar_month" if (period == "billing_cycle" and anchor is None) else period,
@@ -1160,6 +1187,29 @@ def _budget_status(conn, org_id, wallet_id, now=None):
         "active": active,
         "window_start": start.isoformat(), "window_end": end.isoformat() if end else None,
     }
+
+
+def _budget_status(conn, org_id, wallet_id, now=None):
+    """The company's cap as a dict, or None if there isn't one (none set, or set
+    by someone who no longer pays for this company)."""
+    row = _budget_row(conn, org_id, "cap")
+    if row is None or row["wallet_org_id"] != wallet_id:
+        return None
+    return _status_from_row(conn, row, wallet_id, org_id, now=now)
+
+
+def _member_budget_row(conn, org_id, user_id):
+    b = _get_tables()["credit_member_budgets"]
+    from sqlalchemy import select
+    return conn.execute(select(b).where(b.c.org_id == org_id, b.c.user_id == user_id)).mappings().first()
+
+
+def _member_budget_status(conn, org_id, user_id, wallet_id, now=None):
+    """One person's allowance inside a company, or None if they have none."""
+    row = _member_budget_row(conn, org_id, user_id)
+    if row is None:
+        return None
+    return _status_from_row(conn, row, wallet_id, org_id, user_id=user_id, now=now, scope="member")
 
 
 def _reserve_floor(conn, wallet_id):
@@ -1179,11 +1229,96 @@ def _spend_block(conn, wallet_id, org_id, user_id, amount, balance):
         return {"reason": "budget_required"}
     if capped and status["used"] + amount > status["amount"]:
         return {"reason": "budget_exceeded", "info": status}
+    # A personal allowance inside the company sits UNDER its cap: both must pass.
+    member = _member_budget_status(conn, org_id, user_id, wallet_id)
+    if member is not None and member["active"] and member["used"] + amount > member["amount"]:
+        return {"reason": "budget_exceeded", "info": member}
     if org_id != wallet_id:
         floor = _reserve_floor(conn, wallet_id)
         if floor and balance - amount < floor:
             return {"reason": "wallet_reserve"}
     return None
+
+
+def budget_window_text(status):
+    """A budget's window in plain words ("this month", "until 30 Sep") for emails."""
+    period = status["resolved_period"]
+    if period == "until_date" and status.get("window_end"):
+        end = datetime.fromisoformat(status["window_end"]).astimezone(IST) - timedelta(minutes=1)
+        return f"until {end.day} {end.strftime('%b')}"
+    return {"calendar_month": "this month", "weekly": "this week", "quarterly": "this quarter",
+            "billing_cycle": "this billing cycle", "one_off": "in total"}.get(period, "this period")
+
+
+def _budget_alert_recipients(conn, wallet_id, org_id):
+    """Emails of the owners/admins who can act on a budget: those of the paying
+    company and those of the company itself, de-duplicated, blanks dropped."""
+    tables = _get_tables()
+    members, users = tables["org_members"], tables["users"]
+    from sqlalchemy import select
+    rows = conn.execute(
+        select(users.c.email).select_from(members.join(users, users.c.id == members.c.user_id))
+        .where(members.c.org_id.in_({wallet_id, org_id}), members.c.role.in_(("owner", "admin")))).all()
+    seen, out = set(), []
+    for (email,) in rows:
+        key = (email or "").strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(email.strip())
+    return out
+
+
+def _budget_crossing(conn, org_id, wallet_id):
+    """Called inside the spend transaction, after the ledger row is written.
+    If the company's budget has newly crossed 80% or reached 100% in its current
+    window, records that (so each level alerts at most once per window — and two
+    simultaneous spends can't both fire it) and returns the notice to send once
+    the transaction commits; else None. Alerts are at-most-once: the in-app
+    banner is the fallback if a send is lost."""
+    row = _budget_row(conn, org_id, "cap")
+    if row is None or row["wallet_org_id"] != wallet_id:
+        return None
+    st = _status_from_row(conn, row, wallet_id, org_id)
+    if not st["active"]:
+        return None
+    level = 100 if st["exhausted"] else (BUDGET_WARN_PCT if st["pct"] >= BUDGET_WARN_PCT else 0)
+    if not level:
+        return None
+    seen_window = _ensure_aware(row["notified_window_start"])
+    already = (row["notified_level"] or 0) if (
+        seen_window is not None and seen_window.astimezone(timezone.utc).isoformat() == st["window_start"]) else 0
+    if level <= already:
+        return None
+    b = _get_tables()["credit_budgets"]
+    conn.execute(b.update().where(b.c.id == row["id"]).values(
+        notified_window_start=datetime.fromisoformat(st["window_start"]), notified_level=level))
+    orgs = _get_tables()["organizations"]
+    from sqlalchemy import select
+    name = conn.execute(select(orgs.c.name).where(orgs.c.id == org_id)).scalar() or "Your company"
+    return {"level": level, "org_id": org_id, "org_name": name, "used": st["used"], "amount": st["amount"],
+            "pct": st["pct"], "window_text": budget_window_text(st),
+            "recipients": _budget_alert_recipients(conn, wallet_id, org_id)}
+
+
+def _send_budget_notices(notice):
+    """Email a budget alert to each recipient. Never raises: a mail problem
+    must not touch a spend that already succeeded."""
+    try:
+        import _email
+        url = (os.environ.get("APP_BASE_URL") or "https://paisamaps.com").rstrip("/") + "/workspace/billing"
+        for to in notice["recipients"]:
+            try:
+                _email.send_budget_notice(to, notice["org_name"], notice["level"], notice["used"],
+                                          notice["amount"], notice["window_text"], url)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _dispatch_budget_notice(notice):
+    """Off the request thread, so a slow mail service never slows a spend."""
+    threading.Thread(target=_send_budget_notices, args=(notice,), daemon=True).start()
 
 
 def wallet_spend_block(user_id, org_id=None, amount=0):
@@ -1239,6 +1374,21 @@ def _wallet_admin_error(actor_user_id, wallet_org_id):
     return None
 
 
+def _check_budget_args(amount, period, ends_at):
+    """(error dict | None, aware end instant | None) for a budget's amount,
+    period and end date — shared by company budgets and personal allowances."""
+    if isinstance(amount, bool) or not isinstance(amount, int) or not 0 <= amount <= BUDGET_MAX_CREDITS:
+        return {"error": "invalid_amount"}, None
+    if period not in BUDGET_PERIODS:
+        return {"error": "invalid_period"}, None
+    end = None
+    if period == "until_date":
+        end = _parse_budget_end(ends_at)
+        if end is None:
+            return {"error": "invalid_end_date"}, None
+    return None, end
+
+
 def set_credit_budget(actor_user_id, wallet_org_id, org_id, amount, period="billing_cycle", ends_at=None):
     """Set (or replace) the credit budget on `org_id` — the wallet company
     itself or a company it pays for. Only an owner/admin of the WALLET may.
@@ -1248,15 +1398,9 @@ def set_credit_budget(actor_user_id, wallet_org_id, org_id, amount, period="bill
     err = _wallet_admin_error(actor_user_id, wallet_org_id)
     if err:
         return err
-    if isinstance(amount, bool) or not isinstance(amount, int) or not 0 <= amount <= BUDGET_MAX_CREDITS:
-        return {"error": "invalid_amount"}
-    if period not in BUDGET_PERIODS:
-        return {"error": "invalid_period"}
-    end = None
-    if period == "until_date":
-        end = _parse_budget_end(ends_at)
-        if end is None:
-            return {"error": "invalid_end_date"}
+    err, end = _check_budget_args(amount, period, ends_at)
+    if err:
+        return err
     engine = _require_engine()
     b = _get_tables()["credit_budgets"]
     with engine.begin() as conn:
@@ -1272,8 +1416,11 @@ def set_credit_budget(actor_user_id, wallet_org_id, org_id, amount, period="bill
                 old_end = _ensure_aware(existing["ends_at"])
                 if old_end is None or old_end > now:      # keep counting, unless it had lapsed
                     starts = _ensure_aware(existing["starts_at"])
+        # A changed budget starts a fresh alert cycle: after raising it, the next
+        # 80% / 100% is news again.
         values = dict(wallet_org_id=wallet_org_id, amount=amount, period=period,
-                      starts_at=starts, ends_at=end, created_by=actor_user_id, updated_at=now)
+                      starts_at=starts, ends_at=end, created_by=actor_user_id, updated_at=now,
+                      notified_window_start=None, notified_level=None)
         if existing is None:
             conn.execute(b.insert().values(org_id=org_id, kind="cap", created_at=now, **values))
         else:
@@ -1355,6 +1502,114 @@ def list_wallet_budgets(actor_user_id, wallet_org_id):
                 "companies": companies}
 
 
+def _member_budget_authority(conn, actor_user_id, org_id):
+    """(wallet_id, is_wallet_admin, error). Who may manage personal allowances
+    in `org_id`: an owner/admin of the company itself, or of the wallet that
+    pays for it. Non-members of both get the same not_found as a missing company."""
+    wallet = _payer_org_id(conn, org_id)
+    if wallet is None or _org_exists(conn, org_id) is False:
+        return None, False, {"error": "not_found"}
+    role_org = _role_in(conn, org_id, actor_user_id)
+    role_wallet = role_org if wallet == org_id else _role_in(conn, wallet, actor_user_id)
+    if role_org is None and role_wallet is None:
+        return None, False, {"error": "not_found"}
+    is_wallet_admin = role_wallet in ("owner", "admin")
+    if not is_wallet_admin and role_org not in ("owner", "admin"):
+        return None, False, {"error": "forbidden"}
+    return wallet, is_wallet_admin, None
+
+
+def _org_exists(conn, org_id):
+    orgs = _get_tables()["organizations"]
+    from sqlalchemy import select
+    return conn.execute(select(orgs.c.id).where(orgs.c.id == org_id)).first() is not None
+
+
+def set_member_budget(actor_user_id, org_id, target_user_id, amount, period="billing_cycle", ends_at=None):
+    """Give one member of `org_id` a personal spending allowance there. Allowed
+    for an owner/admin of the company (a client's own admin, say) or of the
+    wallet that pays for it. INSIDE the company's budget: the amount can't
+    exceed it, and a company admin who doesn't also run the wallet needs an
+    active company budget to work inside (the payer's admins may set one
+    without). The company cap still applies on top — the lower binds.
+    Returns {"status": "ok", "budget": <status>} or {"error": ...}."""
+    err, end = _check_budget_args(amount, period, ends_at)
+    engine = _require_engine()
+    b = _get_tables()["credit_member_budgets"]
+    with engine.begin() as conn:
+        wallet, is_wallet_admin, auth_err = _member_budget_authority(conn, actor_user_id, org_id)
+        if auth_err:
+            return auth_err
+        if err:
+            return err
+        if _role_in(conn, org_id, target_user_id) is None:
+            return {"error": "not_a_member"}
+        parent = _budget_status(conn, org_id, wallet)
+        parent = parent if parent is not None and parent["active"] else None
+        if parent is None and not is_wallet_admin:
+            return {"error": "company_budget_required"}
+        if parent is not None and amount > parent["amount"]:
+            return {"error": "exceeds_company_budget"}
+        now = _now()
+        existing = _member_budget_row(conn, org_id, target_user_id)
+        starts = None
+        if period in ("one_off", "until_date"):
+            starts = now
+            if existing is not None and existing["period"] == period and existing["starts_at"] is not None:
+                old_end = _ensure_aware(existing["ends_at"])
+                if old_end is None or old_end > now:
+                    starts = _ensure_aware(existing["starts_at"])
+        values = dict(amount=amount, period=period, starts_at=starts, ends_at=end,
+                      created_by=actor_user_id, updated_at=now)
+        if existing is None:
+            conn.execute(b.insert().values(org_id=org_id, user_id=target_user_id, created_at=now, **values))
+        else:
+            conn.execute(b.update().where(b.c.id == existing["id"]).values(**values))
+        return {"status": "ok", "budget": _member_budget_status(conn, org_id, target_user_id, wallet)}
+
+
+def delete_member_budget(actor_user_id, org_id, target_user_id):
+    """Remove a member's personal allowance (their company's budget still applies)."""
+    engine = _require_engine()
+    b = _get_tables()["credit_member_budgets"]
+    with engine.begin() as conn:
+        _, _, auth_err = _member_budget_authority(conn, actor_user_id, org_id)
+        if auth_err:
+            return auth_err
+        conn.execute(b.delete().where(b.c.org_id == org_id, b.c.user_id == target_user_id))
+    return {"status": "ok"}
+
+
+def list_member_budgets(actor_user_id, org_id):
+    """The people in `org_id` with their personal allowance (or None) and their
+    spend over the last 30 days, plus the company budget they sit inside."""
+    engine = _require_engine()
+    tables = _get_tables()
+    members, users = tables["org_members"], tables["users"]
+    from sqlalchemy import select
+    now = _now()
+    with engine.connect() as conn:
+        wallet, is_wallet_admin, auth_err = _member_budget_authority(conn, actor_user_id, org_id)
+        if auth_err:
+            return auth_err
+        rows = conn.execute(
+            select(users.c.id, users.c.name, users.c.email, members.c.role)
+            .select_from(members.join(users, users.c.id == members.c.user_id))
+            .where(members.c.org_id == org_id).order_by(members.c.created_at.asc())).all()
+        parent = _budget_status(conn, org_id, wallet, now)
+        return {
+            "org_id": org_id, "company_budget": parent, "enforced": billing_scope() == "wallet",
+            # a client's own admin can only work inside a company budget; the payer's admins needn't
+            "can_set_without_company_budget": is_wallet_admin,
+            "periods": list(BUDGET_PERIODS),
+            "members": [{
+                "user_id": r.id, "name": r.name, "email": r.email, "role": r.role,
+                "budget": _member_budget_status(conn, org_id, r.id, wallet, now),
+                "used_30d": _budget_used(conn, org_id, wallet, now - timedelta(days=30), None, r.id),
+            } for r in rows],
+        }
+
+
 class InsufficientCreditsError(Exception):
     """Raised by spend_credits() when the balance is short. The caller (a
     blueprint route) turns this into a 402 Payment Required with the current
@@ -1366,7 +1621,7 @@ class InsufficientCreditsError(Exception):
         super().__init__(f"insufficient credits: have {balance}, need {required}")
 
 
-def spend_credits(user_id, amount, reason, ref_type=None, ref_id=None, org_id=None):
+def _spend_credits_tx(user_id, amount, reason, ref_type=None, ref_id=None, org_id=None):
     """Debit `amount` credits if the balance covers it, atomically. Raises
     InsufficientCreditsError (balance left unchanged) if not.
 
@@ -1401,7 +1656,7 @@ def spend_credits(user_id, amount, reason, ref_type=None, ref_id=None, org_id=No
                 delta=-amount, reason=reason, ref_type=ref_type, ref_id=ref_id,
                 balance_after=_user_chain_balance(conn, user_id) - amount, created_at=_now(),
             ))
-            return balance - amount
+            return balance - amount, _budget_crossing(conn, oid, wallet)
         query = (select(ledger.c.balance_after).where(ledger.c.user_id == user_id)
                  .order_by(ledger.c.id.desc()).limit(1))
         if engine.dialect.name == "postgresql":
@@ -1415,7 +1670,21 @@ def spend_credits(user_id, amount, reason, ref_type=None, ref_id=None, org_id=No
             delta=-amount, reason=reason, ref_type=ref_type, ref_id=ref_id,
             balance_after=new_balance, created_at=_now(),
         ))
-        return new_balance
+        return new_balance, None
+
+
+def spend_credits(user_id, amount, reason, ref_type=None, ref_id=None, org_id=None):
+    """Debit `amount` credits if the balance and every budget rule allow it,
+    atomically (see _spend_credits_tx). Returns the balance after. If the spend
+    takes a company's budget to 80% or 100% for the first time in its window,
+    the owners/admins involved are emailed AFTER the transaction commits."""
+    balance, notice = _spend_credits_tx(user_id, amount, reason, ref_type, ref_id, org_id)
+    if notice is not None:
+        try:
+            _dispatch_budget_notice(notice)
+        except Exception:
+            pass      # the spend is committed; an alert problem must never reach the spender
+    return balance
 
 
 # ── Plan ─────────────────────────────────────────────────────────────────────
@@ -1487,9 +1756,10 @@ def wallet_mode_preflight():
                         "a wallet-level balance would visibly change for these users; decide each one")
     orgs = tables["organizations"]
     from sqlalchemy import inspect
-    if not inspect(engine).has_table("credit_budgets"):
-        problems.append("the credit_budgets table doesn't exist — run paisamap-etl/db/apply_budgets_table.py "
-                        "(wallet mode reads it on every spend)")
+    for tbl in ("credit_budgets", "credit_member_budgets"):
+        if not inspect(engine).has_table(tbl):
+            problems.append(f"the {tbl} table doesn't exist — run paisamap-etl/db/apply_budgets_table.py "
+                            "(wallet mode reads it on every spend)")
     with engine.connect() as conn:
         no_org = conn.execute(select(func.count()).select_from(users).where(users.c.org_id.is_(None))).scalar() or 0
         extra_unlinked = conn.execute(
@@ -1924,6 +2194,9 @@ def delete_organization(org_id, user_id):
     with engine.begin() as conn:
         if _has_budget_table(conn):
             conn.execute(budgets.delete().where(or_(budgets.c.org_id == org_id, budgets.c.wallet_org_id == org_id)))
+        if _has_budget_table(conn, "credit_member_budgets"):
+            conn.execute(tables["credit_member_budgets"].delete().where(
+                tables["credit_member_budgets"].c.org_id == org_id))
         result = conn.execute(orgs.delete().where(orgs.c.id == org_id))
     return result.rowcount > 0
 

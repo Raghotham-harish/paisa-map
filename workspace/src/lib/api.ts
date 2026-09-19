@@ -47,6 +47,8 @@ export interface User {
   credits_paid_by?: PaidBy | null;
   // This company's own credit budget and usage, if one is set (safe for its staff to see).
   credits_budget?: BudgetStatus | null;
+  // This person's own allowance inside that company, if an admin set one.
+  credits_member_budget?: BudgetStatus | null;
 }
 
 export type BudgetPeriod = "billing_cycle" | "calendar_month" | "weekly" | "quarterly" | "one_off" | "until_date";
@@ -55,6 +57,7 @@ export type BudgetPeriod = "billing_cycle" | "calendar_month" | "weekly" | "quar
 // `exhausted` means a hard stop. billing_cycle resolves to the calendar month
 // until subscriptions exist (resolved_period says what the window really follows).
 export interface BudgetStatus {
+  scope?: "company" | "member";
   amount: number;
   period: BudgetPeriod;
   resolved_period: BudgetPeriod;
@@ -84,6 +87,26 @@ export interface WalletBudgets {
   periods: BudgetPeriod[];
   enforced: boolean;
   companies: WalletBudgetCompany[];
+}
+
+// One person in a company, with the personal allowance an admin gave them (if any).
+export interface MemberBudgetRow {
+  user_id: number;
+  name: string | null;
+  email: string;
+  role: OrgRole;
+  budget: BudgetStatus | null;
+  used_30d: number;
+}
+
+export interface MemberBudgets {
+  org_id: number;
+  company_budget: BudgetStatus | null;
+  enforced: boolean;
+  // A client's own admin can only work inside a company budget; the payer's admins needn't.
+  can_set_without_company_budget: boolean;
+  periods: BudgetPeriod[];
+  members: MemberBudgetRow[];
 }
 
 // A budget rule stopped a spend (403). The server's `detail` already says why and who can fix it.
@@ -912,7 +935,8 @@ export const api = {
     if (limit != null) qs.set("limit", String(limit));
     const q = qs.toString();
     return request(`/api/credits${q ? `?${q}` : ""}`) as Promise<{
-      balance: number | null; paid_by: PaidBy | null; budget: BudgetStatus | null; ledger: CreditLedgerEntry[];
+      balance: number | null; paid_by: PaidBy | null; budget: BudgetStatus | null;
+      member_budget: BudgetStatus | null; ledger: CreditLedgerEntry[];
     }>;
   },
 
@@ -923,6 +947,13 @@ export const api = {
     request(`/api/organizations/${walletOrgId}/budgets/${orgId}`, { method: "PUT", body: JSON.stringify(body) }) as Promise<{ budget: BudgetStatus }>,
   deleteBudget: (walletOrgId: number, orgId: number) =>
     request(`/api/organizations/${walletOrgId}/budgets/${orgId}`, { method: "DELETE" }) as Promise<{ status: string }>,
+  // Personal allowances inside one company — set by its own admins (or the payer's), never above its budget.
+  listMemberBudgets: (orgId: number) =>
+    request(`/api/organizations/${orgId}/member-budgets`) as Promise<MemberBudgets>,
+  setMemberBudget: (orgId: number, userId: number, body: { amount: number; period: BudgetPeriod; ends_at?: string }) =>
+    request(`/api/organizations/${orgId}/member-budgets/${userId}`, { method: "PUT", body: JSON.stringify(body) }) as Promise<{ budget: BudgetStatus }>,
+  deleteMemberBudget: (orgId: number, userId: number) =>
+    request(`/api/organizations/${orgId}/member-budgets/${userId}`, { method: "DELETE" }) as Promise<{ status: string }>,
   setReserve: (walletOrgId: number, credits: number | null) =>
     request(`/api/organizations/${walletOrgId}/reserve`, { method: "PUT", body: JSON.stringify({ credits }) }) as Promise<{ reserve: number | null }>,
 

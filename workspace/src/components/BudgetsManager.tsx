@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { ApiError, BudgetPeriod, WalletBudgetCompany, WalletBudgets, api } from "../lib/api";
-import { PERIOD_OPTIONS, budgetWindowText } from "./BudgetMeter";
+import { ApiError, WalletBudgetCompany, WalletBudgets, api } from "../lib/api";
+import { budgetWindowText } from "./BudgetMeter";
+import { BudgetEditor } from "./BudgetEditor";
 
 const errorText = (e: unknown, fallback: string) =>
   e instanceof ApiError && e.body?.error === "invalid_end_date" ? "Pick an end date in the future."
@@ -11,44 +12,6 @@ function BudgetRow({ walletOrgId, company, onChanged }: {
   walletOrgId: number; company: WalletBudgetCompany; onChanged: () => void;
 }) {
   const b = company.budget;
-  const [amount, setAmount] = useState(b ? String(b.amount) : "");
-  const [period, setPeriod] = useState<BudgetPeriod>(b?.period ?? "billing_cycle");
-  const [endsAt, setEndsAt] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.setBudget(walletOrgId, company.org_id, {
-        amount: Number(amount), period, ...(period === "until_date" ? { ends_at: endsAt } : {}),
-      });
-      onChanged();
-    } catch (e) {
-      setError(errorText(e, "Couldn't save — try again."));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const remove = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await api.deleteBudget(walletOrgId, company.org_id);
-      setAmount("");
-      onChanged();
-    } catch (e) {
-      setError(errorText(e, "Couldn't remove it — try again."));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const valid = amount.trim() !== "" && Number.isInteger(Number(amount)) && Number(amount) >= 0
-    && (period !== "until_date" || endsAt !== "");
-  const hint = PERIOD_OPTIONS.find((p) => p.id === period)?.hint;
-
   return (
     <div style={{ padding: "14px 0", borderTop: "1px solid var(--border)" }} data-testid={`budget-row-${company.org_id}`}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 8 }}>
@@ -73,22 +36,13 @@ function BudgetRow({ walletOrgId, company, onChanged }: {
           This budget has ended. Set a new one to let this company's staff spend again.
         </div>
       )}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <input
-          type="number" min={0} step={1} value={amount} placeholder="Credits"
-          onChange={(e) => setAmount(e.target.value)} style={{ width: 110 }} aria-label={`Budget for ${company.name}, in credits`}
-        />
-        <select value={period} onChange={(e) => setPeriod(e.target.value as BudgetPeriod)} aria-label="Budget period" style={{ width: "auto" }}>
-          {PERIOD_OPTIONS.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
-        </select>
-        {period === "until_date" && (
-          <input type="date" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} aria-label="Budget end date" style={{ width: "auto" }} />
-        )}
-        <button className="btn secondary" disabled={busy || !valid} onClick={save}>{b ? "Update" : "Set budget"}</button>
-        {b && <button className="btn secondary" disabled={busy} onClick={remove}>Remove</button>}
-      </div>
-      {hint && <div style={{ fontSize: 11.5, color: "var(--ink-soft)", marginTop: 6 }}>{hint}</div>}
-      {error && <div style={{ color: "var(--flame)", fontSize: 12, marginTop: 6 }}>{error}</div>}
+      <BudgetEditor
+        key={`${b?.amount ?? "-"}:${b?.period ?? "-"}`}
+        budget={b}
+        ariaLabel={`Budget for ${company.name}, in credits`}
+        onSave={async (payload) => { await api.setBudget(walletOrgId, company.org_id, payload); onChanged(); }}
+        onRemove={async () => { await api.deleteBudget(walletOrgId, company.org_id); onChanged(); }}
+      />
     </div>
   );
 }
@@ -143,7 +97,7 @@ export function BudgetsManager({ walletOrgId }: { walletOrgId: number }) {
         </div>
       )}
       {data.companies.map((c) => (
-        <BudgetRow key={`${c.org_id}:${c.budget?.amount ?? "-"}:${c.budget?.period ?? "-"}`} walletOrgId={walletOrgId} company={c} onChanged={load} />
+        <BudgetRow key={c.org_id} walletOrgId={walletOrgId} company={c} onChanged={load} />
       ))}
       <div style={{ padding: "14px 0 0", borderTop: "1px solid var(--border)" }}>
         <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Keep in reserve</div>

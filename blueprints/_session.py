@@ -165,8 +165,12 @@ def wallet_gate(user_id, org_id, action_key=None):
     if reason == "budget_exceeded":
         b = block["info"]
         body["budget"] = b
-        body["detail"] = (f"This company's credit budget is used up ({b['used']} of {b['amount']} credits). "
-                          f"Ask {who} to raise it.")
+        if b.get("scope") == "member":
+            body["detail"] = (f"You've used your personal credit allowance for this company ({b['used']} of "
+                              f"{b['amount']} credits). Ask an admin of this company to raise it.")
+        else:
+            body["detail"] = (f"This company's credit budget is used up ({b['used']} of {b['amount']} credits). "
+                              f"Ask {who} to raise it.")
     elif reason == "wallet_reserve":
         body["detail"] = f"{who} is keeping the remaining credits in reserve, so they can't be used here."
     else:

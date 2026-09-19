@@ -31,18 +31,19 @@ export function budgetWindowText(b: BudgetStatus): string {
 }
 
 /** The company's own budget and how much of it is used. Warns at 80%, stops at 100% — the server enforces it. */
-export function BudgetMeter({ budget, paidByName }: { budget: BudgetStatus; paidByName?: string | null }) {
+export function BudgetMeter({ budget, paidByName, personal }: { budget: BudgetStatus; paidByName?: string | null; personal?: boolean }) {
   if (!budget.active) return null;
-  const who = paidByName ?? "an admin of this company";
+  // A personal allowance is raised by the company's own admins; a company budget by whoever pays for it.
+  const who = personal ? "an admin of this company" : (paidByName ?? "an admin of this company");
   const pct = Math.min(100, budget.pct);
   const tone = budget.exhausted ? "var(--flame)" : budget.warn ? "var(--amber)" : "var(--rupee)";
   const resets = budget.window_end && budget.resolved_period !== "until_date"
     ? ` It resets on ${fmtDay(new Date(budget.window_end))}.` : "";
   return (
-    <div className="card" style={{ marginBottom: 20 }} data-testid="budget-meter">
-      <p className="kicker" style={{ marginBottom: 8 }}>Credit budget · {budgetWindowText(budget)}</p>
+    <div className="card" style={{ marginBottom: 20 }} data-testid={personal ? "member-budget-meter" : "budget-meter"}>
+      <p className="kicker" style={{ marginBottom: 8 }}>{personal ? "Your credit allowance" : "Credit budget"} · {budgetWindowText(budget)}</p>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
-        <span><strong>{budget.used}</strong> of {budget.amount} credits used</span>
+        <span><strong>{budget.used}</strong> of {budget.amount} credits used{personal ? " by you" : ""}</span>
         <span style={{ color: tone, fontWeight: 700 }}>{budget.pct}%</span>
       </div>
       <div style={{ height: 8, borderRadius: 4, background: "var(--paper-3)", overflow: "hidden" }}>
@@ -50,7 +51,7 @@ export function BudgetMeter({ budget, paidByName }: { budget: BudgetStatus; paid
       </div>
       {budget.exhausted ? (
         <div style={{ color: "var(--flame)", fontSize: 12.5, marginTop: 10 }}>
-          This budget is used up, so credits can't be spent here until {who} raises it.{resets}
+          {personal ? "Your allowance is used up, so you can't spend credits here" : "This budget is used up, so credits can't be spent here"} until {who} raises it.{resets}
         </div>
       ) : budget.warn ? (
         <div style={{ fontSize: 12.5, marginTop: 10, color: "var(--ink-soft)" }}>
