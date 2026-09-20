@@ -93553,6 +93553,6 @@
     "PASS  Indiranagar > Electronic City: PPI(560025)=200 vs PPI(560035)=105",
     "PASS  Indiranagar > Yelahanka: PPI(560025)=200 vs PPI(560064)=73",
     "PASS  Koramangala > Hebbal: PPI(560027)=167 vs PPI(560047)=123",
-    "WARN  PPI stability: 172 pincodes drifted >10pt"
+    "PASS  PPI stability: max drift 0.0pt (limit 10)"
   ]
 }
