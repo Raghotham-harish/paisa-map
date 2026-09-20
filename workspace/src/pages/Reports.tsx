@@ -112,8 +112,14 @@ export default function Reports() {
         },
         onDismiss: () => setBuying(null),
       });
-    } catch {
-      setErrors((prev) => ({ ...prev, [project.id]: "Couldn't complete that purchase — try again." }));
+    } catch (e) {
+      const closed = e instanceof ApiError && e.body?.error === "purchases_not_open";
+      setErrors((prev) => ({
+        ...prev,
+        [project.id]: closed
+          ? "Purchases aren't open yet. Ask PaisaMap and we'll add credits for you."
+          : "Couldn't complete that purchase — try again.",
+      }));
     } finally {
       setBuying(null);
     }

@@ -154,6 +154,8 @@ export default function Billing() {
                   <span className={`pill plan-${plan}`}>Current plan</span>
                 ) : plan === "free" ? (
                   <span className="pill">—</span>
+                ) : pricing.checkout?.plans === false ? (
+                  <span style={{ fontSize: 12, color: "var(--ink-soft)" }}>Set up with PaisaMap directly</span>
                 ) : (
                   <button
                     className="btn secondary"
@@ -203,7 +205,15 @@ export default function Billing() {
           </div>
         </div>
       )}
-      {pricing && !(paidBy && balance == null) && (
+      {pricing && !(paidBy && balance == null) && pricing.checkout?.credits === false && (
+        <div className="card" style={{ marginBottom: 20 }} data-testid="purchases-not-open">
+          <p className="kicker" style={{ marginBottom: 8 }}>Buy credits</p>
+          <div style={{ fontSize: 13 }}>
+            Credit purchases aren't open yet. Ask PaisaMap and we'll add credits to your company directly.
+          </div>
+        </div>
+      )}
+      {pricing && !(paidBy && balance == null) && pricing.checkout?.credits !== false && (
         <div className="card" style={{ marginBottom: 20 }}>
           <p className="kicker" style={{ marginBottom: 14 }}>Buy credits</p>
           {buyError && <div style={{ color: "var(--flame)", fontSize: 12, marginBottom: 10 }}>{buyError}</div>}

@@ -64,10 +64,48 @@ def _not_configured():
 
 @billing_bp.route("/pricing", methods=["GET"])
 def pricing():
-    return jsonify(_pricing.public_pricing_payload())
+    payload = _pricing.public_pricing_payload()
+    payload["checkout"] = checkout_state()
+    return jsonify(payload)
+
+
+def _live_keys() -> bool:
+    """True when the configured Razorpay key is a LIVE-mode key (real money). The
+    mode is nothing but the key id's prefix; nothing else in the app knows it."""
+    return (os.environ.get("RAZORPAY_KEY_ID") or "").startswith("rzp_live_")
+
+
+def checkout_state() -> dict:
+    """What may be bought right now. Test keys: everything, exactly as before.
+    Live keys: the prices in _pricing.py's legacy block are placeholders (see the
+    comment there), so nothing is purchasable until BILLING_LIVE_PURCHASES=1 is
+    set deliberately, and the legacy Pro/Team plan checkout is never purchasable
+    with live keys at all — v2 subscriptions replace it."""
+    if not _live_keys():
+        return {"live": False, "plans": True, "credits": True, "reports": True}
+    open_ = os.environ.get("BILLING_LIVE_PURCHASES") == "1"
+    return {"live": True, "plans": False, "credits": open_, "reports": open_}
+
+
+_KIND_TO_GATE = {"plan_upgrade": "plans", "credit_pack": "credits", "report_purchase": "reports"}
+
+
+def _purchase_gate(kind):
+    """None if `kind` may be bought now, else a ready 403 response. Checked before
+    Razorpay is contacted, so a refused purchase leaves no order behind."""
+    if checkout_state().get(_KIND_TO_GATE.get(kind, ""), False):
+        return None
+    if kind == "plan_upgrade":
+        return jsonify({"error": "plan_checkout_retired",
+                        "detail": "Plans are set up with PaisaMap directly for now."}), 403
+    return jsonify({"error": "purchases_not_open",
+                    "detail": "Purchases aren't open yet. Ask PaisaMap and we'll add credits for you."}), 403
 
 
 def _create_razorpay_order_and_local_row(user_id, kind, amount_paise, **kwargs):
+    blocked = _purchase_gate(kind)
+    if blocked is not None:
+        return None, blocked
     client = _client()
     if client is None:
         return None, _not_configured()

@@ -911,6 +911,8 @@ export interface PricingConfig {
   credit_packs: Record<string, { credits: number; price_paise: number; label: string }>;
   plan_prices: Record<string, { price_paise: number; label: string; interval: string }>;
   report_purchase_price_paise: number;
+  /** What may be bought right now. Absent on an older server = everything (test-mode behaviour). */
+  checkout?: { live: boolean; plans: boolean; credits: boolean; reports: boolean };
 }
 
 export type OrderKind = "credit_pack" | "plan_upgrade" | "report_purchase";
