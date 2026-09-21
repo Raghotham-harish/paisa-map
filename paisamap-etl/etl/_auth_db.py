@@ -502,6 +502,37 @@ def _get_tables():
               sqlite_where=text("status IN ('authenticated','active','pending','halted','paused')")),
     )
 
+    # Billing-v2 assisted sales: a plan + credits granted by hand against an invoice
+    # paid outside Razorpay (NEFT/UPI/cheque), for the tiers that can't autopay
+    # (Scale and above, annual) and for pilots. This table IS the audit trail: who
+    # granted what, against which external invoice and payment reference, for which
+    # period, and what the company's plan was before. `invoice_number` is unique so a
+    # re-run of the same command can never grant twice. `org_id` is the PAYING company.
+    assisted_sales = Table(
+        "assisted_sales", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("org_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        Column("tier", Text, nullable=False),                    # key into _pricing.TIERS
+        Column("months", Integer, nullable=False),
+        Column("credits", Integer, nullable=False, server_default="0"),
+        Column("invoice_number", Text, nullable=False, unique=True),
+        Column("amount_paise", Integer, nullable=False),         # what was actually received (0 = complimentary)
+        Column("payment_method", Text, nullable=False),
+        Column("payment_ref", Text),                             # UTR / cheque no.
+        Column("period_start", DateTime(timezone=True), nullable=False),
+        Column("period_end", DateTime(timezone=True), nullable=False),
+        Column("status", Text, nullable=False, server_default="active"),   # active | expired | revoked
+        Column("plan_before", Text),
+        Column("granted_by", Text, nullable=False),
+        Column("notes", Text),
+        Column("expired_at", DateTime(timezone=True)),
+        Column("revoked_at", DateTime(timezone=True)),
+        Column("revoked_by", Text),
+        Column("revoke_reason", Text),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Index("ix_assisted_sales_org", "org_id"),
+    )
+
     # Razorpay Plans are immutable, so each (tier, cycle, amount) needs its own
     # Razorpay plan id. Created lazily the first time it's needed and cached
     # here; a reprice is simply a new row.
@@ -608,6 +639,7 @@ def _get_tables():
         "credit_link_requests": credit_link_requests,
         "org_domains": org_domains,
         "subscriptions": subscriptions, "razorpay_plans": razorpay_plans,
+        "assisted_sales": assisted_sales,
     }
     return _tables
 
@@ -632,7 +664,7 @@ def init_schema():
         tables["orders"], tables["invoices"],
         tables["api_keys"], tables["credit_budgets"], tables["credit_member_budgets"],
         tables["credit_link_requests"], tables["org_domains"],
-        tables["subscriptions"], tables["razorpay_plans"],
+        tables["subscriptions"], tables["razorpay_plans"], tables["assisted_sales"],
     ])
     _ensure_invoice_sequence(engine)
 

@@ -83,7 +83,7 @@ def tables_ready():
     from sqlalchemy import inspect
     engine = A._require_engine()
     insp = inspect(engine)
-    _ready = insp.has_table("subscriptions") and insp.has_table("razorpay_plans")
+    _ready = all(insp.has_table(t) for t in ("subscriptions", "razorpay_plans", "assisted_sales"))
     if not _ready:
         _not_ready_until = time.monotonic() + _RECHECK_SECONDS
     return _ready
@@ -380,8 +380,15 @@ def _org_owner(org_id):
 
 def sweep_ended(now=None):
     """Take the plan away from subscriptions that have ended AND whose paid-for
-    period is over. Idempotent; run from cron and opportunistically from the
-    webhook. Returns the number of companies whose plan was revoked."""
+    period is over, and expire assisted sales whose period is over. Idempotent; run
+    from cron and opportunistically from the webhook. Returns the number of companies
+    whose plan was revoked or lowered.
+
+    A plan is never revoked from under something else that still entitles the
+    company: the company may have started a NEW subscription (same tier) before the
+    old one's paid period ran out, or hold an active assisted sale. That hand-over
+    lives in _assisted_sale.release_plan."""
+    import _assisted_sale
     engine, tables = A._require_engine(), A._get_tables()
     subs = tables["subscriptions"]
     from sqlalchemy import select
@@ -394,16 +401,10 @@ def sweep_ended(now=None):
         for r in due:
             if _aware(r.ends_at) > now:
                 continue
-            # The company may have started a NEW subscription (same tier) before this
-            # one's paid period ran out. Revoking would take away what the new one
-            # just granted, so only revoke when no other paid, live subscription exists.
-            other = conn.execute(select(subs.c.id).where(
-                subs.c.org_id == r.org_id, subs.c.id != r.id, subs.c.status.in_(LIVE_STATUSES),
-                subs.c.paid_count >= 1)).scalar()
-            if other is None and _revoke_plan(conn, r.org_id, r.tier):
+            if _assisted_sale.release_plan(conn, r.org_id, r.tier, now):
                 revoked += 1
             conn.execute(subs.update().where(subs.c.id == r.id).values(plan_revoked_at=now, updated_at=now))
-    return revoked
+    return revoked + _assisted_sale.expire_due(now)
 
 
 def org_plan(org_id):

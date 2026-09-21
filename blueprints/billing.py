@@ -34,6 +34,7 @@ import _pricing  # noqa: E402
 import _gst  # noqa: E402
 import _invoice_pdf  # noqa: E402
 import _subscriptions  # noqa: E402
+import _assisted_sale  # noqa: E402
 
 from ._session import require_login, _auth_db  # noqa: E402
 
@@ -550,6 +551,8 @@ def get_subscription(user_id):
     return jsonify({
         "state": subscriptions_state(),
         "standing": _auth_db.account_standing(user_id, payer) if ready else None,
+        # A plan PaisaMap set up directly (invoice/NEFT): shown as "managed by PaisaMap until ...".
+        "assisted": _assisted_sale.public_view(_assisted_sale.active_for_org(payer)) if ready else None,
         "subscription": _subscriptions.public_view(_subscriptions.get_latest(payer)) if ready else None,
         "options": [{"tier": t, "label": _pricing.TIERS[t]["label"],
                      "amount_paise": _pricing.subscription_amount_paise(t)}

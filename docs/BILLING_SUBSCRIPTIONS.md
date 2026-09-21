@@ -1,8 +1,9 @@
-# Billing-v2 P2 + P13 — recurring subscriptions, dunning and soft-lock
+# Billing-v2 P2 + P13 + P12 rail — subscriptions, dunning/soft-lock, assisted sales
 
 Status: **built and tested, dark.** Nothing here is reachable until
 `BILLING_SUBSCRIPTIONS=1`. Branch `feat/billing-p2-subscriptions`; not pushed.
-Round 1 = subscriptions (P2). Round 2 = dunning + soft-lock (P13), below.
+Round 1 = subscriptions (P2). Round 2 = dunning + soft-lock (P13). Round 3 = the sales-assisted
+invoice/NEFT rail (assisted sales), below.
 
 ## What exists
 
@@ -12,7 +13,10 @@ Round 1 = subscriptions (P2). Round 2 = dunning + soft-lock (P13), below.
 | State machine, idempotent charge handling, plan grant/revoke, sweep | `paisamap-etl/etl/_subscriptions.py` |
 | Self-serve eligibility + per-cycle amount | `paisamap-etl/etl/_pricing.py` (`subscription_error`, `subscription_amount_paise`) |
 | Routes + `subscription.*` webhook | `blueprints/billing.py` (`/api/billing/subscriptions[...]`) |
-| Cron backstop: revokes ended plans, sends dunning emails | `paisamap-etl/db/subscription_sweep.py` |
+| Cron backstop: revokes ended plans, expires assisted sales, sends dunning emails | `paisamap-etl/db/subscription_sweep.py` |
+| Assisted sales: logic + audit table `assisted_sales` | `paisamap-etl/etl/_assisted_sale.py` |
+| Assisted sales: operator CLI (dry run by default) | `paisamap-etl/db/assisted_sale.py` |
+| Tests: assisted sales 108 checks / 37 mutants, all killed | `tests/test_assisted_sale.py` |
 | Tests: subscriptions 147 checks / 34 mutants (33 killed, 1 equivalent) | `tests/test_billing_subscriptions.py` |
 | Tests: dunning + lock 93 checks / 35 mutants (33 killed, 2 redundant-guard equivalents) | `tests/test_billing_dunning.py` |
 
@@ -80,11 +84,54 @@ The webhook is the existing `/api/billing/webhook`, now also handling `subscript
 button), and the deferred top-up accrual ledger (mid-cycle top-ups billed on the next
 renewal via Razorpay add-ons). Top-ups are a normal one-off checkout for now.
 
+## Assisted sales — the invoice/NEFT rail (round 3)
+
+For Scale and above, anything annual, and pilots: the customer pays against an invoice
+outside Razorpay, and **you** record it on the server. There is deliberately **no web
+endpoint** for this (no new login surface); it is a CLI that shows a dry run first.
+
+```zsh
+ASALE() { ssh -i ~/.ssh/paisamap_lightsail ubuntu@paisamaps.com \
+  "sudo bash -c 'set -a; . /etc/paisamap/db.env; set +a; cd /home/ubuntu/paisa-map; \
+   exec venv-flask/bin/python3 paisamap-etl/db/assisted_sale.py $*'"; }
+
+ASALE grant --owner-email buyer@co.com --tier scale --months 12 \
+      --invoice PM/2026-27/001 --amount 300000 --method neft --ref UTR123456789       # dry run
+ASALE grant --owner-email buyer@co.com --tier scale --months 12 \
+      --invoice PM/2026-27/001 --amount 300000 --method neft --ref UTR123456789 --yes # apply
+ASALE grant --org-id 42 --tier growth --months 3 --method complimentary \
+      --invoice PILOT-001 --amount 0 --note "3-month design-partner pilot" --yes
+ASALE list [--org-id 42] [--status active]
+ASALE revoke --sale-id 7 --reason "refunded, invoice cancelled" --yes
+```
+
+- `--amount` is **rupees actually received** (0 only for `--method complimentary`, which
+  needs a `--note`). A paid sale needs `--ref` (UTR / cheque no.). `--credits` defaults to
+  the tier's monthly credits × months.
+- **One invoice number is recorded once** (unique), so re-running the same command
+  grants nothing twice. The `assisted_sales` row is the audit trail: invoice, amount,
+  method, reference, period, plan before, and who ran it (`SUDO_USER`).
+- Sets the **paying** company's plan (a linked client is refused, naming its payer);
+  refuses a company with a live *paid* subscription (no double billing) or already on a
+  *higher* v2 plan. A repeat sale of the same tier **stacks** (starts when the current
+  period ends); credits are added at once.
+- **Access ends by itself at the period end** via the sweep cron, which hands the plan
+  to whatever else still entitles the company (another sale, or a paid subscription)
+  instead of revoking it from under them. **The hourly `subscription_sweep.py` cron must be
+  installed or nothing ever expires.**
+- `revoke` ends a sale now (refund/cancel). **Credits already granted are not taken back**
+  — that is a separate, deliberate call.
+- The customer's Billing page gets `assisted: {tier, label, period_start, period_end}`
+  ("managed directly by PaisaMap until …"), with no invoice or payment details.
+- **Not built:** the GST invoice itself. Issue it outside (your CA/accounting tool) and
+  record its number here; the GST engine (CGST+SGST vs IGST, PDF) is a separate item.
+  Credits granted here don't yet roll over/expire on the P3 schedule.
+
 ## Deploy order (every step is safe to do early; the flag is what opens it)
 
 1. Push the branch → merge → deploy (code goes live, feature dark, old flows unchanged —
    rehearsed against a DB built by the deployed code).
-2. Run `db/apply_subscriptions_tables.py` on the server (additive, idempotent).
+2. Run `db/apply_subscriptions_tables.py` on the server (additive, idempotent; also creates `assisted_sales`).
 3. Razorpay dashboard → the existing webhook → tick the `subscription.*` events
    (authenticated, activated, charged, pending, halted, cancelled, completed, paused,
    resumed). Same URL and secret; live mode has its own webhook and secret.
