@@ -452,6 +452,64 @@ def _get_tables():
               postgresql_where=text("status = 'verified'"), sqlite_where=text("status = 'verified'")),
     )
 
+    # Billing-v2 P2: recurring subscriptions. One row per Razorpay subscription;
+    # the PLAN itself still lives on organizations.plan ('v2_<tier>') — this
+    # table is the billing state that decides when that plan is granted and
+    # revoked. `org_id` is the PAYING company (the wallet). `status` mirrors
+    # Razorpay's (created/authenticated/active/pending/halted/cancelled/
+    # completed/expired/paused) plus two local ones: 'abandoned' (checkout never
+    # finished and a newer attempt replaced it) and 'duplicate' (a second live
+    # subscription for one company slipped in; needs a human). `last_event_at`
+    # is the newest webhook timestamp applied, so a late redelivery of an older
+    # event can't overwrite newer state. The partial unique index is the safety
+    # net for "at most one live subscription per paying company" (also checked
+    # in code, so the user gets a clean 409 instead of an IntegrityError).
+    subscriptions = Table(
+        "subscriptions", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("org_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        Column("created_by_user_id", Integer, ForeignKey("users.id", ondelete="SET NULL")),
+        Column("tier", Text, nullable=False),                      # key into _pricing.TIERS
+        Column("cycle", Text, nullable=False, server_default="monthly"),
+        Column("razorpay_subscription_id", Text, nullable=False, unique=True),
+        Column("razorpay_plan_id", Text, nullable=False),
+        Column("status", Text, nullable=False, server_default="created"),
+        Column("amount_paise", Integer, nullable=False),           # one cycle's charge
+        Column("price_book_version", Text),
+        Column("paid_count", Integer, nullable=False, server_default="0"),
+        Column("current_start", DateTime(timezone=True)),
+        Column("current_end", DateTime(timezone=True)),
+        Column("cancel_at_period_end", Boolean, nullable=False, server_default="0"),
+        Column("cancelled_at", DateTime(timezone=True)),
+        Column("halted_at", DateTime(timezone=True)),
+        # When the paid-for access stops (set when the subscription ends); the
+        # sweep revokes the plan once it has passed, then stamps plan_revoked_at.
+        Column("ends_at", DateTime(timezone=True)),
+        Column("plan_revoked_at", DateTime(timezone=True)),
+        Column("last_event_at", DateTime(timezone=True)),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+        Index("ix_subscriptions_org", "org_id"),
+        Index("uq_subscriptions_live_org", "org_id", unique=True,
+              postgresql_where=text("status IN ('authenticated','active','pending','halted','paused')"),
+              sqlite_where=text("status IN ('authenticated','active','pending','halted','paused')")),
+    )
+
+    # Razorpay Plans are immutable, so each (tier, cycle, amount) needs its own
+    # Razorpay plan id. Created lazily the first time it's needed and cached
+    # here; a reprice is simply a new row.
+    razorpay_plans = Table(
+        "razorpay_plans", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("tier", Text, nullable=False),
+        Column("cycle", Text, nullable=False),
+        Column("amount_paise", Integer, nullable=False),
+        Column("razorpay_plan_id", Text, nullable=False, unique=True),
+        Column("price_book_version", Text),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        UniqueConstraint("tier", "cycle", "amount_paise", name="uq_razorpay_plans_tier_cycle_amount"),
+    )
+
     # Billing-v2 budgets: a cap, in credits, on what one COMPANY may spend from
     # its wallet per period (kind='cap'), and an optional floor a wallet keeps
     # back for its own company (kind='reserve', org_id = wallet_org_id). The
@@ -542,6 +600,7 @@ def _get_tables():
         "credit_member_budgets": credit_member_budgets,
         "credit_link_requests": credit_link_requests,
         "org_domains": org_domains,
+        "subscriptions": subscriptions, "razorpay_plans": razorpay_plans,
     }
     return _tables
 
@@ -566,6 +625,7 @@ def init_schema():
         tables["orders"], tables["invoices"],
         tables["api_keys"], tables["credit_budgets"], tables["credit_member_budgets"],
         tables["credit_link_requests"], tables["org_domains"],
+        tables["subscriptions"], tables["razorpay_plans"],
     ])
     _ensure_invoice_sequence(engine)
 

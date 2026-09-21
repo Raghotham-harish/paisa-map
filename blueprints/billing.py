@@ -32,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" /
 import _pricing  # noqa: E402
 import _gst  # noqa: E402
 import _invoice_pdf  # noqa: E402
+import _subscriptions  # noqa: E402
 
 from ._session import require_login, _auth_db  # noqa: E402
 
@@ -69,6 +70,7 @@ def pricing():
     payload["checkout"] = checkout_state()
     payload["gst"] = {"charged": _seller_gstin() is not None, "rate": _pricing.GST_RATE,
                       "seller_state": _gst.SELLER["state_code"], "states": _gst.STATES}
+    payload["subscriptions"] = subscriptions_state()
     return jsonify(payload)
 
 
@@ -395,7 +397,10 @@ def webhook():
         return jsonify({"error": "signature_invalid"}), 400
 
     payload = request.get_json(silent=True) or {}
-    if payload.get("event") != "payment.captured":
+    event = payload.get("event") or ""
+    if event.startswith("subscription."):
+        return _handle_subscription_event(payload)
+    if event != "payment.captured":
         return jsonify({"status": "ignored"}), 200
 
     payment_entity = payload["payload"]["payment"]["entity"]
@@ -446,3 +451,266 @@ def download_invoice(user_id, invoice_id):
         return jsonify({"error": "file_missing"}), 404
     return send_file(str(path), mimetype="application/pdf", as_attachment=True,
                       download_name=f"invoice_{invoice['invoice_number']}.pdf")
+
+
+# ── Recurring subscriptions (billing-v2 P2) ──────────────────────────────────
+# Dark by default: nothing here is reachable until BILLING_SUBSCRIPTIONS=1. The
+# webhook side is NOT gated — an event for a subscription we know about must
+# always be applied, or flipping the flag off would freeze in-flight state.
+
+def subscriptions_state() -> dict:
+    """Whether a customer may START a subscription right now, and why not.
+    Needs wallet billing scope: the plan a subscription grants lives on the
+    company, and only wallet scope reads it — without that a customer would pay
+    and get nothing. Live keys additionally need BILLING_LIVE_PURCHASES=1, the
+    same deliberate switch that guards every other real-money purchase."""
+    if os.environ.get("BILLING_SUBSCRIPTIONS") != "1":
+        return {"enabled": False, "reason": "not_enabled"}
+    if _auth_db.billing_scope() != "wallet":
+        return {"enabled": False, "reason": "wallet_scope_required"}
+    if _live_keys() and os.environ.get("BILLING_LIVE_PURCHASES") != "1":
+        return {"enabled": False, "reason": "purchases_not_open"}
+    if not _subscriptions.tables_ready():
+        return {"enabled": False, "reason": "schema_not_applied"}
+    return {"enabled": True, "reason": None}
+
+
+def _subscriptions_gate():
+    state = subscriptions_state()
+    if state["enabled"]:
+        return None
+    return jsonify({"error": "subscriptions_unavailable", "reason": state["reason"],
+                    "detail": "Subscriptions aren't open yet."}), 403
+
+
+def _payer_for_subscription(user_id, body_or_args):
+    """The PAYING company a subscription attaches to, and only if the caller is
+    its owner or admin. The plan lives on the payer (it's what every linked
+    company's members inherit), so being admin of a linked client company is
+    not enough. Returns (payer_org_id, error_response)."""
+    requested = body_or_args.get("org_id")
+    if isinstance(requested, str) and requested.isdigit():
+        requested = int(requested)
+    if requested is not None and (isinstance(requested, bool) or not isinstance(requested, int)):
+        return None, (jsonify({"error": "invalid_org_id"}), 400)
+    wallet = _auth_db.resolve_purchase_wallet(user_id, requested)
+    payer = wallet["billing_org_id"] if wallet else None
+    if wallet is not None and payer is None:
+        return None, (jsonify({"error": "no_company"}), 409)
+    if wallet is None or _auth_db.get_org_role(payer, user_id) not in ("owner", "admin"):
+        return None, (jsonify({"error": "not_allowed",
+                               "detail": "Only the paying company's owner or admin can manage its subscription."}), 403)
+    return payer, None
+
+
+def _ensure_razorpay_plan(client, tier, cycle):
+    amount = _pricing.subscription_amount_paise(tier, cycle)
+    plan_id = _subscriptions.cached_plan_id(tier, cycle, amount)
+    if plan_id:
+        return plan_id
+    label = _pricing.TIERS[tier]["label"]
+    rp_plan = client.plan.create({
+        "period": "monthly", "interval": 1,
+        "item": {"name": f"PaisaMap {label} (monthly)", "amount": amount, "currency": "INR"},
+        "notes": {"tier": tier, "price_book": _pricing.PRICE_BOOK_VERSION},
+    })
+    return _subscriptions.save_plan_id(tier, cycle, amount, rp_plan["id"])
+
+
+@billing_bp.route("/subscriptions", methods=["GET"])
+@require_login
+def get_subscription(user_id):
+    payer, err = _payer_for_subscription(user_id, request.args)
+    if err:
+        return err
+    ready = _subscriptions.tables_ready()
+    if ready:
+        _subscriptions.sweep_ended()
+    return jsonify({
+        "state": subscriptions_state(),
+        "subscription": _subscriptions.public_view(_subscriptions.get_latest(payer)) if ready else None,
+        "options": [{"tier": t, "label": _pricing.TIERS[t]["label"],
+                     "amount_paise": _pricing.subscription_amount_paise(t)}
+                    for t in _pricing.TIERS if _pricing.subscription_error(t) is None],
+    })
+
+
+@billing_bp.route("/subscriptions", methods=["POST"])
+@require_login
+def create_subscription(user_id):
+    blocked = _subscriptions_gate()
+    if blocked is not None:
+        return blocked
+    body = request.get_json(silent=True) or {}
+    tier, cycle = body.get("tier"), body.get("cycle") or "monthly"
+    bad = _pricing.subscription_error(tier, cycle)
+    if bad:
+        return jsonify({"error": bad}), 400
+    payer, err = _payer_for_subscription(user_id, body)
+    if err:
+        return err
+    if _subscriptions.get_live(payer):
+        return jsonify({"error": "already_subscribed"}), 409
+    held = _subscriptions.org_plan(payer)
+    if (_pricing.parse_plan(held)[0] == "v2"
+            and _pricing.tier_rank(held) >= _pricing.tier_rank(_pricing.plan_id_v2(tier))):
+        return jsonify({"error": "plan_managed_directly",
+                        "detail": "This company already has this plan or a higher one, set up with PaisaMap directly."}), 409
+    client = _client()
+    if client is None:
+        return _not_configured()
+    try:
+        plan_id = _ensure_razorpay_plan(client, tier, cycle)
+        rp_sub = client.subscription.create({
+            "plan_id": plan_id, "total_count": _pricing.SUBSCRIPTION_TOTAL_COUNT,
+            "quantity": 1, "customer_notify": 1,
+            "notes": {"org_id": str(payer), "user_id": str(user_id), "tier": tier, "cycle": cycle},
+        })
+    except Exception as e:
+        return jsonify({"error": "gateway_error", "detail": str(e)}), 502
+    _subscriptions.create_local(payer, user_id, tier, cycle, rp_sub["id"], plan_id,
+                                _pricing.subscription_amount_paise(tier, cycle))
+    return jsonify({
+        "razorpay_subscription_id": rp_sub["id"],
+        "razorpay_key_id": os.environ.get("RAZORPAY_KEY_ID"),
+        "amount_paise": _pricing.subscription_amount_paise(tier, cycle),
+        "currency": "INR", "tier": tier,
+    }), 201
+
+
+def _ensure_subscription_invoice(order, tier):
+    if _subscriptions.invoice_exists(order["id"]):
+        return
+    from sqlalchemy.exc import IntegrityError
+    try:
+        _create_invoice_for_order(order, f"{_pricing.TIERS[tier]['label']} plan — monthly subscription")
+    except IntegrityError:
+        pass    # a concurrent delivery created it first
+
+
+def _finish_charge(sub, payment, sub_entity, event_ts=None):
+    """One captured subscription payment, from /verify or the webhook: record the
+    order, grant the plan, make sure an invoice exists. Idempotent end to end."""
+    res = _subscriptions.apply_charge(
+        sub["razorpay_subscription_id"], payment["id"], payment["amount"],
+        current_start=_subscriptions.ts(sub_entity.get("current_start")),
+        current_end=_subscriptions.ts(sub_entity.get("current_end")),
+        paid_count=sub_entity.get("paid_count"), event_ts=event_ts,
+        razorpay_order_id=payment.get("order_id"))
+    if "error" in res:
+        return res
+    _ensure_subscription_invoice(res["order"], sub["tier"])
+    if res["newly_paid"]:
+        _auth_db.log_activity(res["order"]["user_id"], "subscription_charge", target_type="order",
+                              target_id=res["order"]["id"],
+                              metadata={"tier": sub["tier"], "org_id": sub["org_id"]})
+    return res
+
+
+@billing_bp.route("/subscriptions/verify", methods=["POST"])
+@require_login
+def verify_subscription(user_id):
+    """Called right after Checkout's success handler, like /verify for orders.
+    The signature proves Razorpay tied this payment to this subscription; the
+    payment and subscription are then fetched from Razorpay, so what gets
+    recorded is Razorpay's own account of the charge, not the browser's."""
+    client = _client()
+    if client is None:
+        return _not_configured()
+    body = request.get_json(silent=True) or {}
+    sid, pid, sig = (body.get("razorpay_subscription_id"), body.get("razorpay_payment_id"),
+                     body.get("razorpay_signature"))
+    if not (sid and pid and sig):
+        return jsonify({"error": "missing_fields"}), 400
+    try:
+        client.utility.verify_subscription_payment_signature({
+            "razorpay_subscription_id": sid, "razorpay_payment_id": pid, "razorpay_signature": sig})
+    except razorpay.errors.SignatureVerificationError:
+        return jsonify({"error": "signature_invalid"}), 400
+    sub = _subscriptions.get_by_razorpay_id(sid) if _subscriptions.tables_ready() else None
+    if sub is None or _auth_db.get_org_role(sub["org_id"], user_id) not in ("owner", "admin"):
+        return jsonify({"error": "subscription_not_found"}), 404
+    try:
+        payment = client.payment.fetch(pid)
+        sub_entity = client.subscription.fetch(sid)
+    except Exception as e:
+        return jsonify({"error": "gateway_error", "detail": str(e)}), 502
+    if payment.get("status") != "captured":
+        # Not settled yet; the webhook finishes it when it is.
+        return jsonify({"status": "pending"}), 200
+    res = _finish_charge(sub, payment, sub_entity)
+    if "error" in res:
+        return jsonify({"error": res["error"]}), 409
+    return jsonify({"status": "active",
+                    "subscription": _subscriptions.public_view(res["subscription"])}), 200
+
+
+@billing_bp.route("/subscriptions/cancel", methods=["POST"])
+@require_login
+def cancel_subscription(user_id):
+    """Cancel keeps access to the end of the paid cycle (no partial-period
+    refund, same as the proposed refund policy). A subscription that never got
+    a paid cycle (pending/halted/authenticated) has nothing to keep, so that
+    ends immediately."""
+    body = request.get_json(silent=True) or {}
+    payer, err = _payer_for_subscription(user_id, body)
+    if err:
+        return err
+    sub = _subscriptions.get_live(payer) if _subscriptions.tables_ready() else None
+    if sub is None:
+        return jsonify({"error": "no_subscription"}), 404
+    client = _client()
+    if client is None:
+        return _not_configured()
+    at_cycle_end = sub["status"] == "active"
+    try:
+        client.subscription.cancel(sub["razorpay_subscription_id"],
+                                   {"cancel_at_cycle_end": 1 if at_cycle_end else 0})
+    except Exception as e:
+        return jsonify({"error": "gateway_error", "detail": str(e)}), 502
+    if at_cycle_end:
+        res = _subscriptions.record_state(sub["razorpay_subscription_id"], cancel_at_period_end=True)
+    else:
+        res = _subscriptions.record_state(sub["razorpay_subscription_id"], status="cancelled")
+        _subscriptions.sweep_ended()
+    return jsonify({"subscription": _subscriptions.public_view(res.get("subscription"))}), 200
+
+
+_EVENT_STATUS = {
+    "subscription.authenticated": "authenticated", "subscription.activated": "active",
+    "subscription.pending": "pending", "subscription.halted": "halted",
+    "subscription.cancelled": "cancelled", "subscription.completed": "completed",
+    "subscription.expired": "expired", "subscription.paused": "paused",
+    "subscription.resumed": "active",
+}
+
+
+def _handle_subscription_event(payload):
+    """subscription.* webhooks (signature already verified by the caller). Always
+    answers 200 for anything well-formed — including subscriptions we don't know,
+    which are simply not ours — so Razorpay doesn't retry forever."""
+    event = payload.get("event")
+    try:
+        entity = payload["payload"]["subscription"]["entity"]
+        sid = entity["id"]
+    except (KeyError, TypeError):
+        return jsonify({"status": "ignored"}), 200
+    sub = _subscriptions.get_by_razorpay_id(sid) if _subscriptions.tables_ready() else None
+    if sub is None:
+        return jsonify({"status": "unknown_subscription"}), 200
+    event_ts = _subscriptions.ts(payload.get("created_at"))
+    if event == "subscription.charged":
+        payment = ((payload.get("payload") or {}).get("payment") or {}).get("entity") or {}
+        if payment.get("status") != "captured" or not payment.get("id"):
+            return jsonify({"status": "ignored"}), 200
+        _finish_charge(sub, payment, entity, event_ts)
+    elif event in _EVENT_STATUS:
+        _subscriptions.record_state(
+            sid, status=_EVENT_STATUS[event], event_ts=event_ts,
+            current_start=_subscriptions.ts(entity.get("current_start")),
+            current_end=_subscriptions.ts(entity.get("current_end")),
+            paid_count=entity.get("paid_count"))
+    else:
+        return jsonify({"status": "ignored"}), 200
+    _subscriptions.sweep_ended()
+    return jsonify({"status": "ok"}), 200

@@ -169,6 +169,41 @@ TOPUP_PACKS = {
     "topup_5000": {"credits": 5000, "price_paise": 2_200_000, "label": "5,000 credits"},
 }
 
+# ── Recurring subscriptions (billing-v2 P2) ──────────────────────────────────
+# Self-serve recurring billing is monthly Starter/Growth only: Scale and above
+# are invoice/NEFT (self_serve=False), and an annual charge is far over the RBI
+# UPI-Autopay / card e-mandate cap (UPI_AUTOPAY_MAX_PAISE), so annual is also
+# the invoice rail. Razorpay needs a fixed cycle count up front; 60 monthly
+# cycles (5 years) is a placeholder to confirm with Razorpay — a UPI mandate
+# carries its own expiry.
+SUBSCRIPTION_CYCLES = ("monthly",)
+SUBSCRIPTION_TOTAL_COUNT = 60
+
+
+def subscription_error(tier, cycle="monthly"):
+    """None if `tier`/`cycle` can be bought as a self-serve subscription, else a
+    reason code: invalid_tier | cycle_not_self_serve | contact_sales |
+    exceeds_autopay_cap. Never trust a tier string from a client without this."""
+    if tier not in TIERS or not TIERS[tier]["price_paise"]:
+        return "invalid_tier"
+    if cycle not in SUBSCRIPTION_CYCLES:
+        return "cycle_not_self_serve"
+    if not TIERS[tier]["self_serve"]:
+        return "contact_sales"
+    if TIERS[tier]["price_paise"] > UPI_AUTOPAY_MAX_PAISE:
+        return "exceeds_autopay_cap"
+    return None
+
+
+def subscription_amount_paise(tier, cycle="monthly"):
+    """What one cycle charges. The list price IS the amount charged (GST is
+    carved out of it on the invoice, the way one-off orders already work) —
+    whether list prices should instead be ex-GST with 18% added on top is an
+    open decision (docs/GO_LIVE_CHECKLIST.md U27); changing it is this one line."""
+    assert subscription_error(tier, cycle) is None, "not a self-serve subscription"
+    return TIERS[tier]["price_paise"]
+
+
 # ── Two plan vocabularies share one column — keep them unambiguous ──────────
 # Pre-v2 accounts hold 'free' / 'pro' / 'team' (users.plan has a CHECK
 # constraint pinning exactly those). v2 has its own tier called "Pro"
