@@ -12,7 +12,7 @@ Round 1 = subscriptions (P2). Round 2 = dunning + soft-lock (P13), below.
 | State machine, idempotent charge handling, plan grant/revoke, sweep | `paisamap-etl/etl/_subscriptions.py` |
 | Self-serve eligibility + per-cycle amount | `paisamap-etl/etl/_pricing.py` (`subscription_error`, `subscription_amount_paise`) |
 | Routes + `subscription.*` webhook | `blueprints/billing.py` (`/api/billing/subscriptions[...]`) |
-| Ended-subscription plan revoker (cron backstop) | `paisamap-etl/db/subscription_sweep.py` |
+| Cron backstop: revokes ended plans, sends dunning emails | `paisamap-etl/db/subscription_sweep.py` |
 | Tests: subscriptions 147 checks / 34 mutants (33 killed, 1 equivalent) | `tests/test_billing_subscriptions.py` |
 | Tests: dunning + lock 93 checks / 35 mutants (33 killed, 2 redundant-guard equivalents) | `tests/test_billing_dunning.py` |
 

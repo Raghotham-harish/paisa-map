@@ -25,5 +25,10 @@ import _subscriptions as S  # noqa: E402
 if not os.environ.get("DATABASE_URL"):
     sys.exit("DATABASE_URL is not set")
 
+if not S.tables_ready():
+    # Cron can be installed before the apply script has run: that is not an error.
+    print("subscription tables not applied yet - nothing to do")
+    sys.exit(0)
+
 print(f"revoked plans for {S.sweep_ended()} ended subscription(s)")
 print(f"sent {len(S.dunning_sweep())} dunning notice(s)")
