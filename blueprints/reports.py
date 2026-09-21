@@ -28,7 +28,7 @@ import _signals_data  # noqa: E402
 import _pricing  # noqa: E402
 from _google_oauth import normalize_city  # noqa: E402
 
-from ._session import require_login, require_db, _auth_db, charge_credits, wallet_gate
+from ._session import require_login, require_db, _auth_db, charge_credits, wallet_gate, locked_gate
 from .analytics_connections import get_project_digital_baseline  # noqa: E402
 from .intelligence import compute_location_intelligence_batch  # noqa: E402
 from . import billing as _billing  # noqa: E402
@@ -151,6 +151,10 @@ def download_report(user_id, report_id):
     report = _auth_db.get_report(report_id, user_id)
     if report is None or not report.get("file_path"):
         return jsonify({"error": "not_found"}), 404
+    project = _auth_db.get_project(report.get("project_id"), user_id) if report.get("project_id") else None
+    locked = locked_gate(user_id, (project or {}).get("org_id"))
+    if locked:
+        return locked
     path = Path(report["file_path"])
     if not path.exists():
         return jsonify({"error": "file_missing",

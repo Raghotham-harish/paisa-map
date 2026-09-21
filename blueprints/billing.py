@@ -24,6 +24,7 @@ Razorpay webhooks can be redelivered and can race the client-side call):
 
 import os
 import sys
+from datetime import timedelta
 from pathlib import Path
 
 from flask import Blueprint, request, jsonify, send_file
@@ -202,6 +203,20 @@ def _purchase_wallet(user_id, body):
     return {"org_id": wallet["org_id"], "billing_org_id": wallet["billing_org_id"]}, None
 
 
+def _unpaid_block(billing_org_id):
+    """A ready 402 while the paying company has a failed, unpaid renewal (P13):
+    no NEW credit purchases then, even though they'd be granted instantly —
+    otherwise a broken payment method lets an account keep topping up for free
+    until the next successful charge."""
+    if billing_org_id is None or _auth_db.billing_scope() != "wallet":
+        return None
+    if _auth_db.wallet_dunning(billing_org_id) is None:
+        return None
+    return jsonify({"error": "unpaid_balance",
+                    "detail": "The last subscription payment failed and is still unpaid. "
+                              "Update the payment method to buy more credits."}), 402
+
+
 @billing_bp.route("/orders/credits", methods=["POST"])
 @require_login
 def create_credit_order(user_id):
@@ -213,6 +228,9 @@ def create_credit_order(user_id):
     wallet, werr = _purchase_wallet(user_id, body)
     if werr:
         return werr
+    unpaid = _unpaid_block(wallet["billing_org_id"])
+    if unpaid:
+        return unpaid
     buyer, berr = _checkout_buyer(user_id, body, wallet["billing_org_id"] or wallet["org_id"])
     if berr:
         return berr
@@ -255,6 +273,9 @@ def create_report_order(user_id):
     project = _auth_db.get_project(project_id, user_id) if project_id is not None else None
     if project is None:
         return jsonify({"error": "project not_found"}), 404
+    unpaid = _unpaid_block(_auth_db.get_payer_org_id(project.get("org_id")))
+    if unpaid:
+        return unpaid
     # A report is always for one project, so it's recorded against that
     # project's company — no "Buying for" choice to make.
     buyer, berr = _checkout_buyer(user_id, body, project.get("org_id"))
@@ -528,6 +549,7 @@ def get_subscription(user_id):
         _subscriptions.sweep_ended()
     return jsonify({
         "state": subscriptions_state(),
+        "standing": _auth_db.account_standing(user_id, payer) if ready else None,
         "subscription": _subscriptions.public_view(_subscriptions.get_latest(payer)) if ready else None,
         "options": [{"tier": t, "label": _pricing.TIERS[t]["label"],
                      "amount_paise": _pricing.subscription_amount_paise(t)}
@@ -559,6 +581,12 @@ def create_subscription(user_id):
     client = _client()
     if client is None:
         return _not_configured()
+    return _start_checkout(client, payer, user_id, tier, cycle)
+
+
+def _start_checkout(client, payer, user_id, tier, cycle):
+    """Create the Razorpay subscription, record it locally (status 'created', grants
+    nothing) and return what Checkout needs."""
     try:
         plan_id = _ensure_razorpay_plan(client, tier, cycle)
         rp_sub = client.subscription.create({
@@ -575,6 +603,52 @@ def create_subscription(user_id):
         "razorpay_key_id": os.environ.get("RAZORPAY_KEY_ID"),
         "amount_paise": _pricing.subscription_amount_paise(tier, cycle),
         "currency": "INR", "tier": tier,
+    }), 201
+
+
+@billing_bp.route("/subscriptions/recover", methods=["POST"])
+@require_login
+def recover_subscription(user_id):
+    """Fix a failed renewal with a NEW payment method. Razorpay can't swap the
+    mandate on a subscription that is failing, so the failing one is retired and
+    a fresh one for the same tier goes to Checkout. The replacement is started
+    first, so if Razorpay refuses it the old subscription is untouched. The old
+    one keeps its access until the original lock time (it never shortens what
+    was already granted) and a paid replacement re-grants the plan."""
+    blocked = _subscriptions_gate()
+    if blocked is not None:
+        return blocked
+    body = request.get_json(silent=True) or {}
+    payer, err = _payer_for_subscription(user_id, body)
+    if err:
+        return err
+    sub = _subscriptions.get_live(payer)
+    if sub is None or not sub["past_due_since"] or sub["status"] not in ("pending", "halted"):
+        return jsonify({"error": "not_past_due"}), 409
+    client = _client()
+    if client is None:
+        return _not_configured()
+    try:
+        plan_id = _ensure_razorpay_plan(client, sub["tier"], sub["cycle"])
+        rp_sub = client.subscription.create({
+            "plan_id": plan_id, "total_count": _pricing.SUBSCRIPTION_TOTAL_COUNT,
+            "quantity": 1, "customer_notify": 1,
+            "notes": {"org_id": str(payer), "user_id": str(user_id), "tier": sub["tier"],
+                      "cycle": sub["cycle"], "replaces": sub["razorpay_subscription_id"]},
+        })
+        client.subscription.cancel(sub["razorpay_subscription_id"], {"cancel_at_cycle_end": 0})
+    except Exception as e:
+        return jsonify({"error": "gateway_error", "detail": str(e)}), 502
+    lock_at = _subscriptions._aware(sub["past_due_since"]) + timedelta(days=_pricing.DUNNING_DAYS)
+    _subscriptions.record_state(sub["razorpay_subscription_id"], status="cancelled", ends_at=lock_at)
+    _subscriptions.create_local(payer, user_id, sub["tier"], sub["cycle"], rp_sub["id"], plan_id,
+                                _pricing.subscription_amount_paise(sub["tier"], sub["cycle"]))
+    _subscriptions.sweep_ended()
+    return jsonify({
+        "razorpay_subscription_id": rp_sub["id"],
+        "razorpay_key_id": os.environ.get("RAZORPAY_KEY_ID"),
+        "amount_paise": _pricing.subscription_amount_paise(sub["tier"], sub["cycle"]),
+        "currency": "INR", "tier": sub["tier"],
     }), 201
 
 
@@ -600,6 +674,8 @@ def _finish_charge(sub, payment, sub_entity, event_ts=None):
     if "error" in res:
         return res
     _ensure_subscription_invoice(res["order"], sub["tier"])
+    if res.get("recovered"):
+        _subscriptions.notify_restored(sub["org_id"], background=True)
     if res["newly_paid"]:
         _auth_db.log_activity(res["order"]["user_id"], "subscription_charge", target_type="order",
                               target_id=res["order"]["id"],
@@ -671,7 +747,8 @@ def cancel_subscription(user_id):
     if at_cycle_end:
         res = _subscriptions.record_state(sub["razorpay_subscription_id"], cancel_at_period_end=True)
     else:
-        res = _subscriptions.record_state(sub["razorpay_subscription_id"], status="cancelled")
+        res = _subscriptions.record_state(sub["razorpay_subscription_id"], status="cancelled",
+                                          ends_at=_subscriptions._now())
         _subscriptions.sweep_ended()
     return jsonify({"subscription": _subscriptions.public_view(res.get("subscription"))}), 200
 
@@ -713,4 +790,5 @@ def _handle_subscription_event(payload):
     else:
         return jsonify({"status": "ignored"}), 200
     _subscriptions.sweep_ended()
+    _subscriptions.dunning_sweep(background=True)
     return jsonify({"status": "ok"}), 200

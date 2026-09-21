@@ -23,7 +23,7 @@ granted and taken away. Rules that matter for money:
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import _auth_db as A
 import _pricing
@@ -64,18 +64,28 @@ def _row(row):
 # instead of a 500, a webhook must be acked as unknown, and — the one that matters
 # for money — nobody may START one (their payment would have nowhere to be recorded).
 _ready = False
+_not_ready_until = 0.0
+_RECHECK_SECONDS = 30
 
 
 def tables_ready():
-    """True once the subscriptions tables exist. Only a True answer is cached, so
-    running the apply script takes effect without a restart."""
-    global _ready
+    """True once the subscriptions tables exist. A True answer is cached for good; a
+    False one for _RECHECK_SECONDS, because this runs on hot paths (every plan
+    lookup and credit spend in wallet scope) and a catalog query per request while
+    the apply script is still pending would be a needless cost. Running the apply
+    script therefore takes effect within seconds, without a restart."""
+    global _ready, _not_ready_until
+    import time
     if _ready:
         return True
+    if time.monotonic() < _not_ready_until:
+        return False
     from sqlalchemy import inspect
     engine = A._require_engine()
     insp = inspect(engine)
     _ready = insp.has_table("subscriptions") and insp.has_table("razorpay_plans")
+    if not _ready:
+        _not_ready_until = time.monotonic() + _RECHECK_SECONDS
     return _ready
 
 
@@ -210,7 +220,7 @@ def _revoke_plan(conn, org_id, tier):
 
 # ── State machine ────────────────────────────────────────────────────────────
 def record_state(razorpay_subscription_id, *, status=None, current_start=None, current_end=None,
-                 paid_count=None, event_ts=None, cancel_at_period_end=None, grant=False):
+                 paid_count=None, event_ts=None, cancel_at_period_end=None, grant=False, ends_at=None):
     """Apply what Razorpay says about a subscription.
 
     event_ts is the webhook's own timestamp (aware datetime); an event older than
@@ -219,7 +229,11 @@ def record_state(razorpay_subscription_id, *, status=None, current_start=None, c
     a genuinely newer webhook look stale through clock skew.
 
     grant=True (only apply_charge passes it) also sets the company's plan, in the
-    same transaction as the status change.
+    same transaction as the status change, and clears any dunning: a real charge is
+    the ONLY thing that ends "past due" (a bare 'active' status event does not).
+
+    ends_at overrides when an ended subscription's paid access stops (used when a
+    past-due subscription is replaced: access runs to the original lock time).
 
     Returns {"subscription": row} plus one of "stale"/"duplicate"/"ignored_status"
     when applicable, or {"error": "unknown_subscription"}."""
@@ -281,10 +295,20 @@ def record_state(razorpay_subscription_id, *, status=None, current_start=None, c
                 if new_status in ENDED_STATUSES:
                     if new_status == "cancelled" and not row["cancelled_at"]:
                         vals["cancelled_at"] = now
-                    end = _aware(current_end or row["current_end"])
+                    end = _aware(ends_at or current_end or row["current_end"])
                     vals["ends_at"] = end if end and end > now else now
+                # A RENEWAL failed (the first charge failing is not "past due": nothing
+                # was ever granted): start the dunning clock, once.
+                if (new_status in ("pending", "halted") and not row["past_due_since"]
+                        and max(row["paid_count"] or 0, paid_count or 0) >= 1):
+                    vals["past_due_since"] = now
+            will_grant = (grant and (new_status or row["status"]) in LIVE_STATUSES
+                          and new_status != "duplicate")
+            if will_grant:
+                out["recovered"] = row["past_due_notified_at"] is not None
+                vals.update(past_due_since=None, past_due_notified_at=None, lock_notified_at=None)
             conn.execute(subs.update().where(subs.c.id == row["id"]).values(**vals))
-            if grant and (new_status or row["status"]) in LIVE_STATUSES and new_status != "duplicate":
+            if will_grant:
                 _grant_plan(conn, row["org_id"], row["tier"])
             elif grant:
                 log.error("subscription %s was charged but is %s — no plan granted, needs a human",
@@ -343,7 +367,7 @@ def apply_charge(razorpay_subscription_id, payment_id, amount_paise, *, current_
         state = record_state(razorpay_subscription_id, current_start=current_start,
                              current_end=current_end, grant=True)
     return {"order": updated or order, "subscription": state.get("subscription"), "newly_paid": newly_paid,
-            "duplicate": state.get("duplicate", False)}
+            "duplicate": state.get("duplicate", False), "recovered": state.get("recovered", False)}
 
 
 def _org_owner(org_id):
@@ -370,7 +394,13 @@ def sweep_ended(now=None):
         for r in due:
             if _aware(r.ends_at) > now:
                 continue
-            if _revoke_plan(conn, r.org_id, r.tier):
+            # The company may have started a NEW subscription (same tier) before this
+            # one's paid period ran out. Revoking would take away what the new one
+            # just granted, so only revoke when no other paid, live subscription exists.
+            other = conn.execute(select(subs.c.id).where(
+                subs.c.org_id == r.org_id, subs.c.id != r.id, subs.c.status.in_(LIVE_STATUSES),
+                subs.c.paid_count >= 1)).scalar()
+            if other is None and _revoke_plan(conn, r.org_id, r.tier):
                 revoked += 1
             conn.execute(subs.update().where(subs.c.id == r.id).values(plan_revoked_at=now, updated_at=now))
     return revoked
@@ -390,3 +420,85 @@ def invoice_exists(order_id):
     from sqlalchemy import select
     with engine.connect() as conn:
         return conn.execute(select(inv.c.id).where(inv.c.order_id == order_id)).scalar() is not None
+
+
+# ── Dunning notices (P13) ────────────────────────────────────────────────────
+def _recipients(conn, org_id):
+    """Owners and admins of the PAYING company: the people who can fix a payment."""
+    return A._budget_alert_recipients(conn, org_id, org_id)
+
+
+def _org_name(conn, org_id):
+    orgs = A._get_tables()["organizations"]
+    from sqlalchemy import select
+    return conn.execute(select(orgs.c.name).where(orgs.c.id == org_id)).scalar() or "Your company"
+
+
+def _billing_url():
+    import os
+    return (os.environ.get("APP_BASE_URL") or "https://paisamaps.com").rstrip("/") + "/workspace/billing"
+
+
+def _deliver(notices, background):
+    """Send the collected notices. Never raises: a mail problem must not undo a
+    state change (the stamps are already written, so it will not be re-sent)."""
+    def run():
+        try:
+            import _email
+            for n in notices:
+                for to in n["to"]:
+                    try:
+                        _email.send_dunning_notice(to, n["org_name"], n["kind"], n["lock_at"], _billing_url())
+                    except Exception:
+                        log.exception("dunning notice (%s) to %s failed", n["kind"], to)
+        except Exception:
+            log.exception("dunning notices failed")
+    if not notices:
+        return
+    if background:
+        import threading
+        threading.Thread(target=run, daemon=True).start()
+    else:
+        run()
+
+
+def dunning_sweep(now=None, background=False):
+    """Time-driven half of dunning: email the paying company once when a renewal
+    has failed ("we'll keep retrying; fix it before <lock time>") and once more when
+    the lock starts. Each stamp is claimed with a conditional UPDATE, so two workers
+    or two overlapping cron runs can't both send. Idempotent. Returns the notices.
+
+    The lock itself needs no job: it is computed from past_due_since at read time
+    (A._wallet_dunning), so it starts on the dot whether or not this has run."""
+    engine, tables = A._require_engine(), A._get_tables()
+    subs = tables["subscriptions"]
+    from sqlalchemy import select
+    now = now or _now()
+    notices = []
+    with engine.begin() as conn:
+        rows = conn.execute(select(subs).where(
+            subs.c.status.in_(LIVE_STATUSES), subs.c.past_due_since.is_not(None))).mappings().all()
+        for r in rows:
+            since = _aware(r["past_due_since"])
+            lock_at = since + timedelta(days=_pricing.DUNNING_DAYS)
+            for kind, col, due in (("past_due", "past_due_notified_at", True),
+                                   ("locked", "lock_notified_at", now >= lock_at)):
+                if not due or r[col] is not None:
+                    continue
+                claimed = conn.execute(subs.update().where(
+                    subs.c.id == r["id"], getattr(subs.c, col).is_(None)).values(**{col: now})).rowcount
+                if claimed:
+                    notices.append({"kind": kind, "to": _recipients(conn, r["org_id"]),
+                                    "org_name": _org_name(conn, r["org_id"]), "lock_at": lock_at})
+    _deliver(notices, background)
+    return notices
+
+
+def notify_restored(org_id, background=False):
+    """A charge cleared a past-due subscription: tell the payers access is back."""
+    engine = A._require_engine()
+    with engine.connect() as conn:
+        notice = {"kind": "restored", "to": _recipients(conn, org_id),
+                  "org_name": _org_name(conn, org_id), "lock_at": None}
+    _deliver([notice], background)
+    return notice

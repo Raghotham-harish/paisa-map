@@ -482,6 +482,13 @@ def _get_tables():
         Column("cancel_at_period_end", Boolean, nullable=False, server_default="0"),
         Column("cancelled_at", DateTime(timezone=True)),
         Column("halted_at", DateTime(timezone=True)),
+        # Dunning (P13). past_due_since = when a RENEWAL first failed (only set once a cycle
+        # has been paid); the account locks DUNNING_DAYS later unless a charge clears it.
+        # The *_notified_at stamps make each email go out once, however many workers/cron
+        # runs see the same state.
+        Column("past_due_since", DateTime(timezone=True)),
+        Column("past_due_notified_at", DateTime(timezone=True)),
+        Column("lock_notified_at", DateTime(timezone=True)),
         # When the paid-for access stops (set when the subscription ends); the
         # sweep revokes the plan once it has passed, then stamps plan_revoked_at.
         Column("ends_at", DateTime(timezone=True)),
@@ -1217,7 +1224,9 @@ class SpendNotAllowedError(Exception):
                        could drain the agency's credits for every other client;
       budget_exceeded  this spend would take the company past its budget;
       wallet_reserve   this spend would dip into the credits the paying company
-                       has kept back for its own use.
+                       has kept back for its own use;
+      account_locked   the paying company's subscription renewal failed and has
+                       stayed unpaid for DUNNING_DAYS (billing-v2 P13).
     `info` carries the budget status for budget_exceeded."""
     def __init__(self, reason="budget_required", info=None):
         self.reason = reason
@@ -1362,11 +1371,61 @@ def _reserve_floor(conn, wallet_id):
     return int(row["amount"]) if row is not None and row["wallet_org_id"] == wallet_id else 0
 
 
+def _wallet_dunning(conn, org_id, now=None):
+    """None if the paying company's subscription is in good standing (or has none,
+    or the subscriptions tables don't exist yet), else
+    {"past_due_since", "lock_at", "locked"}. A renewal that failed puts the company
+    past due; DUNNING_DAYS later, if no charge has cleared it, it is LOCKED. Only a
+    live subscription counts: once one has ended there is no debt to lock over."""
+    if org_id is None:
+        return None
+    import _pricing
+    import _subscriptions
+    if not _subscriptions.tables_ready():
+        return None
+    subs = _get_tables()["subscriptions"]
+    from sqlalchemy import select
+    since = conn.execute(select(subs.c.past_due_since).where(
+        subs.c.org_id == org_id, subs.c.status.in_(_subscriptions.LIVE_STATUSES),
+        subs.c.past_due_since.is_not(None)).order_by(subs.c.past_due_since)).scalar()
+    if since is None:
+        return None
+    since = _subscriptions._aware(since)
+    lock_at = since + timedelta(days=_pricing.DUNNING_DAYS)
+    return {"past_due_since": since, "lock_at": lock_at, "locked": (now or _now()) >= lock_at}
+
+
+def wallet_dunning(org_id):
+    """_wallet_dunning() on its own connection, for routes."""
+    with _require_engine().connect() as conn:
+        return _wallet_dunning(conn, org_id)
+
+
+def account_standing(user_id, org_id=None):
+    """What the UI needs to blur the dashboard and show "update payment": the
+    standing of the wallet behind `org_id` (default: the user's own company).
+    None outside wallet scope or when all is well."""
+    if billing_scope() != "wallet":
+        return None
+    with _require_engine().connect() as conn:
+        oid = org_id if org_id is not None else _primary_org_id(conn, user_id)
+        d = _wallet_dunning(conn, _payer_org_id(conn, oid))
+    if d is None:
+        return None
+    return {"past_due": True, "locked": d["locked"], "lock_at": d["lock_at"].isoformat(),
+            "past_due_since": d["past_due_since"].isoformat()}
+
+
 def _spend_block(conn, wallet_id, org_id, user_id, amount, balance):
     """None if this spend may go ahead, else {"reason": ..., ...} (see
     SpendNotAllowedError). Runs on the caller's connection so that, inside
     spend_credits, it shares the wallet-locked transaction with the balance
     check. `balance` is the wallet's balance before the spend."""
+    # A locked wallet (failed renewal, DUNNING_DAYS unpaid) spends nothing: the
+    # backend refusal that the dashboard's blur overlay is only the cosmetics of.
+    dunning = _wallet_dunning(conn, wallet_id)
+    if dunning is not None and dunning["locked"]:
+        return {"reason": "account_locked", "info": {"lock_at": dunning["lock_at"].isoformat()}}
     insider = _role_in(conn, wallet_id, user_id) is not None
     status = _budget_status(conn, org_id, wallet_id)
     capped = status is not None and status["active"]
@@ -2619,6 +2678,11 @@ def get_effective_plan_for_user(user_id):
             .select_from(members.join(orgs, orgs.c.id == members.c.org_id))
             .where(members.c.user_id == user_id)).all()
         for payer in {r.billing_org_id or r.id for r in rows}:
+            # A locked payer's plan is suspended for everyone it covers — this is
+            # what closes Pro columns and API-key elevation during a lock.
+            dunning = _wallet_dunning(conn, payer)
+            if dunning is not None and dunning["locked"]:
+                continue
             plan = conn.execute(select(orgs.c.plan).where(orgs.c.id == payer)).scalar()
             if _pricing.parse_plan(plan)[0] != "unknown":
                 best = _pricing.best_plan(best, plan)

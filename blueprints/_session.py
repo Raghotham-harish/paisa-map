@@ -144,6 +144,22 @@ def require_api_key(fn):
     return wrapper
 
 
+def _locked_response(lock_at):
+    return jsonify({"error": "account_locked", "lock_at": lock_at,
+                    "detail": "The subscription payment failed and is still unpaid, so the dashboard is locked. "
+                              "Update the payment method in Billing to restore access; nothing has been deleted."}), 402
+
+
+def locked_gate(user_id, org_id=None):
+    """A ready 402 if the paying company behind `org_id` is locked over a failed
+    renewal, else None. For data-serving routes that don't spend credits (a report
+    PDF download), so the lock isn't only a credit-spending rule. Wallet scope only."""
+    standing = _auth_db.account_standing(user_id, org_id)
+    if standing and standing["locked"]:
+        return _locked_response(standing["lock_at"])
+    return None
+
+
 def wallet_gate(user_id, org_id, action_key=None):
     """Pre-check for any credit-spending route: returns a ready 403 response if
     a budget rule stops this user spending the wallet behind `org_id`, else None.
@@ -159,6 +175,8 @@ def wallet_gate(user_id, org_id, action_key=None):
     if block is None:
         return None
     reason = block["reason"]
+    if reason == "account_locked":
+        return _locked_response(block["info"]["lock_at"])
     view = _auth_db.get_credit_view(user_id, org_id=org_id)
     who = (view["paid_by"] or {}).get("name") or "an admin of this company"
     body = {"error": reason, "paid_by": view["paid_by"]}

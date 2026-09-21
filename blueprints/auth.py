@@ -40,6 +40,10 @@ def _user_payload(user_id, org_id=None):
         "credits_paid_by": view["paid_by"],
         "credits_budget": view["budget"],
         "credits_member_budget": view["member_budget"],
+        # Billing standing of the wallet behind the selected company: None when all is
+        # well, else {past_due, locked, lock_at, past_due_since} — what the dashboard's
+        # blur overlay and the "update payment" prompt read (P13).
+        "account": _auth_db.account_standing(user_id, org_id),
     }
 
 

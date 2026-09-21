@@ -1,7 +1,8 @@
-# Billing-v2 P2 — recurring subscriptions (round 1)
+# Billing-v2 P2 + P13 — recurring subscriptions, dunning and soft-lock
 
 Status: **built and tested, dark.** Nothing here is reachable until
 `BILLING_SUBSCRIPTIONS=1`. Branch `feat/billing-p2-subscriptions`; not pushed.
+Round 1 = subscriptions (P2). Round 2 = dunning + soft-lock (P13), below.
 
 ## What exists
 
@@ -12,7 +13,8 @@ Status: **built and tested, dark.** Nothing here is reachable until
 | Self-serve eligibility + per-cycle amount | `paisamap-etl/etl/_pricing.py` (`subscription_error`, `subscription_amount_paise`) |
 | Routes + `subscription.*` webhook | `blueprints/billing.py` (`/api/billing/subscriptions[...]`) |
 | Ended-subscription plan revoker (cron backstop) | `paisamap-etl/db/subscription_sweep.py` |
-| Tests (147 checks, 34 hand-written mutants: 33 killed, 1 equivalent) | `tests/test_billing_subscriptions.py` |
+| Tests: subscriptions 147 checks / 34 mutants (33 killed, 1 equivalent) | `tests/test_billing_subscriptions.py` |
+| Tests: dunning + lock 93 checks / 35 mutants (33 killed, 2 redundant-guard equivalents) | `tests/test_billing_dunning.py` |
 
 Routes (all `require_login`, owner/admin of the **paying** company only):
 `GET /api/billing/subscriptions`, `POST /subscriptions` `{tier, org_id?}`,
@@ -42,6 +44,42 @@ The webhook is the existing `/api/billing/webhook`, now also handling `subscript
   pay for a plan nothing reads), live keys also need `BILLING_LIVE_PURCHASES=1`, and
   the tables exist (else a payment would have nowhere to be recorded).
 
+## P13 — failed renewals, dunning and the soft-lock (round 2)
+
+- **Past due** starts when a *renewal* fails (`subscription.pending`/`halted` after at
+  least one paid cycle; a failed *first* charge granted nothing, so it isn't debt).
+  The clock starts once and never restarts. Only a real charge clears it — a bare
+  "active" status event does not.
+- **Locked** = `DUNNING_DAYS` (3) after that, computed at read time from
+  `past_due_since`, so it starts on the dot with no job needed. Only a *live*
+  subscription can lock; once cancelled there is no debt.
+- **The lock is a backend refusal, not a blur.** A locked company's plan is suspended
+  for everyone it covers (`get_effective_plan_for_user`, so Pro columns and API-key
+  elevation drop too); credit spending is refused everywhere (`_spend_block`, pre-check
+  *and* the atomic charge) with **402 `account_locked`**; report PDF downloads are
+  refused; forecast/expansion/report generation go through the same gate. A member's
+  *own* paid plan is not suspended by someone else's lock.
+- **Past due (even inside the grace) blocks new credit and report purchases** (402
+  `unpaid_balance`) — otherwise a broken payment method lets an account top up for free.
+- **Nothing is deleted**; saved projects/locations/reports stay visible, billing and
+  invoices stay reachable. One successful charge restores everything.
+- **Emails** (once each, to the paying company's owners/admins): past-due, locked,
+  restored. They need SES creds on the server (still missing — see checklist U4); until
+  then they log a warning and nothing else breaks.
+- **`POST /subscriptions/recover`** replaces a failing subscription with a fresh one
+  (Razorpay can't swap a failing mandate). The replacement is created first; the old
+  one keeps access to the original lock time. Cancelling is also always allowed, and a
+  cancelled company is simply a former customer, not "locked".
+- `GET /api/auth/me` now carries `account: {past_due, locked, lock_at}` (or `null`) for
+  the dashboard's overlay; `GET /subscriptions` carries `standing`.
+- Also fixed (found while designing this): cancel-then-resubscribe before the old
+  paid period ended used to let the *old* subscription's end revoke the plan the *new*
+  one had just granted.
+
+**Still not done for P13:** the frontend blur overlay and Billing UI ("update payment"
+button), and the deferred top-up accrual ledger (mid-cycle top-ups billed on the next
+renewal via Razorpay add-ons). Top-ups are a normal one-off checkout for now.
+
 ## Deploy order (every step is safe to do early; the flag is what opens it)
 
 1. Push the branch → merge → deploy (code goes live, feature dark, old flows unchanged —
@@ -52,7 +90,7 @@ The webhook is the existing `/api/billing/webhook`, now also handling `subscript
    resumed). Same URL and secret; live mode has its own webhook and secret.
 4. Ask Razorpay to enable **Subscriptions + UPI Autopay** on the account (separate from
    live keys).
-5. Cron the sweep hourly (`db/subscription_sweep.py`).
+5. Cron the sweep hourly (`db/subscription_sweep.py`) — it also sends the dunning emails.
 6. Flip `BILLING_SCOPE=wallet`, then `BILLING_SUBSCRIPTIONS=1` (test keys first).
 
 ## Decisions to challenge
@@ -65,14 +103,14 @@ The webhook is the existing `/api/billing/webhook`, now also handling `subscript
   mandate has its own expiry — confirm with Razorpay.
 - **One live subscription per paying company**; changing tier = cancel and re-subscribe
   for now (no in-place upgrade/downgrade/proration yet).
-- **Halted (failed renewal) keeps the plan** until P13 adds the 3-day dunning and
-  soft-lock. Until P13 ships, a lapsed payer is *not* locked out. Don't enable for real
-  customers before P13.
+- **`DUNNING_DAYS = 3` is measured from OUR first sight of the failure**, not from
+  Razorpay's retry schedule (which I haven't verified). If Razorpay keeps retrying past
+  day 3 and succeeds on day 4, the charge unlocks instantly.
 
 ## Not in this round (Gantt order)
 
 P3 monthly credit grant + rollover (hooks on `apply_charge`), P4 trial, P6 paywall,
-P13 dunning/soft-lock, P5 seats, P7 signal tiers, Billing UI v2 (no frontend yet), the
+P5 seats, P7 signal tiers, Billing UI v2 (no frontend yet), the
 GST engine (CGST+SGST vs IGST — invoices still use the flat inclusive split), a
 reconcile job for a missed `charged` webhook, gap-free invoice numbering under
 concurrent duplicate deliveries.

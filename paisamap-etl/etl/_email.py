@@ -155,3 +155,47 @@ def send_billing_link_notice(to_email, kind, payer_name, company_name, url, acto
     except Exception:
         logger.exception("SES send_email failed for billing-link notice to %s", to_email)
         return False
+
+
+def send_dunning_notice(to_email, org_name, kind, lock_at, billing_url):
+    """A failed-renewal notice to the people who can fix the payment. kind:
+    "past_due" (renewal failed, retries continue, fix it before `lock_at`),
+    "locked" (the account is now locked until payment is updated), "restored"
+    (a payment went through, access is back). Carries no amounts or card details.
+    Returns True if SES accepted it, False otherwise; callers never depend on it."""
+    client = _client()
+    if client is None:
+        logger.warning("SES not configured — dunning notice (%s) for %r to %s not emailed", kind, org_name, to_email)
+        return False
+    when = lock_at.strftime("%d %b %Y") if lock_at else ""
+    if kind == "locked":
+        subject = f"{org_name}'s PaisaMap account is locked until payment is updated"
+        lead = (f"We couldn't collect {org_name}'s PaisaMap subscription payment, and it is still unpaid. "
+                "Your dashboard is locked. Nothing has been deleted: your projects, saved locations and "
+                "reports are all safe, and everything comes back the moment a payment goes through.")
+        cta = "Update payment"
+    elif kind == "restored":
+        subject = f"{org_name}'s PaisaMap payment went through"
+        lead = f"Thanks: {org_name}'s payment went through and full access to PaisaMap is back."
+        cta = "Open billing"
+    else:
+        subject = f"Action needed: {org_name}'s PaisaMap payment failed"
+        lead = (f"We couldn't collect {org_name}'s PaisaMap subscription payment. We'll keep retrying, but "
+                f"if it is still unpaid by {when} the dashboard will lock (your data stays safe). "
+                "Updating your payment method now avoids that.")
+        cta = "Update payment"
+    text_body = f"{lead}\n\n{cta}: {billing_url}\n"
+    html_body = (f"<p>{html.escape(lead)}</p>"
+                 f'<p><a href="{html.escape(billing_url, quote=True)}">{html.escape(cta)}</a></p>')
+    try:
+        client.send_email(
+            Source=os.environ["SES_FROM_EMAIL"],
+            Destination={"ToAddresses": [to_email]},
+            Message={"Subject": {"Data": subject, "Charset": "UTF-8"},
+                     "Body": {"Text": {"Data": text_body, "Charset": "UTF-8"},
+                              "Html": {"Data": html_body, "Charset": "UTF-8"}}},
+        )
+        return True
+    except Exception:
+        logger.exception("SES send_email failed for dunning notice to %s", to_email)
+        return False
