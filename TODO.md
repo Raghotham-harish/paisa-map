@@ -253,6 +253,49 @@ B2B + Paisa Buzz growth plan, whose own artifact `511014c7…` is gone — see
       DPDP Act data-fiduciary obligations, consent architecture. No app code
       until the entity question is answered.
 
+#### Regulatory checklist for a "connect your bank" feature (added 2026-09-23)
+Reference: Grok's Finance connector (US only, launched Sep 2026) is built on
+**Plaid** — xAI never sees bank logins, access is read-only, the user can
+unlink any time. The US has no licence gate for reading data this way, so xAI
+just plugged in Plaid. **India has no Plaid equivalent open to an unlicensed
+company**; the regulated route is RBI's Account Aggregator (AA) framework, and
+that is where the constraints come from.
+- [ ] **Entity** — registered company exists; confirm the KYC'd legal name
+      (Cooter Studio vs Cooterlabs). Nothing below starts without it.
+- [ ] **FIU eligibility (the real blocker)** — only entities regulated by
+      RBI / SEBI / IRDAI / PFRDA can be a Financial Information User on AA.
+      A plain tech company cannot. Pick one route:
+  - [ ] (a) Partner with a regulated entity (NBFC / SEBI RIA / broker) that
+        is the FIU; we are the product/tech layer under a written agreement.
+  - [ ] (b) Get our own licence (SEBI RIA is the lightest for "advice on
+        your money"; NBFC is heavy). Months, capital, compliance officer.
+  - [ ] (c) Skip AA for v1: user-uploaded statements only (bank PDF,
+        NSDL/CDSL CAS). No licence needed, but no live sync.
+- [ ] **Never collect bank passwords / screen-scrape** — breaks bank ToS
+      and is exactly what AA exists to replace; the SMS-reading route was
+      already rejected (Google Play SMS policy).
+- [ ] **AA integration via a TSP** (Setu / Finvu / OneMoney / CAMS Finserv)
+      once an FIU route exists. Budget ₹5–25L year one, 5–10 months,
+      Sahamati-empanelled audit, recurring self-tests + re-certification.
+- [ ] **Consent design** — AA consent artefact per purpose: fetch type
+      (one-time vs periodic), data range, retention, revocable any time;
+      the UI must show exactly this (same idea as Grok's "read-only" card).
+- [ ] **DPDP Act 2023** — we are a data fiduciary: purpose limitation,
+      deletion on consent withdrawal, breach notification to the Data
+      Protection Board + users, grievance officer (same U25 field as the
+      policy pages), data-principal rights (access/correct/erase).
+- [ ] **Data residency + security** — ask the lawyer whether RBI's 2018
+      payment-data localisation rule reaches us (it targets payment
+      operators); host in India regardless. Encryption at rest, access
+      logs, VAPT before launch (extends PENTEST_CHECKLIST).
+- [ ] **No advice without a licence** — "where am I overspending" is fine;
+      "buy this fund / move money here" is investment advice → SEBI RIA
+      territory. Keep answers descriptive until route (b) exists.
+- [ ] **Feeding Track 1 (PaisaMap signals)** — only with separate consent
+      and real anonymisation (k-anonymity / aggregation thresholds), never
+      just stripping names.
+- [ ] **CA / lawyer sign-off** on the chosen route before any code.
+
 ### Workspace roadmap — deferred items now unblocked or still open
 - [ ] Anonymous search/comparison rate-limiting for signed-out map visitors —
       was deferred "until Phase 02 ships"; Phase 02 shipped, so revisitable.
