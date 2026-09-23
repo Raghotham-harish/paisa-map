@@ -1,5 +1,10 @@
 # TODO
 
+> **2026-09-21 — the go-live plan lives in a private checklist (kept out of this public repo)**
+> (milestones, build items, and the list of things only the owner can unblock). This file is the
+> long-form history; several sections below predate it. Items ticked on 2026-09-21 were
+> confirmed live from memory notes of the verified deploys, not re-tested today.
+
 ## Map-first workspace (branch `feat/map-first-workspace` → PR)
 
 **P1 + the project-setup wizard are built and Playwright-verified locally**
@@ -12,20 +17,20 @@ https://claude.ai/code/artifact/840c310c-ad6b-41e3-b975-d41f9c1c173d
 
 Deploy checklist (do in order, none done):
 
-- [ ] Merge the PR and deploy (`deploy.sh` already builds `workspace/` — no
+- [x] Merge the PR and deploy (`deploy.sh` already builds `workspace/` — no
       change needed there).
-- [ ] Run the schema migration on prod Postgres over SSH — 7 new additive
+- [x] Run the schema migration on prod Postgres over SSH — 7 new additive
       `projects` columns (industry, signals, target_pincodes, catchment_km,
       total_investment, outcome_goal, time_horizon_months):
       `sudo bash -c 'set -a; source /etc/paisamap/db.env; set +a; venv-flask/bin/python3 -c "import sys; sys.path.insert(0,\"paisamap-etl/etl\"); import _auth_db; _auth_db.migrate_schema()"'`
       then confirm with `inspect(engine).get_columns("projects")`.
-- [ ] **Check nginx does NOT send `X-Frame-Options: DENY` for `/`** — the
+- [x] **Check nginx does NOT send `X-Frame-Options: DENY` for `/`** — the
       `/workspace/map` iframe loads `/?embed=1` and needs at least `SAMEORIGIN`
       (workspace is same-origin, so `SAMEORIGIN` is fine). The repo sets no
       framing header; if nginx sends `DENY`, relax it to `SAMEORIGIN` (or add
       `add_header Content-Security-Policy "frame-ancestors 'self'"`) for the
       `location /` block. nginx config lives only on the server.
-- [ ] Real-account browser smoke on prod once deployed: `/workspace/map` →
+- [x] Real-account browser smoke on prod once deployed: `/workspace/map` →
       click a pincode → panel shows real score → Save → appears in
       `/workspace/locations`; compare 2 → ranked modal; wizard `/projects/new`
       → finish → lands on `/map?project_id=<id>`.
@@ -74,12 +79,12 @@ mint, credit charge 100→92→84, 404/401, budget override, insufficient path
 free) + Playwright screenshots of all 3 states (forecast / insufficient /
 wizard step 4). `tsc --noEmit` + `vite build` clean.
 
-- [ ] Deploy: the 2 new `projects` columns need `migrate_schema()` on prod
+- [x] Deploy: the 2 new `projects` columns need `migrate_schema()` on prod
       Postgres (same SSH recipe as the other map-first columns above — fold
       into that same migration run).
 - [ ] Add `forecast` to the pricing display if `/api/billing/pricing` is
       surfaced anywhere the cost matters (it already flows through `CREDIT_COSTS`).
-- [ ] Real-account browser smoke once deployed: upload store data → `/forecast`
+- [x] Real-account browser smoke once deployed: upload store data → `/forecast`
       → Run → curve + split + radar render with real numbers.
 - [ ] Model is v1 — revisit `AVG_HOUSEHOLD_SIZE`/`DEFAULT_GROSS_MARGIN_PCT`/
       `RAMP_MONTHS`/`CANNIBALISATION_SHARE` once a real customer's forecast can
@@ -197,15 +202,15 @@ still unchecked below.
       real download link.
 
 ### Deploy steps for the above (none done yet)
-- [ ] Merge `feat/artboard-gaps`, deploy.
-- [ ] `migrate_schema()` on prod Postgres — one new column,
+- [x] Merge `feat/artboard-gaps`, deploy.
+- [x] `migrate_schema()` on prod Postgres — one new column,
       `saved_locations.allocated_investment`.
 - [ ] Run `paisamap-etl/etl/build_household_estimates.py` on the server (or scp the
       already-generated `data/output/pincode_households.csv` up) so "Households in
       view" has data live — it's a companion file, not wired into any existing cron,
       so it won't regenerate itself; note it somewhere if the household-population
       reference data ever gets refreshed.
-- [ ] Real-account browser smoke on prod once deployed, same shape as the local pass
+- [x] Real-account browser smoke on prod once deployed, same shape as the local pass
       above (map style/rings/my-stores/tiers, wizard incremental save, forecast
       nudge/bubbles/radar, compare save-all/shortlist/report).
 
@@ -237,13 +242,13 @@ B2B + Paisa Buzz growth plan, whose own artifact `511014c7…` is gone — see
       test an unreliable way to observe the higher cap — a Postgres production
       deployment doesn't have that locking characteristic, see
       `project_api_key_auth` in memory); revoking a key falls back to anonymous
-      immediately. NOT deployed yet.
+      immediately. DEPLOYED + VERIFIED LIVE on prod (main 7e78b57, 2026-09-08).
 - [ ] Developer portal (API docs, key management, usage) — key management itself now
       exists (`/workspace/api-keys` above); real API docs / a public reference page
       is still open.
 - [ ] Public pricing page for the data/API product (distinct from workspace plans).
 - [ ] Enterprise pilot outreach (12-week Gantt in the — now deleted — growth plan).
-- [ ] Re-run the 4 state-level signal fetchers (agriculture / education / industrial
+- [x] (Already done 2026-08-12, verified 2026-09-21: coverage 97.8% agriculture/industrial/economic, 88.1% education of 15,582 pincodes; the remaining ~2% have no state mapping.) Re-run the 4 state-level signal fetchers (agriculture / education / industrial
       / economic) — stale since the pincode set was ~275; now ~15k+. Mechanical
       (state-level values are uniform per state), not a new data hunt.
 
@@ -510,9 +515,8 @@ Gap 2 (datastore) is done — Postgres dual-write. The other four below.
 - [ ] Document where `CITY_PRIORS` (seed for `rate_per_sqft`) came from.
 - [ ] Publish the attribution block (draft in the doc) once the above clear.
 
-### Auth / multi-tenancy / org billing — NOT started (needs design first)
-`organizations` + `org_members` tables exist and are unused. This is Phase 06+
-territory; don't start it before a paying customer needs seats.
+### Auth / multi-tenancy / org billing — companies, roles, invites SHIPPED (Phase C/D, 2026-09-11/12); billing side is billing-v2 (see docs/PRICING_MODEL.md / the private go-live checklist)
+(Stale note kept for history: these tables are now real — companies, RBAC, invites, wallets, budgets all live. Open items below are superseded by billing-v2.)
 - [ ] Decide the model: per-seat vs. flat-org pricing; who can invite; whether
       projects belong to a user or an org.
 - [ ] Org creation + member invite/accept/remove flow (email invite tokens).

@@ -344,6 +344,14 @@ def privacy_policy():
 def terms_of_service():
     return send_file(APP / "terms.html")
 
+@app.route("/refund")
+def refund_policy():
+    return send_file(APP / "refund.html")
+
+@app.route("/contact")
+def contact_page():
+    return send_file(APP / "contact.html")
+
 @app.route("/data/<path:fname>")
 def serve_data(fname):
     return send_from_directory(APP / "data", fname)
