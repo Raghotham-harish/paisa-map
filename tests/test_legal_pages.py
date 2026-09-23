@@ -43,10 +43,12 @@ for route, html in bodies.items():
             check(f'href="{other}"' in html, f"{route} links to {other}")
 
 refund = bodies["/refund"].lower()
-for phrase, why in [("non-refundable", "states credits are non-refundable"), ("duplicate", "covers duplicate/failed charges"),
+for phrase, why in [("credit packs are not refundable", "states credit packs are not refundable (U14 = b)"),
+                    ("duplicate", "covers duplicate/failed charges"),
                     ("5–7 business days", "says how long refunds take"), ("original payment method", "says where refunds go"),
-                    ("cancel", "explains cancellation"), ("7 days", "states the first-purchase window")]:
+                    ("cancel", "explains cancellation"), ("monthly price", "states the annual-plan refund rule")]:
     check(phrase in refund, f"refund page {why}")
+check("first purchase" not in refund, "refund page no longer offers a first-purchase refund (U14 = b)")
 contact = bodies["/contact"].lower()
 for phrase, why in [("mailto:", "has an email"), ("registered address", "has an address section"), ("grievance", "names a grievance officer"),
                     ("phone", "has a phone line")]:
