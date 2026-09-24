@@ -66,7 +66,17 @@ def _not_configured():
 def pricing():
     payload = _pricing.public_pricing_payload()
     payload["checkout"] = checkout_state()
+    payload["gst"] = {"charged": _seller_gstin() is not None, "rate": _pricing.GST_RATE}
     return jsonify(payload)
+
+
+def _seller_gstin():
+    """PaisaMap's GSTIN if a valid one is configured, else None. Every list price
+    is ex-GST; GST is added on top only when this returns a GSTIN, so GST is
+    never collected unregistered. A malformed value fails closed (no GST)
+    rather than printing a bad GSTIN on invoices."""
+    value = (os.environ.get("PAISAMAP_GSTIN") or "").strip().upper()
+    return value if _pricing.valid_gstin(value) else None
 
 
 def _live_keys() -> bool:
@@ -102,13 +112,21 @@ def _purchase_gate(kind):
                     "detail": "Purchases aren't open yet. Ask PaisaMap and we'll add credits for you."}), 403
 
 
-def _create_razorpay_order_and_local_row(user_id, kind, amount_paise, **kwargs):
+def _create_razorpay_order_and_local_row(user_id, kind, list_paise, **kwargs):
+    """`list_paise` is the ex-GST list price. The amount charged is that plus
+    GST when registered; the split is frozen on the order (meta.tax) so the
+    invoice matches what was actually paid even if PAISAMAP_GSTIN changes
+    between checkout and payment."""
     blocked = _purchase_gate(kind)
     if blocked is not None:
         return None, blocked
     client = _client()
     if client is None:
         return None, _not_configured()
+    gstin = _seller_gstin()
+    tax = _pricing.gst_breakdown(list_paise, charge_gst=gstin is not None)
+    tax["seller_gstin"] = gstin
+    amount_paise = tax["total_paise"]
     try:
         rp_order = client.order.create({
             "amount": amount_paise, "currency": "INR",
@@ -121,12 +139,15 @@ def _create_razorpay_order_and_local_row(user_id, kind, amount_paise, **kwargs):
         # matching this codebase's convention of never letting a request
         # crash opaquely.
         return None, (jsonify({"error": "gateway_error", "detail": str(e)}), 502)
-    order = _auth_db.create_order(user_id, kind, rp_order["id"], amount_paise, **kwargs)
+    order = _auth_db.create_order(user_id, kind, rp_order["id"], amount_paise,
+                                  meta={"tax": tax}, **kwargs)
     return {
         "order": order,
         "razorpay_order_id": rp_order["id"],
         "razorpay_key_id": os.environ.get("RAZORPAY_KEY_ID"),
         "amount_paise": amount_paise,
+        "taxable_paise": tax["taxable_paise"],
+        "gst_paise": tax["gst_paise"],
         "currency": "INR",
     }, None
 
@@ -205,15 +226,30 @@ def create_report_order(user_id):
     return jsonify(payload), 201
 
 
+def _order_tax(order):
+    """The order's frozen tax split (taxable, gst, rate, seller GSTIN). Orders
+    from before GST-on-top have none: their amount was GST-inclusive, so GST is
+    carved out of it — and only if a GSTIN is configured, never otherwise."""
+    total = order["amount_paise"]
+    meta = order.get("meta")
+    tax = meta.get("tax") if isinstance(meta, dict) else None
+    if tax and tax.get("taxable_paise", -1) + tax.get("gst_paise", -1) == total:
+        return tax["taxable_paise"], tax["gst_paise"], tax["gst_rate"], tax.get("seller_gstin")
+    gstin = _seller_gstin()
+    if gstin is None:
+        return total, 0, 0.0, None
+    taxable = (total * 100 * 2 + (100 + _pricing.GST_PERCENT)) // (2 * (100 + _pricing.GST_PERCENT))
+    return taxable, total - taxable, _pricing.GST_RATE, gstin
+
+
 def _create_invoice_for_order(order, line_item):
     user = _auth_db.get_user(order["user_id"])
     total = order["amount_paise"]
-    taxable = round(total / (1 + _pricing.GST_RATE))
-    gst = total - taxable
+    taxable, gst, rate, gstin = _order_tax(order)
     invoice = _auth_db.create_invoice(
         order["id"], order["user_id"], buyer_email=user["email"], buyer_name=user["name"],
         taxable_amount_paise=taxable, gst_amount_paise=gst, total_amount_paise=total,
-        line_item_label=line_item, seller_gstin=os.environ.get("PAISAMAP_GSTIN") or None,
+        line_item_label=line_item, seller_gstin=gstin, gst_rate=rate,
     )
     path = _invoice_pdf.build_invoice_pdf(invoice, user, INVOICES_DIR)
     _auth_db.update_invoice_file_path(invoice["id"], str(path))

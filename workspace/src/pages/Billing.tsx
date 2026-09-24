@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, BudgetStatus, CreditLedgerEntry, Invoice, PaidBy, PricingConfig } from "../lib/api";
+import { api, BudgetStatus, CreditLedgerEntry, formatListPrice, Invoice, PaidBy, PricingConfig } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { useAuth } from "../lib/auth";
 import { useWorkspace } from "../lib/workspace";
@@ -148,7 +148,7 @@ export default function Billing() {
               <div key={plan} className="card" style={isCurrent ? { borderColor: "var(--rupee)" } : undefined}>
                 <p style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700, textTransform: "capitalize" }}>{plan}</p>
                 <p style={{ margin: "0 0 14px", fontSize: 20, fontWeight: 700 }}>
-                  {cfg ? `₹${(cfg.price_paise / 100).toLocaleString("en-IN")}/mo` : "Free"}
+                  {cfg ? `${formatListPrice(cfg.price_paise)}/mo${pricing.gst?.charged ? " + GST" : ""}` : "Free"}
                 </p>
                 {isCurrent ? (
                   <span className={`pill plan-${plan}`}>Current plan</span>
@@ -225,7 +225,7 @@ export default function Billing() {
                 disabled={buying !== null}
                 onClick={() => onBuyPack(packId)}
               >
-                {buying === packId ? "Opening…" : `${pack.label} — ₹${(pack.price_paise / 100).toLocaleString("en-IN")}`}
+                {buying === packId ? "Opening…" : `${pack.label} — ${formatListPrice(pack.price_paise, pricing.gst?.charged)}`}
               </button>
             ))}
           </div>

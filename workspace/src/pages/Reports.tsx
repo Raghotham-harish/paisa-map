@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError, api, LocationScore, Project, Report } from "../lib/api";
+import { ApiError, api, formatListPrice, LocationScore, Project, Report } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { illustrations } from "../lib/illustrations";
 import { useAuth } from "../lib/auth";
@@ -40,6 +40,7 @@ interface InsufficientCredits {
   paidBy?: string | null;
   required: number;
   reportPurchasePricePaise: number;
+  gstCharged: boolean;
 }
 
 export default function Reports() {
@@ -79,6 +80,7 @@ export default function Reports() {
           [project.id]: {
             balance: e.body.balance, paidBy: e.body.paid_by?.name ?? null, required: e.body.required,
             reportPurchasePricePaise: e.body.report_purchase_price_paise,
+            gstCharged: e.body.gst_charged === true,
           },
         }));
       } else {
@@ -218,7 +220,7 @@ export default function Reports() {
                               >
                                 {buying === p.id
                                   ? "Opening…"
-                                  : `Buy this report — ₹${(insufficientFor[p.id].reportPurchasePricePaise / 100).toLocaleString("en-IN")}`}
+                                  : `Buy this report — ${formatListPrice(insufficientFor[p.id].reportPurchasePricePaise, insufficientFor[p.id].gstCharged)}`}
                               </button>
                             </div>
                           )}

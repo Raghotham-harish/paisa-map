@@ -2779,7 +2779,7 @@ def _next_invoice_number(conn, engine):
 
 def create_invoice(order_id, user_id, buyer_email, taxable_amount_paise, gst_amount_paise,
                     total_amount_paise, line_item_label, *, buyer_name=None, buyer_gstin=None,
-                    seller_gstin=None):
+                    seller_gstin=None, gst_rate=None):
     import _pricing
     engine = _require_engine()
     tables = _get_tables()
@@ -2791,7 +2791,8 @@ def create_invoice(order_id, user_id, buyer_email, taxable_amount_paise, gst_amo
                 order_id=order_id, user_id=user_id, invoice_number=invoice_number,
                 buyer_name=buyer_name, buyer_email=buyer_email, buyer_gstin=buyer_gstin,
                 seller_gstin=seller_gstin, taxable_amount_paise=taxable_amount_paise,
-                gst_rate=_pricing.GST_RATE, gst_amount_paise=gst_amount_paise,
+                gst_rate=_pricing.GST_RATE if gst_rate is None else gst_rate,
+                gst_amount_paise=gst_amount_paise,
                 total_amount_paise=total_amount_paise, line_item_label=line_item_label,
                 created_at=_now(),
             )

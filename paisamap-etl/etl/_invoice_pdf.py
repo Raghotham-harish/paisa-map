@@ -50,7 +50,9 @@ def _party_block(styles, label, name, email, gstin):
 
 def _line_item_table(invoice):
     rows = [
-        ["Description", "Taxable amount", f"GST ({invoice['gst_rate'] * 100:g}%)", "Total"],
+        ["Description", "Taxable amount",
+         f"GST ({invoice['gst_rate'] * 100:g}%)" if invoice["gst_rate"] else "GST (not charged)",
+         "Total"],
         [invoice["line_item_label"],
          _fmt_amount(invoice["taxable_amount_paise"]),
          _fmt_amount(invoice["gst_amount_paise"]),
@@ -92,7 +94,8 @@ def build_invoice_pdf(invoice: dict, user: dict, invoices_dir: Path) -> Path:
     )
     story = [
         Paragraph("PaisaMap", styles["Brand"]),
-        Paragraph("Tax Invoice", styles["InvoiceTitle"]),
+        # Only a GST-registered supplier issues a tax invoice.
+        Paragraph("Tax Invoice" if invoice.get("seller_gstin") else "Invoice", styles["InvoiceTitle"]),
         Paragraph(
             f"Invoice {invoice['invoice_number']} &middot; "
             f"{invoice['created_at'].strftime('%d %b %Y') if hasattr(invoice['created_at'], 'strftime') else invoice['created_at']}",

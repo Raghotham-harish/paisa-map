@@ -913,6 +913,13 @@ export interface PricingConfig {
   report_purchase_price_paise: number;
   /** What may be bought right now. Absent on an older server = everything (test-mode behaviour). */
   checkout?: { live: boolean; plans: boolean; credits: boolean; reports: boolean };
+  /** List prices are ex-GST; `charged` = GST is added on top at checkout. Absent on an older server = no GST shown. */
+  gst?: { charged: boolean; rate: number };
+}
+
+/** "₹999" or "₹999 + GST" for a list price in paise. */
+export function formatListPrice(paise: number, gstCharged?: boolean): string {
+  return `₹${(paise / 100).toLocaleString("en-IN")}${gstCharged ? " + GST" : ""}`;
 }
 
 export type OrderKind = "credit_pack" | "plan_upgrade" | "report_purchase";

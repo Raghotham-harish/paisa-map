@@ -14,6 +14,32 @@ costs/counts, which are plain integers.
 """
 
 GST_RATE = 0.18  # 18% GST, placeholder — confirm actual applicable rate/HSN once GST-registered
+GST_PERCENT = 18  # the same rate as a whole number, for exact paise arithmetic
+
+# Every price in this module is a list price EXCLUDING GST ("Rs 12,000 + GST").
+# GST is added on top only when the seller is GST-registered, i.e. a valid
+# PAISAMAP_GSTIN is configured — GST is never collected without a registration.
+import re as _re
+_GSTIN_RE = _re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
+
+
+def valid_gstin(value) -> bool:
+    """Shape check for a 15-character GSTIN (state code, PAN, entity, 'Z', check)."""
+    return isinstance(value, str) and bool(_GSTIN_RE.match(value))
+
+
+def gst_breakdown(list_paise: int, charge_gst: bool) -> dict:
+    """What a buyer pays for an item listed at `list_paise` (ex-GST).
+    With GST: taxable = list, GST = 18% of it rounded half-up to the paisa,
+    total = list + GST. Without: no GST at all, total = list."""
+    if isinstance(list_paise, bool) or not isinstance(list_paise, int) or list_paise < 0:
+        raise ValueError(f"list price must be a non-negative int of paise: {list_paise!r}")
+    if not charge_gst:
+        return {"taxable_paise": list_paise, "gst_rate": 0.0, "gst_paise": 0,
+                "total_paise": list_paise}
+    gst = (list_paise * GST_PERCENT + 50) // 100
+    return {"taxable_paise": list_paise, "gst_rate": GST_RATE, "gst_paise": gst,
+            "total_paise": list_paise + gst}
 
 # ── Credit costs per action ─────────────────────────────────────────────────
 CREDIT_COSTS = {

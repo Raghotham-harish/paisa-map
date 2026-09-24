@@ -66,7 +66,7 @@ def check(cond, msg):
 # request with 2xx/400 is a missing @require_login. Adding to this list is a
 # deliberate, reviewable act.
 PUBLIC = {
-    "/", "/privacy", "/terms", "/data/<path:fname>", "/assets/<path:fname>",
+    "/", "/privacy", "/terms", "/refund", "/contact", "/data/<path:fname>", "/assets/<path:fname>",
     "/api/auth/logout", "/api/auth/google", "/api/billing/pricing",
     "/api/billing/webhook", "/api/config", "/api/db_status", "/api/enrich",
     "/api/enrich_stats", "/api/export", "/api/health", "/api/metrics",

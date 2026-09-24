@@ -31,6 +31,7 @@ from _google_oauth import normalize_city  # noqa: E402
 from ._session import require_login, require_db, _auth_db, charge_credits, wallet_gate
 from .analytics_connections import get_project_digital_baseline  # noqa: E402
 from .intelligence import compute_location_intelligence_batch  # noqa: E402
+from . import billing as _billing  # noqa: E402
 
 reports_bp = Blueprint("reports", __name__, url_prefix="/api/reports")
 
@@ -87,7 +88,8 @@ def generate_report(user_id):
             view = _auth_db.get_credit_view(user_id, org_id=(project or {}).get("org_id"))
             return jsonify({"error": "insufficient_credits", "balance": view["balance"],
                              "paid_by": view["paid_by"], "required": cost,
-                             "report_purchase_price_paise": _pricing.REPORT_PURCHASE_PRICE_PAISE}), 402
+                             "report_purchase_price_paise": _pricing.REPORT_PURCHASE_PRICE_PAISE,
+                             "gst_charged": _billing._seller_gstin() is not None}), 402
 
     business = _business_profile(project)
     pincodes = [loc["pincode"] for loc in locations]
