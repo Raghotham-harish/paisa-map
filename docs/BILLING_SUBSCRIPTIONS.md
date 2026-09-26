@@ -131,7 +131,7 @@ ASALE revoke --sale-id 7 --reason "refunded, invoice cancelled" --yes
 
 1. Push the branch → merge → deploy (code goes live, feature dark, old flows unchanged —
    rehearsed against a DB built by the deployed code).
-2. Run `db/apply_subscriptions_tables.py` on the server (additive, idempotent; also creates `assisted_sales`).
+2. Run `db/apply_subscriptions_tables.py` on the server (additive, idempotent; also creates `assisted_sales` and `credit_lots`).
 3. Razorpay dashboard (the NEW account, ragho@paisamaps.com, live mode) → Webhooks →
    edit the existing `https://paisamaps.com/api/billing/webhook` one → also tick the
    `subscription.*` events (authenticated, activated, charged, pending, halted,
@@ -158,9 +158,25 @@ ASALE revoke --sale-id 7 --reason "refunded, invoice cancelled" --yes
   Razorpay's retry schedule (which I haven't verified). If Razorpay keeps retrying past
   day 3 and succeeds on day 4, the charge unlocks instantly.
 
+## P3 — monthly plan credits (built 2026-09-27)
+
+Every captured charge grants the tier's `credits_per_month` into the paying company's
+wallet as a **lot** (`credit_lots`) that expires `PLAN_CREDIT_ROLLOVER_DAYS` (31) after
+that cycle ends — plan credits roll one month, then expire. Keyed on the charge's order
+(`source_ref = order:<id>`, unique), so a redelivery, a race or a crash between "paid"
+and "granted" never doubles or loses a month. Spends draw the soonest-expiring lot
+first; credits with no lot (signup bonus, packs bought so far, operator grants) never
+expire and go last. An expired lot's remainder is written off as a `credits_expired`
+ledger row — by balance reads and spends for their own wallet, and by the hourly sweep
+for everyone else — never taking a wallet below zero. `/api/credits` returns
+`expiring: {credits, at}` (payer's members only). Wallet scope only; with no
+`credit_lots` table (before step 2) every path is a no-op. **Not covered:** assisted
+sales still grant all their months' credits up front with no expiry; v2 top-ups
+(60 days) have no purchase flow yet; annual +5% (annual is invoice-only).
+
 ## Not in this round (Gantt order)
 
-P3 monthly credit grant + rollover (hooks on `apply_charge`), P4 trial, P6 paywall,
+P4 trial, P6 paywall,
 P5 seats, P7 signal tiers, Billing UI v2 (no frontend yet), a
 reconcile job for a missed `charged` webhook, gap-free invoice numbering under
 concurrent duplicate deliveries.

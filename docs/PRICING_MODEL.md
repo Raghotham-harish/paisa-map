@@ -305,7 +305,7 @@ because it's a renewal:
 |---|---|---|
 | P1 | **Company layer** — plan + credits + seats attach to a company | Roadmap **Phase C** |
 | P2 | **Recurring subscriptions** — Razorpay Subscriptions or a monthly re-charge cron, replacing the one-time `users.plan` flip | P1 |
-| P3 | **Monthly credit grant + rollover job** — grant on renewal, expire last month's plan credits, keep top-ups 60 days, +5% on annual | P2 |
+| P3 | **Monthly credit grant + rollover job** — grant on renewal, expire last month's plan credits, keep top-ups 60 days, +5% on annual — **plan-credit grant + expiry BUILT 2026-09-27** (see docs/BILLING_SUBSCRIPTIONS.md "P3"); top-up expiry waits for the v2 top-up flow, +5% for annual billing | P2 |
 | P4 | **Free account + Trial** — free login = 3 core signals + save locations, no dashboard; `trial_ends_at`, day-8 auto-convert to Starter, card-fail → drop to Free, day-7 nudge | P2 + Roadmap Phase C |
 | P5 | **Seat enforcement** — count active non-viewer members vs the tier limit | P1, Roadmap **Phase D** |
 | P6 | **Dashboard paywall** — gate every `/workspace/*` route except the map on an active dashboard subscription | P4 |

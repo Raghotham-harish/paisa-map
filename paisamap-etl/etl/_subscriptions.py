@@ -83,7 +83,7 @@ def tables_ready():
     from sqlalchemy import inspect
     engine = A._require_engine()
     insp = inspect(engine)
-    _ready = all(insp.has_table(t) for t in ("subscriptions", "razorpay_plans", "assisted_sales"))
+    _ready = all(insp.has_table(t) for t in ("subscriptions", "razorpay_plans", "assisted_sales", "credit_lots"))
     if not _ready:
         _not_ready_until = time.monotonic() + _RECHECK_SECONDS
     return _ready
@@ -360,6 +360,7 @@ def apply_charge(razorpay_subscription_id, payment_id, amount_paise, *, current_
         except IntegrityError:
             order = A.get_order_by_razorpay_id(key)      # a concurrent delivery got there first
     updated, newly_paid = A.mark_order_paid(order["id"], payment_id, None)
+    grant = grant_cycle_credits(sub, order, current_end)
     state = record_state(
         razorpay_subscription_id, status="active", current_start=current_start, current_end=current_end,
         paid_count=paid_count if paid_count is not None else ((sub["paid_count"] or 0) + 1 if newly_paid else None),
@@ -370,7 +371,25 @@ def apply_charge(razorpay_subscription_id, payment_id, amount_paise, *, current_
         state = record_state(razorpay_subscription_id, current_start=current_start,
                              current_end=current_end, grant=True)
     return {"order": updated or order, "subscription": state.get("subscription"), "newly_paid": newly_paid,
-            "duplicate": state.get("duplicate", False), "recovered": state.get("recovered", False)}
+            "duplicate": state.get("duplicate", False), "recovered": state.get("recovered", False),
+            "credits_granted": bool(grant and grant["granted"])}
+
+
+def grant_cycle_credits(sub, order, current_end=None):
+    """P3: one paid cycle = the tier's monthly credits, into the paying company's
+    wallet, as a lot that expires PLAN_CREDIT_ROLLOVER_DAYS after the cycle ends
+    (plan credits roll one month, then expire). Keyed on the charge's order, so
+    it happens exactly once per payment however the charge arrives — and runs on
+    every call (not just newly_paid) so a crash between "paid" and "granted"
+    heals on the next delivery or /verify."""
+    credits = _pricing.TIERS[sub["tier"]]["credits_per_month"] or 0
+    if not credits:
+        return None
+    cycle_end = _aware(current_end) or (_now() + timedelta(days=30))
+    return A.grant_plan_credits(
+        order["user_id"], sub["org_id"], credits, source_ref=f"order:{order['id']}",
+        expires_at=cycle_end + timedelta(days=_pricing.PLAN_CREDIT_ROLLOVER_DAYS),
+        ref_type="order", ref_id=order["id"])
 
 
 def _org_owner(org_id):

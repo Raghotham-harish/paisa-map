@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "etl"))
 import _auth_db as A  # noqa: E402
 from sqlalchemy import inspect, text  # noqa: E402
 
-TABLES = ("subscriptions", "razorpay_plans", "assisted_sales")
+TABLES = ("subscriptions", "razorpay_plans", "assisted_sales", "credit_lots")
 
 if not os.environ.get("DATABASE_URL"):
     sys.exit("DATABASE_URL is not set")

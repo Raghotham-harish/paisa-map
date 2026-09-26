@@ -21,6 +21,10 @@ const REASON_LABELS: Record<string, string> = {
   credit_purchase: "Credit purchase",
   report_generate: "Report generated",
   expansion_recommend: "Expansion recommendation",
+  forecast: "Forecast",
+  plan_credits: "Monthly plan credits",
+  credits_expired: "Plan credits expired",
+  assisted_sale: "Plan credits (invoice)",
 };
 
 /** "Billing" — plan, credits, and invoices together (N5: these used to be two separate nav items that were both "money"). */
@@ -33,6 +37,7 @@ export default function Billing() {
   const [upgrading, setUpgrading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [balance, setBalance] = useState<number | null>(null);
+  const [expiring, setExpiring] = useState<{ credits: number; at: string } | null>(null);
   const [paidBy, setPaidBy] = useState<PaidBy | null>(null);
   const [budget, setBudget] = useState<BudgetStatus | null>(null);
   // Bumped when a link request is decided, so the "Who pays" panel reloads.
@@ -53,6 +58,7 @@ export default function Billing() {
     setCreditsError(null);
     api.getCredits(activeOrgId).then((data) => {
       setBalance(data.balance);
+      setExpiring(data.expiring ?? null);
       setPaidBy(data.paid_by);
       setBudget(data.budget ?? null);
       setMemberBudget(data.member_budget ?? null);
@@ -186,6 +192,12 @@ export default function Billing() {
         <div className="stat-tile">
           <div className="label">Balance{paidBy ? ` · paid by ${paidBy.name}` : ""}</div>
           <div className="value">{balance ?? "—"}</div>
+          {expiring && balance != null && (
+            <div style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 4 }} data-testid="credits-expiring">
+              {expiring.credits.toLocaleString("en-IN")} plan credits expire on{" "}
+              {new Date(expiring.at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+            </div>
+          )}
         </div>
       </div>
       {/* This company's own budget (set by whoever pays for it) — warns at 80%, stops at 100%. */}

@@ -1059,6 +1059,8 @@ export const api = {
     return request(`/api/credits${q ? `?${q}` : ""}`) as Promise<{
       balance: number | null; paid_by: PaidBy | null; budget: BudgetStatus | null;
       member_budget: BudgetStatus | null; ledger: CreditLedgerEntry[];
+      // Plan credits due to expire soonest (they roll one month past their cycle, then expire).
+      expiring?: { credits: number; at: string } | null;
     }>;
   },
 

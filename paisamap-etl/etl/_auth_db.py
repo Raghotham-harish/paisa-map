@@ -599,6 +599,33 @@ def _get_tables():
         CheckConstraint("amount >= 0", name="ck_credit_member_budgets_amount"),
     )
 
+    # Billing-v2 P3: credits that EXPIRE. Each monthly plan grant is a lot with
+    # its own expiry; spends draw the soonest-expiring lot first, and credits
+    # with no lot (signup bonus, packs bought before P3, operator grants) never
+    # expire and are spent last. When a lot expires, what is left of it is
+    # written off as a 'credits_expired' ledger row — so the ledger and the
+    # balance always agree. Created by db/apply_subscriptions_tables.py; every
+    # code path is a no-op until it exists. Wallet scope only (subscriptions,
+    # the only source of lots, need it).
+    credit_lots = Table(
+        "credit_lots", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("billing_org_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
+        Column("ledger_id", Integer, ForeignKey("credits_ledger.id", ondelete="SET NULL")),
+        Column("kind", Text, nullable=False),                  # 'plan' (later: 'topup')
+        # What granted it, e.g. 'order:123' — unique, so a redelivered charge
+        # can never grant the same month twice.
+        Column("source_ref", Text, nullable=False, unique=True),
+        Column("amount", Integer, nullable=False),
+        Column("remaining", Integer, nullable=False),
+        Column("expires_at", DateTime(timezone=True), nullable=False),
+        Column("expired_at", DateTime(timezone=True)),
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        CheckConstraint("remaining >= 0 AND remaining <= amount", name="ck_credit_lots_remaining"),
+        Index("ix_credit_lots_wallet_expiry", "billing_org_id", "expires_at"),
+    )
+
     # A paying company's REQUEST to pay for another company's credits. It is
     # addressed to an EMAIL (the person who should decide), never to a specific
     # company: the recipient picks which company they own to link when approving,
@@ -644,6 +671,7 @@ def _get_tables():
         "org_domains": org_domains,
         "subscriptions": subscriptions, "razorpay_plans": razorpay_plans,
         "assisted_sales": assisted_sales,
+        "credit_lots": credit_lots,
     }
     return _tables
 
@@ -669,6 +697,7 @@ def init_schema():
         tables["api_keys"], tables["credit_budgets"], tables["credit_member_budgets"],
         tables["credit_link_requests"], tables["org_domains"],
         tables["subscriptions"], tables["razorpay_plans"], tables["assisted_sales"],
+        tables["credit_lots"],
     ])
     _ensure_invoice_sequence(engine)
 
@@ -915,6 +944,7 @@ def get_credit_balance(user_id, org_id=None):
     if omitted, behind the caller's primary company. Callers pass an org_id
     only after checking the user belongs to it."""
     engine = _require_engine()
+    _expire_for(user_id, org_id)
     with engine.connect() as conn:
         if billing_scope() == "wallet":
             wallet = _wallet_for(conn, user_id, org_id)
@@ -941,6 +971,7 @@ def get_credit_view(user_id, org_id=None):
     number. Under the legacy per-user scope it is always the user's own balance."""
     engine = _require_engine()
     tables = _get_tables()
+    _expire_for(user_id, org_id)
     with engine.connect() as conn:
         if billing_scope() != "wallet":
             return {"balance": max(0, _user_chain_balance(conn, user_id)), "paid_by": None, "budget": None, "member_budget": None}
@@ -955,9 +986,11 @@ def get_credit_view(user_id, org_id=None):
         balance = _wallet_balance(conn, wallet, user_id)
         budget = _budget_status(conn, oid, wallet)
         member_budget = _member_budget_status(conn, oid, user_id, wallet)
+        expiring = _next_expiry(conn, wallet)
     if get_org_role(wallet, user_id) is None:
-        balance = None
-    return {"balance": balance, "paid_by": paid_by, "budget": budget, "member_budget": member_budget}
+        balance = expiring = None          # both are the payer's numbers
+    return {"balance": balance, "paid_by": paid_by, "budget": budget, "member_budget": member_budget,
+            "expiring": expiring}
 
 
 def _org_name_query(tables, org_id):
@@ -2644,6 +2677,7 @@ def _spend_credits_tx(user_id, amount, reason, ref_type=None, ref_id=None, org_i
             if engine.dialect.name == "postgresql":
                 conn.execute(select(tables["organizations"].c.id)
                              .where(tables["organizations"].c.id == wallet).with_for_update())
+            _expire_due(conn, wallet)          # expired plan credits never pay for anything
             balance = _wallet_balance(conn, wallet, user_id)
             # After the wallet lock, in the same transaction: budget/reserve
             # rules see exactly the state this spend will be written against.
@@ -2657,6 +2691,7 @@ def _spend_credits_tx(user_id, amount, reason, ref_type=None, ref_id=None, org_i
                 delta=-amount, reason=reason, ref_type=ref_type, ref_id=ref_id,
                 balance_after=_user_chain_balance(conn, user_id) - amount, created_at=_now(),
             ))
+            _consume_lots(conn, wallet, amount)
             return balance - amount, _budget_crossing(conn, oid, wallet)
         query = (select(ledger.c.balance_after).where(ledger.c.user_id == user_id)
                  .order_by(ledger.c.id.desc()).limit(1))
@@ -2686,6 +2721,164 @@ def spend_credits(user_id, amount, reason, ref_type=None, ref_id=None, org_id=No
         except Exception:
             pass      # the spend is committed; an alert problem must never reach the spender
     return balance
+
+
+# ── Expiring credit lots (billing-v2 P3) ─────────────────────────────────────
+_lots_ok = False
+_lots_recheck_at = 0.0
+
+
+def _lots_ready(conn):
+    """True once credit_lots exists. Cached for good once True; a missing table
+    is re-checked at most every 30s, so a deploy that beats the apply script
+    costs one cheap query per half-minute, not one per spend."""
+    global _lots_ok, _lots_recheck_at
+    import time
+    if _lots_ok:
+        return True
+    if time.monotonic() < _lots_recheck_at:
+        return False
+    from sqlalchemy import inspect
+    _lots_ok = inspect(conn).has_table("credit_lots")
+    if not _lots_ok:
+        _lots_recheck_at = time.monotonic() + 30
+    return _lots_ok
+
+
+def _expire_due(conn, wallet_id, now=None):
+    """Inside the caller's transaction: write off what is left of every lot in
+    this wallet whose time is up. Each lot is claimed with a conditional UPDATE,
+    so two overlapping runs can never write it off twice. Never takes a wallet
+    below zero (if something else already drew the balance down, only what is
+    actually there is written off). Returns the credits written off."""
+    if wallet_id is None or not _lots_ready(conn):
+        return 0
+    tables = _get_tables()
+    lots, ledger = tables["credit_lots"], tables["credits_ledger"]
+    from sqlalchemy import select
+    now = now or _now()
+    due = conn.execute(select(lots).where(
+        lots.c.billing_org_id == wallet_id, lots.c.expired_at.is_(None), lots.c.expires_at <= now)
+        .order_by(lots.c.expires_at, lots.c.id)).mappings().all()
+    total = 0
+    for lot in due:
+        claimed = conn.execute(lots.update().where(lots.c.id == lot["id"], lots.c.expired_at.is_(None))
+                               .values(expired_at=now, remaining=0)).rowcount
+        if not claimed:
+            continue
+        amount = max(0, min(lot["remaining"], _wallet_balance(conn, wallet_id, lot["user_id"])))
+        if amount:
+            conn.execute(ledger.insert().values(
+                user_id=lot["user_id"], org_id=wallet_id, billing_org_id=wallet_id,
+                delta=-amount, reason="credits_expired", ref_type="credit_lot", ref_id=lot["id"],
+                balance_after=_user_chain_balance(conn, lot["user_id"]) - amount, created_at=now))
+            total += amount
+    return total
+
+
+def _consume_lots(conn, wallet_id, amount, now=None):
+    """A spend of `amount` from this wallet draws the soonest-expiring lots
+    first; whatever the lots don't cover comes from credits that never expire."""
+    if not _lots_ready(conn):
+        return
+    lots = _get_tables()["credit_lots"]
+    from sqlalchemy import select
+    now = now or _now()
+    left = amount
+    for lot in conn.execute(select(lots.c.id, lots.c.remaining).where(
+            lots.c.billing_org_id == wallet_id, lots.c.expired_at.is_(None),
+            lots.c.remaining > 0, lots.c.expires_at > now)
+            .order_by(lots.c.expires_at, lots.c.id)).mappings().all():
+        take = min(left, lot["remaining"])
+        conn.execute(lots.update().where(lots.c.id == lot["id"]).values(remaining=lot["remaining"] - take))
+        left -= take
+        if not left:
+            break
+
+
+def _next_expiry(conn, wallet_id, now=None):
+    """{"credits", "at"} — the credits due to expire soonest in this wallet (all
+    lots sharing that expiry), or None."""
+    if wallet_id is None or not _lots_ready(conn):
+        return None
+    lots = _get_tables()["credit_lots"]
+    from sqlalchemy import select
+    now = now or _now()
+    rows = conn.execute(select(lots.c.remaining, lots.c.expires_at).where(
+        lots.c.billing_org_id == wallet_id, lots.c.expired_at.is_(None),
+        lots.c.remaining > 0, lots.c.expires_at > now).order_by(lots.c.expires_at)).all()
+    if not rows:
+        return None
+    first = rows[0][1]
+    return {"credits": sum(r[0] for r in rows if r[1] == first), "at": first}
+
+
+def _expire_for(user_id, org_id=None):
+    """Before showing a balance: write off anything due in the wallet this user
+    is looking at (wallet scope only), so the number and the history agree."""
+    if billing_scope() != "wallet":
+        return
+    engine = _require_engine()
+    with engine.begin() as conn:
+        if _lots_ready(conn):
+            _expire_due(conn, _wallet_for(conn, user_id, org_id))
+
+
+def expire_due_credits(now=None):
+    """Cron: write off expired lots in every wallet. Returns credits written off."""
+    engine = _require_engine()
+    with engine.connect() as conn:
+        if not _lots_ready(conn):
+            return 0
+        lots = _get_tables()["credit_lots"]
+        from sqlalchemy import select
+        now = now or _now()
+        wallets = [r[0] for r in conn.execute(select(lots.c.billing_org_id).where(
+            lots.c.expired_at.is_(None), lots.c.expires_at <= now).distinct())]
+    total = 0
+    for w in wallets:
+        with engine.begin() as conn:
+            total += _expire_due(conn, w, now)
+    return total
+
+
+def grant_plan_credits(user_id, wallet_id, credits, *, source_ref, expires_at, reason="plan_credits",
+                       ref_type=None, ref_id=None):
+    """Grant one period's plan credits into a wallet as an expiring lot — at most
+    once per `source_ref` (e.g. 'order:<id>' for a subscription charge), however
+    many times a webhook is redelivered or two deliveries race. Returns
+    {"granted": bool, "lot_id"} or None if credit_lots doesn't exist yet."""
+    if credits <= 0:
+        return {"granted": False, "lot_id": None}
+    engine = _require_engine()
+    tables = _get_tables()
+    lots, ledger = tables["credit_lots"], tables["credits_ledger"]
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+    try:
+        with engine.begin() as conn:
+            if not _lots_ready(conn):
+                return None
+            existing = conn.execute(select(lots.c.id).where(lots.c.source_ref == source_ref)).scalar()
+            if existing:
+                return {"granted": False, "lot_id": existing}
+            now = _now()
+            lid = conn.execute(ledger.insert().values(
+                user_id=user_id, org_id=wallet_id, billing_org_id=wallet_id, delta=credits,
+                reason=reason, ref_type=ref_type, ref_id=ref_id,
+                balance_after=_user_chain_balance(conn, user_id) + credits, created_at=now,
+            )).inserted_primary_key[0]
+            lot_id = conn.execute(lots.insert().values(
+                billing_org_id=wallet_id, user_id=user_id, ledger_id=lid, kind="plan",
+                source_ref=source_ref, amount=credits, remaining=credits,
+                expires_at=expires_at, created_at=now,
+            )).inserted_primary_key[0]
+    except IntegrityError:
+        # A concurrent delivery granted it first; this transaction rolled back whole.
+        with engine.connect() as conn:
+            return {"granted": False,
+                    "lot_id": conn.execute(select(lots.c.id).where(lots.c.source_ref == source_ref)).scalar()}
+    return {"granted": True, "lot_id": lot_id}
 
 
 # ── Plan ─────────────────────────────────────────────────────────────────────
@@ -4134,6 +4327,7 @@ def list_credit_ledger(user_id, limit=50, org_id=None):
     ledger = tables["credits_ledger"]
     members = tables["org_members"]
     from sqlalchemy import select, func, or_, and_
+    _expire_for(user_id, org_id)
     with engine.connect() as conn:
         if billing_scope() != "wallet" or _wallet_for(conn, user_id, org_id) is None:
             rows = conn.execute(
