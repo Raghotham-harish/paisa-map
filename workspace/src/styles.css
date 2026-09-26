@@ -105,6 +105,8 @@ body{
 .topbar-switcher select{ font-size:13px; padding:5px 9px; border-radius:7px; width:auto; min-width:170px; }
 .topbar-switcher-meta{ font-size:11.5px; color:var(--ink-soft); white-space:nowrap; }
 .topbar-switcher-loading{ display:inline-block; width:180px; height:14px; margin:0; }
+.topbar a:not(.topbar-new-project){ color:var(--rupee-deep); text-decoration:none; font-weight:600; }
+.topbar a:not(.topbar-new-project):hover{ text-decoration:underline; }
 .topbar-new-project{
   display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:var(--rupee-deep);
   text-decoration:none; background:var(--paper-2); border:1px solid var(--border); border-radius:999px; padding:6px 13px;
@@ -602,6 +604,13 @@ input:focus, textarea:focus, select:focus{ outline:2px solid var(--amber); outli
 .fb-chip .k{ color:var(--ink-soft); }
 .fb-chip select{ border:0; background:transparent; font-size:12.5px; font-weight:600; padding:2px 4px; width:auto; }
 .fb-chip-link:hover{ background:var(--paper-2); }
+/* Forecast's hotspot filters also use .filter-bar (stacked uppercase labels);
+   keep that out of the map's chips. */
+.filter-bar label.fb-chip{
+  flex-direction:row; align-items:center; gap:6px; font-size:12.5px; font-weight:400;
+  letter-spacing:0; text-transform:none; color:var(--ink);
+}
+.filter-bar .fb-chip select{ border:0; border-radius:0; background:transparent; font-size:12.5px; padding:2px 4px; }
 .fb-signals{ display:flex; align-items:center; gap:6px; flex:1 1 100%; max-width:640px; }
 .fb-signals .k{ color:var(--ink-soft); font-size:12.5px; white-space:nowrap; }
 .fb-signals .ms-control{ min-height:34px; width:100%; }
@@ -787,7 +796,146 @@ input:focus, textarea:focus, select:focus{ outline:2px solid var(--amber); outli
 
 @media (max-width: 1100px){
   .cmp-layout{ grid-template-columns:1fr; }
-  .cmp-rail{ position:static; }
+  .cmp-rail{ position:static; max-height:none; }   /* 100% of a stacked column collapsed it to its header */
   .kpi-strip{ left:16px; }
   .compare-basket{ max-width:90%; }
+}
+
+/* ───────────────────────── Phones (≤ 820px) ─────────────────────────
+   The sidenav becomes a slide-in drawer behind a menu button in a slim top
+   bar, content takes the full width with a 16px gutter, and fixed-width
+   controls give way to the column. Page-specific phone rules sit with their
+   pages above; this block is the shell plus generic guards. */
+.mobile-bar, .nav-backdrop, .sidenav .nav-close{ display:none; }
+.mobile-menu-btn{
+  display:inline-flex; align-items:center; justify-content:center; width:40px; height:40px;
+  border:1px solid var(--border); border-radius:10px; background:var(--paper); color:var(--ink);
+  font-size:20px; cursor:pointer; padding:0;
+}
+
+@media (max-width: 820px){
+  .shell{ flex-direction:column; }
+  .mobile-bar{
+    display:flex; align-items:center; gap:12px; position:sticky; top:0; z-index:40;
+    height:56px; padding:0 16px; background:var(--paper); border-bottom:1px solid var(--border);
+  }
+  .mobile-bar .brand{ line-height:0; }
+  .mobile-bar-avatar{
+    margin-left:auto; width:30px; height:30px; border-radius:50%; font-size:12px;
+    display:flex; align-items:center; justify-content:center;
+  }
+
+  .sidenav{
+    position:fixed; top:0; left:0; bottom:0; z-index:60; height:100dvh; width:min(280px, 84vw); min-width:0;
+    transform:translateX(-100%); transition:transform .2s ease; overflow-y:auto;
+    box-shadow:0 0 0 rgba(0,0,0,0);
+  }
+  .shell.nav-open .sidenav{ transform:none; box-shadow:0 10px 40px rgba(26,28,26,.25); }
+  .nav-backdrop{ display:block; position:fixed; inset:0; z-index:55; background:rgba(26,28,26,.4);
+                 opacity:0; pointer-events:none; transition:opacity .2s ease; }
+  .shell.nav-open .nav-backdrop{ opacity:1; pointer-events:auto; }
+  .sidenav .nav-close{ display:inline-flex; position:absolute; top:14px; right:12px; width:36px; height:36px; font-size:18px; }
+  .sidenav nav a{ padding:11px 10px; font-size:14.5px; }   /* bigger tap targets */
+  .sidenav .desktop-only-nav{ display:none; }
+
+  .topbar{ flex-wrap:wrap; justify-content:stretch; gap:8px; padding:10px 16px; }
+  .topbar-switcher{ flex:1 1 100%; min-width:0; }
+  .topbar-switcher select{ flex:1; min-width:0; width:100%; }
+  .topbar-switcher-meta{ display:none; }
+  .topbar-new-project{ margin-left:auto; }
+
+  main.content, main.content.content-wide{ padding:20px 16px 40px; max-width:none; width:100%; }
+  h1.page-title{ font-size:20px; }
+  p.page-sub{ margin-bottom:20px; }
+
+  /* Hero cards (dashboard, project): the map thumbnail goes on top, full width. */
+  .map-hero{ flex-direction:column; }
+  .map-hero-thumb{ order:-1; width:100%; min-width:0; border-left:0; border-bottom:1px solid var(--border); }
+  .map-hero-thumb svg{ width:100%; height:auto; display:block; }
+  .map-hero-copy{ padding:18px 16px; }
+  .map-hero-actions{ flex-wrap:wrap; }
+
+  /* List rows: the controls on the right drop to their own line under the title. */
+  .data-row-main{ flex:1 1 150px; }
+  .data-row-trailing{ flex:1 1 100%; justify-content:flex-start; }
+  .data-row-trailing select{ flex:1; min-width:0; }
+
+  /* Forecast: the ≤900px rules above collapse to "1fr", which can't shrink
+     below a wide table — minmax(0,…) lets the tables scroll inside their card. */
+  .fc-two, .fc-two-wide, .fc-curve-layout{ grid-template-columns:minmax(0,1fr); }
+  .fc-two > *, .fc-two-wide > *, .fc-curve-layout > *{ min-width:0; }
+  .fc-control-budget{ flex:1 1 100%; }
+  .forecast-cta-body{ min-width:0; flex-basis:100%; }
+  .fc-h1{ font-size:20px; }
+
+  /* Generic guards: nothing may be wider than the column. */
+  main.content input, main.content select, main.content textarea{ max-width:100%; }
+  main.content img, main.content svg, main.content canvas{ max-width:100%; height:auto; }
+  main.content table{ display:block; max-width:100%; overflow-x:auto; }
+  .card{ padding:16px; }
+  /* iOS zooms into any focused field under 16px — keep form text at 16px. */
+  input[type="text"], input[type="number"], input[type="email"], input[type="search"], input[type="url"], textarea, select{ font-size:16px; }
+}
+.desktop-hint{ display:none; }
+@media (max-width: 820px){
+  .desktop-hint{
+    display:flex; align-items:center; gap:8px; margin-bottom:14px; padding:10px 12px; font-size:13px;
+    background:#FCF4E0; border:1px solid #E6D3A0; border-radius:var(--radius); color:#5A2F04;
+  }
+  /* A section with only desktop items would leave a lone label. */
+  .sidenav-section:not(:has(a:not(.desktop-only-nav))){ display:none; }
+}
+
+/* ── Map workspace on phones ──
+   Map fills the screen under the mobile bar. Layer controls open from a
+   "Layers" button; the selected place's actions sit in a bottom bar with its
+   details in a sheet above; the KPI strip and the extra filter chips
+   (industry, segment, the multi-signal picker — the Layers panel already
+   picks what to colour by) are left out. */
+.map-layers-btn{ display:none; }
+.mc-wrap{ display:contents; }
+@media (max-width: 820px){
+  .map-shell{ inset:56px 0 0 0; }
+  .filter-bar{ padding:6px 10px; }
+  .fb-chip-link, .fb-row-signals{ display:none; }
+  .filter-bar label.fb-chip{ flex:1 1 auto; min-width:0; }
+  .filter-bar .fb-chip select{ min-width:0; flex:1; font-size:16px; }
+  .filter-bar .fb-row > label.fb-chip ~ label.fb-chip{ display:none; }   /* "Colour by" — it's in Layers */
+
+  .map-layers-btn{
+    display:inline-flex; align-items:center; gap:6px; position:absolute; top:10px; left:10px; z-index:26;
+    background:#fff; border:1px solid var(--border); border-radius:999px; box-shadow:var(--shadow-1);
+    padding:8px 14px; font:inherit; font-size:13.5px; font-weight:600; color:var(--ink); cursor:pointer;
+  }
+  .mc-wrap{ display:none; }
+  .mc-wrap.open{ display:block; }
+  .mc-wrap .map-controls{
+    top:56px; left:10px; right:10px; width:auto; max-height:calc(100% - 140px); overflow-y:auto; z-index:25;
+    box-shadow:0 10px 30px rgba(26,28,26,.2);
+  }
+
+  .map-action-bar{
+    top:auto; bottom:10px; left:10px; right:10px; transform:none; max-width:none;
+    justify-content:flex-start; gap:8px; padding:10px 12px;
+  }
+  .mab-loc{ flex:1 1 100%; }
+  .mab-name{ max-width:none; }
+  .mab-actions{ flex:1 1 100%; }
+  .mab-actions .btn{ flex:1 1 0; padding:9px 6px; white-space:nowrap; }
+
+  .location-panel{
+    top:auto; left:10px; right:10px; width:auto; bottom:128px; max-height:34%;
+  }
+  .lp-head{ padding:8px 14px; }
+  .lp-body{ padding:10px 14px 12px; }
+
+  .kpi-strip{ display:none; }
+  .compare-basket{
+    top:10px; bottom:auto; left:auto; right:10px; transform:none; max-width:calc(100% - 130px);
+    flex-wrap:wrap; padding:8px 10px; gap:6px;
+  }
+  .compare-basket .kicker{ display:none; }
+  .map-modal-overlay, .map-signin-overlay{ padding:8px; }
+  .cmp-grid-card{ display:none; }   /* per-metric grid: the cards + bars above carry the same numbers */
+  .map-modal{ max-height:94vh; }
 }

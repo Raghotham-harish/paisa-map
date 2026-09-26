@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./lib/auth";
 import { WorkspaceProvider, useSyncProjectFromUrl } from "./lib/workspace";
@@ -30,7 +31,9 @@ function WorkspaceUrlSync() {
 // gave no sense of what's what. "Workspace" = explore/build, "Data" = feed
 // your own data in, "Account" = you and the relationship with PaisaMap.
 // Credits folded into Billing (N5: "two nav items that are both money").
-const NAV_SECTIONS: { label: string; items: { to: string; label: string; end?: boolean; icon: string }[] }[] = [
+// `desktop`: a one-off setup task (uploading a spreadsheet, linking Google,
+// developer keys) — left out of the phone menu; the page still works if opened.
+const NAV_SECTIONS: { label: string; items: { to: string; label: string; end?: boolean; icon: string; desktop?: boolean }[] }[] = [
   {
     label: "Workspace",
     items: [
@@ -45,8 +48,8 @@ const NAV_SECTIONS: { label: string; items: { to: string; label: string; end?: b
   {
     label: "Data",
     items: [
-      { to: "/customer-data", label: "Store Data", icon: "ti-upload" },
-      { to: "/connections", label: "Connections", icon: "ti-plug" },
+      { to: "/customer-data", label: "Store Data", icon: "ti-upload", desktop: true },
+      { to: "/connections", label: "Connections", icon: "ti-plug", desktop: true },
     ],
   },
   {
@@ -55,10 +58,12 @@ const NAV_SECTIONS: { label: string; items: { to: string; label: string; end?: b
       { to: "/company", label: "Company", icon: "ti-building" },
       { to: "/activity", label: "Activity", icon: "ti-activity" },
       { to: "/billing", label: "Billing", icon: "ti-receipt" },
-      { to: "/api-keys", label: "API Keys", icon: "ti-key" },
+      { to: "/api-keys", label: "API Keys", icon: "ti-key", desktop: true },
     ],
   },
 ];
+
+const DESKTOP_PAGES = NAV_SECTIONS.flatMap((s) => s.items).filter((i) => i.desktop).map((i) => i.to);
 
 export default function App() {
   const { user, loading, signOut } = useAuth();
@@ -66,6 +71,16 @@ export default function App() {
   const bleed = location.pathname === "/map";
   // The forecast + compare dashboards need more than the default 880px column.
   const wide = location.pathname === "/forecast";
+  // Phones: the sidenav is a slide-in drawer behind the menu button (see
+  // styles.css "Phones"). Closes on every navigation and on Escape.
+  const [navOpen, setNavOpen] = useState(false);
+  useEffect(() => setNavOpen(false), [location.pathname]);
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setNavOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [navOpen]);
 
   // E2 — a project's public share link works for anyone with the URL, no
   // session at all, so this is checked before the loading/auth gates below
@@ -88,8 +103,21 @@ export default function App() {
   return (
     <WorkspaceProvider>
       <WorkspaceUrlSync />
-      <div className="shell">
-        <aside className="sidenav">
+      <div className={navOpen ? "shell nav-open" : "shell"}>
+        <header className="mobile-bar">
+          <button className="mobile-menu-btn" aria-label="Open menu" aria-expanded={navOpen} onClick={() => setNavOpen(true)}>
+            <i className="ti ti-menu-2" aria-hidden="true" />
+          </button>
+          <a className="brand" href="/">
+            <img src="/assets/logo-horizontal-v2.svg" alt="PaisaMaps" height="22" />
+          </a>
+          <div className="avatar avatar-fallback mobile-bar-avatar" aria-hidden="true">{initial}</div>
+        </header>
+        <div className="nav-backdrop" onClick={() => setNavOpen(false)} aria-hidden="true" />
+        <aside className="sidenav" aria-label="Main menu">
+          <button className="mobile-menu-btn nav-close" aria-label="Close menu" onClick={() => setNavOpen(false)}>
+            <i className="ti ti-x" aria-hidden="true" />
+          </button>
           <a className="brand" href="/">
             <img src="/assets/logo-horizontal-v2.svg" alt="PaisaMaps" height="24" />
           </a>
@@ -98,7 +126,8 @@ export default function App() {
               <div className="sidenav-section" key={section.label}>
                 <div className="sidenav-section-label">{section.label}</div>
                 {section.items.map((item) => (
-                  <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => (isActive ? "active" : "")}>
+                  <NavLink key={item.to} to={item.to} end={item.end}
+                           className={({ isActive }) => [isActive ? "active" : "", item.desktop ? "desktop-only-nav" : ""].join(" ").trim()}>
                     <i className={`ti ${item.icon}`} aria-hidden="true" />
                     <span>{item.label}</span>
                   </NavLink>
@@ -140,6 +169,11 @@ export default function App() {
             </header>
           )}
           <main className={bleed ? "content content-bleed" : wide ? "content content-wide" : "content"}>
+            {DESKTOP_PAGES.includes(location.pathname) && (
+              <div className="desktop-hint" role="note">
+                <i className="ti ti-device-desktop" aria-hidden="true" /> This page is easier on a computer.
+              </div>
+            )}
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/map" element={<MapWorkspace />} />

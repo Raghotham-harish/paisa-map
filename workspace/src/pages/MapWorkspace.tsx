@@ -23,6 +23,9 @@ export default function MapWorkspace() {
   const [signals, setSignals] = useState<string[]>([]);
   const [primarySignal, setPrimarySignal] = useState<string>("ppi_ml");
   const [compareOpen, setCompareOpen] = useState(false);
+  // Phones only: the layer controls live behind a "Layers" button (CSS hides
+  // the button and ignores this on wider screens).
+  const [layersOpen, setLayersOpen] = useState(false);
   const [signInPrompt, setSignInPrompt] = useState(false);
   const [mapStyle, setMapStyle] = useState<MapStyle>("symbol");
   const [ringsOn, setRingsOn] = useState(false);
@@ -210,6 +213,10 @@ export default function MapWorkspace() {
           allow="geolocation"
         />
 
+        <button type="button" className="map-layers-btn" aria-expanded={layersOpen} onClick={() => setLayersOpen((o) => !o)}>
+          <i className={`ti ${layersOpen ? "ti-x" : "ti-stack-2"}`} aria-hidden="true" /> {layersOpen ? "Close" : "Layers"}
+        </button>
+        <div className={layersOpen ? "mc-wrap open" : "mc-wrap"}>
         <MapControls
           catalog={catalog}
           primarySignal={primarySignal}
@@ -228,6 +235,7 @@ export default function MapWorkspace() {
           myStoresCount={myStoreCandidates.length}
           kpis={bridge.kpis}
         />
+        </div>
 
         <MapActionBar
           selection={bridge.selected}
