@@ -2763,18 +2763,19 @@ def list_orders(user_id, limit=50):
 
 # ── Invoices ─────────────────────────────────────────────────────────────────
 def _next_invoice_number(conn, engine):
-    """Sequential, per-year: PM-<year>-<zero-padded-seq>. Uses a real Postgres
+    """Sequential: PM-<financial year>-<zero-padded-seq>, e.g. PM-26-27-000123
+    (see _gst.invoice_number for the GST rules on the format). Uses a real Postgres
     SEQUENCE (see _ensure_invoice_sequence) for correctness under concurrency —
     two payments settling at once must never compute the same "next" number.
     SQLite (local dev only, single-writer) falls back to a naive MAX(id)+1."""
-    year = _now().year
+    import _gst
     if engine.dialect.name == "postgresql":
         from sqlalchemy import text
         seq = conn.execute(text("SELECT nextval('invoice_seq')")).scalar()
     else:
         from sqlalchemy import text
         seq = (conn.execute(text("SELECT COALESCE(MAX(id), 0) + 1 FROM invoices")).scalar())
-    return f"PM-{year}-{seq:06d}"
+    return _gst.invoice_number(seq, _now())
 
 
 def create_invoice(order_id, user_id, buyer_email, taxable_amount_paise, gst_amount_paise,

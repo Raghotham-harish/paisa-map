@@ -914,10 +914,19 @@ export interface PricingConfig {
   /** What may be bought right now. Absent on an older server = everything (test-mode behaviour). */
   checkout?: { live: boolean; plans: boolean; credits: boolean; reports: boolean };
   /** List prices are ex-GST; `charged` = GST is added on top at checkout. Absent on an older server = no GST shown. */
-  gst?: { charged: boolean; rate: number };
+  gst?: { charged: boolean; rate: number; seller_state?: string; states?: Record<string, string> };
 }
 
 /** "₹999" or "₹999 + GST" for a list price in paise. */
+// Who the GST invoice is issued to. A GSTIN fixes the state (its first two digits)
+// and needs the business's legal name; with no state the place of supply is Karnataka.
+export interface BuyerDetails {
+  name: string | null;
+  gstin: string | null;
+  state_code: string | null;
+  address: string | null;
+}
+
 export function formatListPrice(paise: number, gstCharged?: boolean): string {
   return `₹${(paise / 100).toLocaleString("en-IN")}${gstCharged ? " + GST" : ""}`;
 }
@@ -1171,14 +1180,18 @@ export const api = {
     request(`/api/projects/${projectId}/connections/google_analytics/location-tags`) as Promise<LocationTagsResponse>,
 
   getPricing: () => request("/api/billing/pricing") as Promise<PricingConfig>,
-  createCreditOrder: (packId: string) =>
+  // `billing` omitted = the server reuses the details last given for this company.
+  createCreditOrder: (packId: string, billing?: BuyerDetails) =>
     request("/api/billing/orders/credits", {
-      method: "POST", body: JSON.stringify({ pack_id: packId }),
+      method: "POST", body: JSON.stringify({ pack_id: packId, ...(billing ? { billing } : {}) }),
     }) as Promise<RazorpayOrderResponse>,
-  createPlanOrder: (plan: "pro" | "team") =>
+  createPlanOrder: (plan: "pro" | "team", billing?: BuyerDetails) =>
     request("/api/billing/orders/plan", {
-      method: "POST", body: JSON.stringify({ plan }),
+      method: "POST", body: JSON.stringify({ plan, ...(billing ? { billing } : {}) }),
     }) as Promise<RazorpayOrderResponse>,
+  // The GST-invoice details this person last gave when buying for a company (null = none yet).
+  getBuyerDetails: (orgId?: number | null) =>
+    request(`/api/billing/buyer${orgId != null ? `?org_id=${orgId}` : ""}`) as Promise<{ buyer: BuyerDetails | null }>,
   createReportOrder: (projectId: number) =>
     request("/api/billing/orders/report", {
       method: "POST", body: JSON.stringify({ project_id: projectId }),

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, BudgetStatus, CreditLedgerEntry, formatListPrice, Invoice, PaidBy, PricingConfig } from "../lib/api";
+import { api, ApiError, BudgetStatus, BuyerDetails, CreditLedgerEntry, formatListPrice, Invoice, PaidBy, PricingConfig } from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { useAuth } from "../lib/auth";
 import { useWorkspace } from "../lib/workspace";
@@ -12,6 +12,7 @@ import { BudgetMeter } from "../components/BudgetMeter";
 import { BudgetsManager } from "../components/BudgetsManager";
 import { MemberBudgetsManager } from "../components/MemberBudgetsManager";
 import { LinkRequestsInbox, WhoPaysPanel } from "../components/WhoPays";
+import { BillingDetails, BUYER_ERRORS, EMPTY_BUYER } from "../components/BillingDetails";
 
 const PLAN_ORDER: Array<"free" | "pro" | "team"> = ["free", "pro", "team"];
 
@@ -41,6 +42,7 @@ export default function Billing() {
   const [creditsError, setCreditsError] = useState<string | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
   const [buyError, setBuyError] = useState<string | null>(null);
+  const [buyer, setBuyer] = useState<BuyerDetails>(EMPTY_BUYER);
 
   const loadInvoices = () => {
     setInvoicesError(null);
@@ -66,13 +68,18 @@ export default function Billing() {
   // The wallet shown is the selected company's, so reload when the switcher changes.
   useEffect(() => {
     loadCredits();
+    setBuyer(EMPTY_BUYER);
+    api.getBuyerDetails(activeOrgId).then((d) => setBuyer(d.buyer ?? EMPTY_BUYER)).catch(() => {});
   }, [activeOrgId]);
+
+  const checkoutError = (e: unknown) =>
+    (e instanceof ApiError && BUYER_ERRORS[e.message]) || "Couldn't start checkout — try again.";
 
   const onUpgrade = async (plan: "pro" | "team") => {
     setUpgrading(plan);
     setError(null);
     try {
-      const { razorpay_order_id, razorpay_key_id, amount_paise } = await api.createPlanOrder(plan);
+      const { razorpay_order_id, razorpay_key_id, amount_paise } = await api.createPlanOrder(plan, buyer);
       await openCheckout({
         key: razorpay_key_id,
         amount: amount_paise,
@@ -87,8 +94,8 @@ export default function Billing() {
         },
         onDismiss: () => setUpgrading(null),
       });
-    } catch {
-      setError("Couldn't start checkout — try again.");
+    } catch (e) {
+      setError(checkoutError(e));
     } finally {
       setUpgrading(null);
     }
@@ -98,7 +105,7 @@ export default function Billing() {
     setBuying(packId);
     setBuyError(null);
     try {
-      const { razorpay_order_id, razorpay_key_id, amount_paise } = await api.createCreditOrder(packId);
+      const { razorpay_order_id, razorpay_key_id, amount_paise } = await api.createCreditOrder(packId, buyer);
       await openCheckout({
         key: razorpay_key_id,
         amount: amount_paise,
@@ -113,8 +120,8 @@ export default function Billing() {
         },
         onDismiss: () => setBuying(null),
       });
-    } catch {
-      setBuyError("Couldn't start checkout — try again.");
+    } catch (e) {
+      setBuyError(checkoutError(e));
     } finally {
       setBuying(null);
     }
@@ -216,6 +223,9 @@ export default function Billing() {
       {pricing && !(paidBy && balance == null) && pricing.checkout?.credits !== false && (
         <div className="card" style={{ marginBottom: 20 }}>
           <p className="kicker" style={{ marginBottom: 14 }}>Buy credits</p>
+          {pricing.gst?.charged && pricing.gst.states && (
+            <BillingDetails value={buyer} onChange={setBuyer} states={pricing.gst.states} />
+          )}
           {buyError && <div style={{ color: "var(--flame)", fontSize: 12, marginBottom: 10 }}>{buyError}</div>}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             {Object.entries(pricing.credit_packs).map(([packId, pack]) => (

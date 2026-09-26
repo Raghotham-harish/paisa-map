@@ -30,6 +30,7 @@ from flask import Blueprint, request, jsonify, send_file
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" / "etl"))
 import _pricing  # noqa: E402
+import _gst  # noqa: E402
 import _invoice_pdf  # noqa: E402
 
 from ._session import require_login, _auth_db  # noqa: E402
@@ -66,7 +67,8 @@ def _not_configured():
 def pricing():
     payload = _pricing.public_pricing_payload()
     payload["checkout"] = checkout_state()
-    payload["gst"] = {"charged": _seller_gstin() is not None, "rate": _pricing.GST_RATE}
+    payload["gst"] = {"charged": _seller_gstin() is not None, "rate": _pricing.GST_RATE,
+                      "seller_state": _gst.SELLER["state_code"], "states": _gst.STATES}
     return jsonify(payload)
 
 
@@ -112,11 +114,36 @@ def _purchase_gate(kind):
                     "detail": "Purchases aren't open yet. Ask PaisaMap and we'll add credits for you."}), 403
 
 
-def _create_razorpay_order_and_local_row(user_id, kind, list_paise, **kwargs):
+def _last_buyer(user_id, payer_org_id):
+    """The billing details this person last gave when buying for this company,
+    so they needn't retype their GSTIN every time. Read from past orders' meta
+    (no separate table: an order is where the details are legally used)."""
+    for order in _auth_db.list_orders(user_id):
+        meta = order.get("meta")
+        if not isinstance(meta, dict) or "buyer" not in meta:
+            continue
+        if (order.get("billing_org_id") or order.get("org_id")) == payer_org_id:
+            return meta["buyer"]
+    return None
+
+
+def _checkout_buyer(user_id, body, payer_org_id):
+    """(buyer, error_response). `billing` omitted = reuse the last details given
+    for this company; `billing` sent (even empty) = use exactly that."""
+    if "billing" not in body:
+        return _last_buyer(user_id, payer_org_id), None
+    buyer, code = _gst.normalize_buyer(body.get("billing"))
+    if code:
+        return None, (jsonify({"error": code}), 400)
+    return buyer, None
+
+
+def _create_razorpay_order_and_local_row(user_id, kind, list_paise, buyer=None, **kwargs):
     """`list_paise` is the ex-GST list price. The amount charged is that plus
     GST when registered; the split is frozen on the order (meta.tax) so the
     invoice matches what was actually paid even if PAISAMAP_GSTIN changes
-    between checkout and payment."""
+    between checkout and payment. `buyer` (optional billing details) fixes the
+    place of supply: CGST+SGST inside Karnataka, IGST outside it."""
     blocked = _purchase_gate(kind)
     if blocked is not None:
         return None, blocked
@@ -126,6 +153,9 @@ def _create_razorpay_order_and_local_row(user_id, kind, list_paise, **kwargs):
     gstin = _seller_gstin()
     tax = _pricing.gst_breakdown(list_paise, charge_gst=gstin is not None)
     tax["seller_gstin"] = gstin
+    tax["sac"] = _gst.SAC_CODE
+    tax["place_of_supply"] = _gst.place_of_supply(buyer)
+    tax.update(_gst.split_gst(tax["gst_paise"], tax["place_of_supply"]))
     amount_paise = tax["total_paise"]
     try:
         rp_order = client.order.create({
@@ -140,7 +170,7 @@ def _create_razorpay_order_and_local_row(user_id, kind, list_paise, **kwargs):
         # crash opaquely.
         return None, (jsonify({"error": "gateway_error", "detail": str(e)}), 502)
     order = _auth_db.create_order(user_id, kind, rp_order["id"], amount_paise,
-                                  meta={"tax": tax}, **kwargs)
+                                  meta={"tax": tax, "buyer": buyer}, **kwargs)
     return {
         "order": order,
         "razorpay_order_id": rp_order["id"],
@@ -148,6 +178,7 @@ def _create_razorpay_order_and_local_row(user_id, kind, list_paise, **kwargs):
         "amount_paise": amount_paise,
         "taxable_paise": tax["taxable_paise"],
         "gst_paise": tax["gst_paise"],
+        "place_of_supply": tax["place_of_supply"],
         "currency": "INR",
     }, None
 
@@ -180,8 +211,11 @@ def create_credit_order(user_id):
     wallet, werr = _purchase_wallet(user_id, body)
     if werr:
         return werr
+    buyer, berr = _checkout_buyer(user_id, body, wallet["billing_org_id"] or wallet["org_id"])
+    if berr:
+        return berr
     payload, err = _create_razorpay_order_and_local_row(
-        user_id, "credit_pack", pack["price_paise"], credit_pack_id=pack_id, **wallet)
+        user_id, "credit_pack", pack["price_paise"], buyer=buyer, credit_pack_id=pack_id, **wallet)
     if err:
         return err
     return jsonify(payload), 201
@@ -198,8 +232,11 @@ def create_plan_order(user_id):
     wallet, werr = _purchase_wallet(user_id, body)
     if werr:
         return werr
+    buyer, berr = _checkout_buyer(user_id, body, wallet["billing_org_id"] or wallet["org_id"])
+    if berr:
+        return berr
     payload, err = _create_razorpay_order_and_local_row(
-        user_id, "plan_upgrade", plan_cfg["price_paise"], target_plan=target_plan, **wallet)
+        user_id, "plan_upgrade", plan_cfg["price_paise"], buyer=buyer, target_plan=target_plan, **wallet)
     if err:
         return err
     return jsonify(payload), 201
@@ -218,9 +255,12 @@ def create_report_order(user_id):
         return jsonify({"error": "project not_found"}), 404
     # A report is always for one project, so it's recorded against that
     # project's company — no "Buying for" choice to make.
+    buyer, berr = _checkout_buyer(user_id, body, project.get("org_id"))
+    if berr:
+        return berr
     payload, err = _create_razorpay_order_and_local_row(
-        user_id, "report_purchase", _pricing.REPORT_PURCHASE_PRICE_PAISE, project_id=project_id,
-        org_id=project.get("org_id"))
+        user_id, "report_purchase", _pricing.REPORT_PURCHASE_PRICE_PAISE, buyer=buyer,
+        project_id=project_id, org_id=project.get("org_id"))
     if err:
         return err
     return jsonify(payload), 201
@@ -242,16 +282,33 @@ def _order_tax(order):
     return taxable, total - taxable, _pricing.GST_RATE, gstin
 
 
+def _order_supply(order, gst):
+    """(buyer, place_of_supply, heads) frozen on the order at checkout. Orders
+    from before the invoice engine have no buyer details: no address on record
+    means the supplier's own state, i.e. CGST + SGST."""
+    meta = order.get("meta") if isinstance(order.get("meta"), dict) else {}
+    tax = meta.get("tax") or {}
+    buyer = meta.get("buyer")
+    pos = tax.get("place_of_supply") or _gst.place_of_supply(buyer)
+    heads = _gst.split_gst(gst, pos)
+    return buyer, pos, dict(heads, sac=tax.get("sac") or _gst.SAC_CODE)
+
+
 def _create_invoice_for_order(order, line_item):
     user = _auth_db.get_user(order["user_id"])
     total = order["amount_paise"]
     taxable, gst, rate, gstin = _order_tax(order)
+    buyer, pos, heads = _order_supply(order, gst)
+    buyer = buyer or {}
     invoice = _auth_db.create_invoice(
-        order["id"], order["user_id"], buyer_email=user["email"], buyer_name=user["name"],
+        order["id"], order["user_id"], buyer_email=user["email"],
+        buyer_name=buyer.get("name") or user["name"], buyer_gstin=buyer.get("gstin"),
         taxable_amount_paise=taxable, gst_amount_paise=gst, total_amount_paise=total,
         line_item_label=line_item, seller_gstin=gstin, gst_rate=rate,
     )
-    path = _invoice_pdf.build_invoice_pdf(invoice, user, INVOICES_DIR)
+    details = {"buyer_address": buyer.get("address"), "buyer_state": buyer.get("state_code"),
+               "place_of_supply": pos, **heads}
+    path = _invoice_pdf.build_invoice_pdf(invoice, user, INVOICES_DIR, details)
     _auth_db.update_invoice_file_path(invoice["id"], str(path))
 
 
@@ -352,6 +409,24 @@ def webhook():
     # in that column, so pass None rather than conflate the two.
     _apply_paid_order(order, payment_entity["id"], None)
     return jsonify({"status": "ok"}), 200
+
+
+@billing_bp.route("/buyer", methods=["GET"])
+@require_login
+def get_buyer(user_id):
+    """The billing details (name, GSTIN, state, address) this person last gave
+    when buying for a company — only their own past orders, so nothing leaks.
+    ?org_id= picks the company, as "Buying for" does at checkout."""
+    raw = request.args.get("org_id")
+    body = {}
+    if raw is not None:
+        if not raw.isdigit():
+            return jsonify({"error": "invalid_org_id"}), 400
+        body["org_id"] = int(raw)
+    wallet, werr = _purchase_wallet(user_id, body)
+    if werr:
+        return werr
+    return jsonify({"buyer": _last_buyer(user_id, wallet["billing_org_id"] or wallet["org_id"])})
 
 
 @billing_bp.route("/invoices", methods=["GET"])

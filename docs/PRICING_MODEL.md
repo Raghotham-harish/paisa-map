@@ -330,9 +330,11 @@ Only one shape question left, plus the fine print:
    confirm or swap.
 2. Top-up pack prices (₹3,000 / ₹10,000 / ₹22,000) — validate once real usage
    data exists.
-3. GST SAC code — narrowed to the 9983-family (998314 SaaS-platform / 998315
-   hosting / 998316 maintenance are the commonly-cited splits, sources vary) —
-   and the export-of-service zero-rating; both need a real CA, not a guess.
+3. ~~GST SAC code~~ — **settled with the CA 2026-09-26:** one SAC, **998439**, for
+   everything sold; 18%; CGST 9% + SGST 9% for Karnataka buyers, IGST 18% for other
+   states (place of supply = buyer's state, else ours); GST on prepaid credits is due
+   at purchase. Built as the P12 invoice engine (`paisamap-etl/etl/_gst.py`).
+   Export-of-service zero-rating is still open (INR-only at launch, so not needed yet).
 4. Self-intelligence credit cost (15/run) — set properly once Phase G scopes the
    real per-run compute/LLM cost.
 

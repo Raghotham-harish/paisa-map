@@ -150,7 +150,7 @@ for bad in ("", "29BJUPR8491Q1Z", "29BJUPR8491Q1ZIX", "29bjupr8491q1zi", "XXBJUP
 # ── no GSTIN: price charged = list, invoice has no GST ────────────────────────
 gstin(None)
 pricing = client().get("/api/billing/pricing").get_json()
-check(pricing["gst"] == {"charged": False, "rate": 0.18}, f"pricing says GST not charged, got {pricing.get('gst')}")
+check((pricing["gst"]["charged"], pricing["gst"]["rate"]) == (False, 0.18), f"pricing says GST not charged, got {pricing.get('gst')}")
 for kind in ("credits", "plan", "report"):
     r = buy(kind)
     check(r.status_code == 201, f"no GSTIN: {kind} order created")
@@ -166,7 +166,7 @@ for kind in ("credits", "plan", "report"):
 # ── valid GSTIN: GST on top ───────────────────────────────────────────────────
 gstin(GSTIN)
 pricing = client().get("/api/billing/pricing").get_json()
-check(pricing["gst"] == {"charged": True, "rate": 0.18}, "pricing says GST is charged on top")
+check((pricing["gst"]["charged"], pricing["gst"]["rate"]) == (True, 0.18), "pricing says GST is charged on top")
 for kind in ("credits", "plan", "report"):
     want = P.gst_breakdown(LIST[kind], True)
     r = buy(kind)
@@ -247,7 +247,8 @@ _auth_db.get_credit_balance = _real_balance
 # ── invoice PDF title follows registration ────────────────────────────────────
 import _invoice_pdf
 src = open(_invoice_pdf.__file__).read()
-check('"Tax Invoice" if invoice.get("seller_gstin") else "Invoice"' in src, "PDF title: Tax Invoice only when registered")
+check('"Tax Invoice" if registered else "Invoice"' in src and 'registered = bool(invoice.get("seller_gstin"))' in src,
+      "PDF title: Tax Invoice only when registered (rendered-PDF checks: test_billing_gst_invoice.py)")
 
 gstin(None)
 print(f"OK — {passed} checks passed")
