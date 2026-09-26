@@ -101,8 +101,8 @@ def paying_sub(org_id, user_id, tier="growth", pay="a"):
     """A subscription that has genuinely been paid once (so a plan is granted)."""
     _n[0] += 1
     sid = f"sub_D{_n[0]}"
-    S.create_local(org_id, user_id, tier, "monthly", sid, f"plan_D{_n[0]}", _pricing.subscription_amount_paise(tier))
-    S.apply_charge(sid, f"pay_{sid}_{pay}", _pricing.subscription_amount_paise(tier),
+    S.create_local(org_id, user_id, tier, "monthly", sid, f"plan_D{_n[0]}", _pricing.subscription_amount_paise(tier, charge_gst=False))
+    S.apply_charge(sid, f"pay_{sid}_{pay}", _pricing.subscription_amount_paise(tier, charge_gst=False),
                    current_start=S.ts(epoch(-30)), current_end=S.ts(epoch(0)), paid_count=1, event_ts=S.ts(epoch(-30)))
     return sid
 

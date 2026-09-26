@@ -142,6 +142,24 @@ def _checkout_buyer(user_id, body, payer_org_id):
     return buyer, None
 
 
+def _tax_for(list_paise, buyer):
+    """The GST split for one charge of `list_paise` (ex-GST), frozen onto the
+    order (or subscription) at checkout: GST only when registered, SAC, place
+    of supply from the buyer's details, CGST+SGST vs IGST heads."""
+    gstin = _seller_gstin()
+    tax = _pricing.gst_breakdown(list_paise, charge_gst=gstin is not None)
+    tax["seller_gstin"] = gstin
+    tax["sac"] = _gst.SAC_CODE
+    tax["place_of_supply"] = _gst.place_of_supply(buyer)
+    tax.update(_gst.split_gst(tax["gst_paise"], tax["place_of_supply"]))
+    return tax
+
+
+def _sub_amount(tier, cycle="monthly"):
+    """One subscription cycle's charge right now: list + GST when registered."""
+    return _pricing.subscription_amount_paise(tier, cycle, charge_gst=_seller_gstin() is not None)
+
+
 def _create_razorpay_order_and_local_row(user_id, kind, list_paise, buyer=None, **kwargs):
     """`list_paise` is the ex-GST list price. The amount charged is that plus
     GST when registered; the split is frozen on the order (meta.tax) so the
@@ -154,12 +172,7 @@ def _create_razorpay_order_and_local_row(user_id, kind, list_paise, buyer=None, 
     client = _client()
     if client is None:
         return None, _not_configured()
-    gstin = _seller_gstin()
-    tax = _pricing.gst_breakdown(list_paise, charge_gst=gstin is not None)
-    tax["seller_gstin"] = gstin
-    tax["sac"] = _gst.SAC_CODE
-    tax["place_of_supply"] = _gst.place_of_supply(buyer)
-    tax.update(_gst.split_gst(tax["gst_paise"], tax["place_of_supply"]))
+    tax = _tax_for(list_paise, buyer)
     amount_paise = tax["total_paise"]
     try:
         rp_order = client.order.create({
@@ -525,8 +538,9 @@ def _payer_for_subscription(user_id, body_or_args):
     return payer, None
 
 
-def _ensure_razorpay_plan(client, tier, cycle):
-    amount = _pricing.subscription_amount_paise(tier, cycle)
+def _ensure_razorpay_plan(client, tier, cycle, amount):
+    """A Razorpay plan charging exactly `amount` per cycle (cached by amount, so
+    GST on/off or a price change gets its own plan)."""
     plan_id = _subscriptions.cached_plan_id(tier, cycle, amount)
     if plan_id:
         return plan_id
@@ -555,7 +569,7 @@ def get_subscription(user_id):
         "assisted": _assisted_sale.public_view(_assisted_sale.active_for_org(payer)) if ready else None,
         "subscription": _subscriptions.public_view(_subscriptions.get_latest(payer)) if ready else None,
         "options": [{"tier": t, "label": _pricing.TIERS[t]["label"],
-                     "amount_paise": _pricing.subscription_amount_paise(t)}
+                     "list_paise": _pricing.subscription_list_paise(t), "amount_paise": _sub_amount(t)}
                     for t in _pricing.TIERS if _pricing.subscription_error(t) is None],
     })
 
@@ -581,17 +595,27 @@ def create_subscription(user_id):
             and _pricing.tier_rank(held) >= _pricing.tier_rank(_pricing.plan_id_v2(tier))):
         return jsonify({"error": "plan_managed_directly",
                         "detail": "This company already has this plan or a higher one, set up with PaisaMap directly."}), 409
+    buyer, berr = _checkout_buyer(user_id, body, payer)
+    if berr:
+        return berr
     client = _client()
     if client is None:
         return _not_configured()
-    return _start_checkout(client, payer, user_id, tier, cycle)
+    return _start_checkout(client, payer, user_id, tier, cycle, buyer)
 
 
-def _start_checkout(client, payer, user_id, tier, cycle):
+def _sub_meta(tier, cycle, buyer):
+    """What a subscription freezes at start (see subscriptions.meta)."""
+    return {"tax": _tax_for(_pricing.subscription_list_paise(tier, cycle), buyer), "buyer": buyer}
+
+
+def _start_checkout(client, payer, user_id, tier, cycle, buyer=None):
     """Create the Razorpay subscription, record it locally (status 'created', grants
     nothing) and return what Checkout needs."""
+    meta = _sub_meta(tier, cycle, buyer)
+    amount = meta["tax"]["total_paise"]
     try:
-        plan_id = _ensure_razorpay_plan(client, tier, cycle)
+        plan_id = _ensure_razorpay_plan(client, tier, cycle, amount)
         rp_sub = client.subscription.create({
             "plan_id": plan_id, "total_count": _pricing.SUBSCRIPTION_TOTAL_COUNT,
             "quantity": 1, "customer_notify": 1,
@@ -599,12 +623,11 @@ def _start_checkout(client, payer, user_id, tier, cycle):
         })
     except Exception as e:
         return jsonify({"error": "gateway_error", "detail": str(e)}), 502
-    _subscriptions.create_local(payer, user_id, tier, cycle, rp_sub["id"], plan_id,
-                                _pricing.subscription_amount_paise(tier, cycle))
+    _subscriptions.create_local(payer, user_id, tier, cycle, rp_sub["id"], plan_id, amount, meta=meta)
     return jsonify({
         "razorpay_subscription_id": rp_sub["id"],
         "razorpay_key_id": os.environ.get("RAZORPAY_KEY_ID"),
-        "amount_paise": _pricing.subscription_amount_paise(tier, cycle),
+        "amount_paise": amount,
         "currency": "INR", "tier": tier,
     }), 201
 
@@ -631,8 +654,12 @@ def recover_subscription(user_id):
     client = _client()
     if client is None:
         return _not_configured()
+    # The replacement keeps the buyer details the failing one was started with.
+    old_buyer = (sub.get("meta") or {}).get("buyer") if isinstance(sub.get("meta"), dict) else None
+    meta = _sub_meta(sub["tier"], sub["cycle"], old_buyer)
+    amount = meta["tax"]["total_paise"]
     try:
-        plan_id = _ensure_razorpay_plan(client, sub["tier"], sub["cycle"])
+        plan_id = _ensure_razorpay_plan(client, sub["tier"], sub["cycle"], amount)
         rp_sub = client.subscription.create({
             "plan_id": plan_id, "total_count": _pricing.SUBSCRIPTION_TOTAL_COUNT,
             "quantity": 1, "customer_notify": 1,
@@ -645,12 +672,12 @@ def recover_subscription(user_id):
     lock_at = _subscriptions._aware(sub["past_due_since"]) + timedelta(days=_pricing.DUNNING_DAYS)
     _subscriptions.record_state(sub["razorpay_subscription_id"], status="cancelled", ends_at=lock_at)
     _subscriptions.create_local(payer, user_id, sub["tier"], sub["cycle"], rp_sub["id"], plan_id,
-                                _pricing.subscription_amount_paise(sub["tier"], sub["cycle"]))
+                                amount, meta=meta)
     _subscriptions.sweep_ended()
     return jsonify({
         "razorpay_subscription_id": rp_sub["id"],
         "razorpay_key_id": os.environ.get("RAZORPAY_KEY_ID"),
-        "amount_paise": _pricing.subscription_amount_paise(sub["tier"], sub["cycle"]),
+        "amount_paise": amount,
         "currency": "INR", "tier": sub["tier"],
     }), 201
 
@@ -665,11 +692,26 @@ def _ensure_subscription_invoice(order, tier):
         pass    # a concurrent delivery created it first
 
 
+def _charge_meta(sub, charged_paise):
+    """The tax split + buyer a charge's order (and so its invoice) carries: the
+    subscription's frozen ones — but the split only when Razorpay charged exactly
+    the amount it was frozen for. Anything else (a plan changed on Razorpay's
+    side) is left to the carve-out in _order_tax rather than printing heads
+    that don't add up to what was paid."""
+    meta = sub.get("meta") if isinstance(sub.get("meta"), dict) else {}
+    out = {"buyer": meta.get("buyer")}
+    tax = meta.get("tax")
+    if isinstance(tax, dict) and tax.get("total_paise") == charged_paise:
+        out["tax"] = tax
+    return out
+
+
 def _finish_charge(sub, payment, sub_entity, event_ts=None):
     """One captured subscription payment, from /verify or the webhook: record the
     order, grant the plan, make sure an invoice exists. Idempotent end to end."""
     res = _subscriptions.apply_charge(
         sub["razorpay_subscription_id"], payment["id"], payment["amount"],
+        order_meta=_charge_meta(sub, payment["amount"]),
         current_start=_subscriptions.ts(sub_entity.get("current_start")),
         current_end=_subscriptions.ts(sub_entity.get("current_end")),
         paid_count=sub_entity.get("paid_count"), event_ts=event_ts,

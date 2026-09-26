@@ -97,7 +97,7 @@ def new_sub(org_id, user_id, tier="growth"):
     _n[0] += 1
     sid = f"sub_T{_n[0]}"
     S.create_local(org_id, user_id, tier, "monthly", sid, f"plan_T{_n[0]}",
-                   _pricing.subscription_amount_paise(tier))
+                   _pricing.subscription_amount_paise(tier, charge_gst=False))
     return sid
 
 
@@ -128,21 +128,34 @@ check(_pricing.subscription_error("enterprise") == "contact_sales", "enterprise 
 check(_pricing.subscription_error("trial") == "invalid_tier", "the free trial is not a subscription")
 check(_pricing.subscription_error("nope") == "invalid_tier", "unknown tier rejected")
 check(_pricing.subscription_error("growth", "annual") == "cycle_not_self_serve", "annual is not self-serve")
-check(_pricing.subscription_amount_paise("growth") == 1_200_000, "growth cycle charge is its list price")
-check(_pricing.subscription_amount_paise("growth") <= _pricing.UPI_AUTOPAY_MAX_PAISE,
-      "every self-serve charge fits under the UPI Autopay cap")
+check(_pricing.subscription_list_paise("growth") == 1_200_000, "growth list price is Rs 12,000 (ex-GST)")
+check(_pricing.subscription_amount_paise("growth", charge_gst=False) == 1_200_000, "unregistered: charged the list price")
+check(_pricing.subscription_amount_paise("growth", charge_gst=True) == 1_416_000, "registered: Rs 12,000 + GST = Rs 14,160")
+for t in _pricing.TIERS:
+    if _pricing.subscription_error(t) is None:
+        check(_pricing.subscription_amount_paise(t, charge_gst=True) <= _pricing.UPI_AUTOPAY_MAX_PAISE,
+              f"{t}: the charge fits under the UPI Autopay cap even with GST")
+try:
+    _pricing.subscription_amount_paise("growth")
+    check(False, "charge_gst must be passed explicitly")
+except TypeError:
+    check(True, "charge_gst must be passed explicitly")
 refused = False
 try:
-    _pricing.subscription_amount_paise("scale")
+    _pricing.subscription_amount_paise("scale", charge_gst=True)
 except AssertionError:
     refused = True
 check(refused, "the charge amount for a non-self-serve tier refuses")
 
 _saved = _pricing.TIERS["growth"]["price_paise"]
-_pricing.TIERS["growth"]["price_paise"] = _pricing.UPI_AUTOPAY_MAX_PAISE + 1
-check(_pricing.subscription_error("growth") == "exceeds_autopay_cap", "a charge over the UPI Autopay cap is refused")
+# The cap is judged on the price WITH GST (Rs 12,711.86 + GST = Rs 14,999.99 fits;
+# one paisa more is Rs 15,000.01 and doesn't) — even while GST isn't charged yet.
+_pricing.TIERS["growth"]["price_paise"] = 1_271_187
+check(_pricing.subscription_error("growth") == "exceeds_autopay_cap", "a charge over the cap once GST is added is refused")
+_pricing.TIERS["growth"]["price_paise"] = 1_271_186
+check(_pricing.subscription_error("growth") is None, "the largest list price that fits with GST is allowed")
 _pricing.TIERS["growth"]["price_paise"] = _pricing.UPI_AUTOPAY_MAX_PAISE
-check(_pricing.subscription_error("growth") is None, "a charge exactly at the cap is allowed")
+check(_pricing.subscription_error("growth") == "exceeds_autopay_cap", "a list price at the cap is refused (GST would push it over)")
 _pricing.TIERS["growth"]["price_paise"] = _saved
 
 # Nothing is granted before a charge.
@@ -464,7 +477,7 @@ r = post(h_user, "/subscriptions", {"tier": "growth"})
 check(r.status_code == 201, "owner creates a subscription")
 j = r.get_json()
 sid_h = j["razorpay_subscription_id"]
-check(j["amount_paise"] == 1_200_000 and j["tier"] == "growth" and j["razorpay_key_id"] == "rzp_test_subs",
+check(j["amount_paise"] == (1_416_000 if B._seller_gstin() else 1_200_000) and j["tier"] == "growth" and j["razorpay_key_id"] == "rzp_test_subs",
       "create returns what Checkout needs")
 check(FakeRP.last_sub_payload["total_count"] == _pricing.SUBSCRIPTION_TOTAL_COUNT
       and FakeRP.last_sub_payload["notes"]["org_id"] == str(h_org), "the Razorpay subscription carries the company in its notes")

@@ -190,18 +190,24 @@ def subscription_error(tier, cycle="monthly"):
         return "cycle_not_self_serve"
     if not TIERS[tier]["self_serve"]:
         return "contact_sales"
-    if TIERS[tier]["price_paise"] > UPI_AUTOPAY_MAX_PAISE:
+    # Judged on the price WITH GST, whether or not GST is charged today: a plan
+    # must still fit under the cap the day registration switches GST on.
+    if gst_breakdown(TIERS[tier]["price_paise"], True)["total_paise"] > UPI_AUTOPAY_MAX_PAISE:
         return "exceeds_autopay_cap"
     return None
 
 
-def subscription_amount_paise(tier, cycle="monthly"):
-    """What one cycle charges. The list price IS the amount charged (GST is
-    carved out of it on the invoice, the way one-off orders already work) —
-    whether list prices should instead be ex-GST with 18% added on top is an
-    open decision (docs/GO_LIVE_CHECKLIST.md U27); changing it is this one line."""
+def subscription_list_paise(tier, cycle="monthly"):
+    """One cycle's list price, ex-GST (like every price in this module)."""
     assert subscription_error(tier, cycle) is None, "not a self-serve subscription"
     return TIERS[tier]["price_paise"]
+
+
+def subscription_amount_paise(tier, cycle="monthly", *, charge_gst):
+    """What one cycle actually charges: the list price, plus 18% GST when the
+    seller is registered (U27: prices are "+ GST"). `charge_gst` is required so
+    no caller can forget it — blueprints/billing.py passes whether a GSTIN is set."""
+    return gst_breakdown(subscription_list_paise(tier, cycle), charge_gst)["total_paise"]
 
 
 # ── Two plan vocabularies share one column — keep them unambiguous ──────────

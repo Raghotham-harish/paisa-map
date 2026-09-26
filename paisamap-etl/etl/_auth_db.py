@@ -494,6 +494,10 @@ def _get_tables():
         Column("ends_at", DateTime(timezone=True)),
         Column("plan_revoked_at", DateTime(timezone=True)),
         Column("last_event_at", DateTime(timezone=True)),
+        # Frozen at start, like orders.meta: {"tax": the GST split one cycle
+        # charges, "buyer": the GST-invoice details given}. Each charge's order
+        # copies it, so every invoice uses the same place of supply and heads.
+        Column("meta", JSONType),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("updated_at", DateTime(timezone=True), nullable=False),
         Index("ix_subscriptions_org", "org_id"),

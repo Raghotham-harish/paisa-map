@@ -174,7 +174,8 @@ def save_plan_id(tier, cycle, amount_paise, razorpay_plan_id):
 
 
 # ── Create ───────────────────────────────────────────────────────────────────
-def create_local(org_id, user_id, tier, cycle, razorpay_subscription_id, razorpay_plan_id, amount_paise):
+def create_local(org_id, user_id, tier, cycle, razorpay_subscription_id, razorpay_plan_id, amount_paise,
+                 meta=None):
     """Record a subscription the moment Razorpay has issued its id, BEFORE the
     customer authorises anything. A checkout the customer walked away from
     earlier is replaced (status 'abandoned') so it can't block a new attempt."""
@@ -188,7 +189,7 @@ def create_local(org_id, user_id, tier, cycle, razorpay_subscription_id, razorpa
             org_id=org_id, created_by_user_id=user_id, tier=tier, cycle=cycle,
             razorpay_subscription_id=razorpay_subscription_id, razorpay_plan_id=razorpay_plan_id,
             status="created", amount_paise=amount_paise, price_book_version=_pricing.PRICE_BOOK_VERSION,
-            paid_count=0, cancel_at_period_end=False, created_at=now, updated_at=now,
+            meta=meta, paid_count=0, cancel_at_period_end=False, created_at=now, updated_at=now,
         )).inserted_primary_key[0]
     return get_by_razorpay_id(razorpay_subscription_id) if new_id else None
 
@@ -327,7 +328,8 @@ def record_state(razorpay_subscription_id, *, status=None, current_start=None, c
 
 
 def apply_charge(razorpay_subscription_id, payment_id, amount_paise, *, current_start=None,
-                 current_end=None, paid_count=None, event_ts=None, razorpay_order_id=None):
+                 current_end=None, paid_count=None, event_ts=None, razorpay_order_id=None,
+                 order_meta=None):
     """One successful charge on a subscription: record it as a paid local order
     (idempotent per payment id) and grant/extend the plan.
 
@@ -351,7 +353,8 @@ def apply_charge(razorpay_subscription_id, payment_id, amount_paise, *, current_
             order = A.create_order(
                 owner, "plan_upgrade", key, amount_paise,
                 target_plan=_pricing.plan_id_v2(sub["tier"]),
-                meta={"subscription_id": sub["razorpay_subscription_id"], "cycle": sub["cycle"],
+                meta={**(order_meta or {}),
+                      "subscription_id": sub["razorpay_subscription_id"], "cycle": sub["cycle"],
                       "tier": sub["tier"], "razorpay_order_id": razorpay_order_id},
                 org_id=sub["org_id"], billing_org_id=sub["org_id"])
         except IntegrityError:

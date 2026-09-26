@@ -123,8 +123,8 @@ ASALE revoke --sale-id 7 --reason "refunded, invoice cancelled" --yes
   — that is a separate, deliberate call.
 - The customer's Billing page gets `assisted: {tier, label, period_start, period_end}`
   ("managed directly by PaisaMap until …"), with no invoice or payment details.
-- **Not built:** the GST invoice itself. Issue it outside (your CA/accounting tool) and
-  record its number here; the GST engine (CGST+SGST vs IGST, PDF) is a separate item.
+- **Not built:** a GST invoice for an assisted sale. Issue it outside (your CA/accounting
+  tool) and record its number here — the in-app GST engine only invoices Razorpay payments.
   Credits granted here don't yet roll over/expire on the P3 schedule.
 
 ## Deploy order (every step is safe to do early; the flag is what opens it)
@@ -132,9 +132,10 @@ ASALE revoke --sale-id 7 --reason "refunded, invoice cancelled" --yes
 1. Push the branch → merge → deploy (code goes live, feature dark, old flows unchanged —
    rehearsed against a DB built by the deployed code).
 2. Run `db/apply_subscriptions_tables.py` on the server (additive, idempotent; also creates `assisted_sales`).
-3. Razorpay dashboard → the existing webhook → tick the `subscription.*` events
-   (authenticated, activated, charged, pending, halted, cancelled, completed, paused,
-   resumed). Same URL and secret; live mode has its own webhook and secret.
+3. Razorpay dashboard (the NEW account, ragho@paisamaps.com, live mode) → Webhooks →
+   edit the existing `https://paisamaps.com/api/billing/webhook` one → also tick the
+   `subscription.*` events (authenticated, activated, charged, pending, halted,
+   cancelled, completed, paused, resumed). Same URL and secret — don't regenerate it.
 4. Ask Razorpay to enable **Subscriptions + UPI Autopay** on the account (separate from
    live keys).
 5. Cron the sweep hourly (`db/subscription_sweep.py`) — it also sends the dunning emails.
@@ -142,10 +143,13 @@ ASALE revoke --sale-id 7 --reason "refunded, invoice cancelled" --yes
 
 ## Decisions to challenge
 
-- **U27 — GST treatment.** A cycle charges the *list price* and GST is carved out of it
-  on the invoice (how one-off orders already work). If list prices should be ex-GST with
-  18% added on top, change `_pricing.subscription_amount_paise` (Growth would charge
-  ₹14,160, still under the ₹15,000 cap). Also unresolved: whether we're GST-registered at all.
+- **U27 — settled (2026-09-23/26): prices are "+ GST".** A cycle charges the list price
+  plus 18% when `PAISAMAP_GSTIN` is set (Growth ₹12,000 → ₹14,160, Starter ₹5,000 →
+  ₹5,900); the UPI Autopay cap is judged on the price *with* GST. The split (SAC 998439,
+  CGST+SGST in Karnataka / IGST elsewhere) and the buyer's GST details are frozen on
+  `subscriptions.meta` at start and copied onto every charge's order, so each invoice
+  goes through the same GST engine as one-off orders. Razorpay plans are cached by
+  amount, so switching GST on creates a new plan rather than reusing the ex-GST one.
 - **`SUBSCRIPTION_TOTAL_COUNT = 60`** monthly cycles (5 years) is a placeholder; a UPI
   mandate has its own expiry — confirm with Razorpay.
 - **One live subscription per paying company**; changing tier = cancel and re-subscribe
@@ -157,7 +161,6 @@ ASALE revoke --sale-id 7 --reason "refunded, invoice cancelled" --yes
 ## Not in this round (Gantt order)
 
 P3 monthly credit grant + rollover (hooks on `apply_charge`), P4 trial, P6 paywall,
-P5 seats, P7 signal tiers, Billing UI v2 (no frontend yet), the
-GST engine (CGST+SGST vs IGST — invoices still use the flat inclusive split), a
+P5 seats, P7 signal tiers, Billing UI v2 (no frontend yet), a
 reconcile job for a missed `charged` webhook, gap-free invoice numbering under
 concurrent duplicate deliveries.
