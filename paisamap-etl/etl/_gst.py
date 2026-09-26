@@ -35,7 +35,7 @@ SELLER = {
         "Chikkasandra, Bengaluru, Karnataka 560057",
     ],
     "state_code": "29",
-    "email": "ragho@cooterlabs.com",
+    "email": "ragho@paisamaps.com",
     "website": "paisamaps.com",
 }
 
