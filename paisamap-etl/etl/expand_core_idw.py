@@ -15,8 +15,8 @@ vectorized/batched: one KD-tree query for all candidates against the trusted
 set, one write per output file, computed once in memory.
 
 Every new pincode still gets backfilled into the raw proxy CSVs
-(property_rates.csv, bank_deposits.csv, etc.) using the same CITY_PRIORS/
-scale_from_poi baseline batch_enrich_hces.py uses -- skipping this would
+(property_rates.csv, bank_deposits.csv, etc.) using the same CITY_PRIORS
+baseline (enrich_single.prior_signals) batch_enrich_hces.py uses -- skipping this would
 mean the next full ml_refinement.py refit silently drops every pincode
 added here (the same coverage-erosion failure mode already hit multiple
 times in this codebase's history: poi column, boundaries.geojson,
@@ -35,7 +35,7 @@ import pandas as pd
 from scipy.spatial import cKDTree
 
 sys.path.insert(0, str(Path(__file__).parent))
-from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, PREFIX_STATE, state_from_pincode, scale_from_poi
+from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, PREFIX_STATE, state_from_pincode, prior_signals
 import _db
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -185,27 +185,17 @@ def main():
     print("Backfilling raw proxy columns (CITY_PRIORS baseline, per state)...")
     mpce["state_code"] = mpce["pincode"].map(state_from_pincode)
 
-    poi_df = pd.read_csv(RAW / "poi_density.csv", dtype={"pincode": str}) \
-             if (RAW / "poi_density.csv").exists() else pd.DataFrame(columns=["pincode", "premium_poi_per_km2"])
-    poi_by_state = {}
-    for sc in mpce["state_code"].unique():
-        pcs = [p for p in poi_df["pincode"] if PREFIX_STATE.get(str(p)[:2]) == sc]
-        med = poi_df.set_index("pincode").reindex(pcs)["premium_poi_per_km2"].dropna().median() \
-              if pcs else np.nan
-        poi_by_state[sc] = 15.0 if pd.isna(med) or med < 1 else float(med)
-
-    proxy_rows = {"property_rates.csv": [], "nightlights.csv": [], "poi_density.csv": [],
+    # No poi_density.csv / financial_inclusion.csv rows: both are OSM-derived (issue #8).
+    proxy_rows = {"property_rates.csv": [], "nightlights.csv": [],
                   "itr_filers.csv": [], "vehicle_density.csv": [], "rto_enhanced.csv": []}
-    dep_rows, fin_rows = [], []
+    dep_rows = []
 
     for sc, grp in mpce.groupby("state_code"):
         prior = CITY_PRIORS.get(sc, _DEFAULT_PRIOR)
-        poi_med = poi_by_state.get(sc, 15.0)
-        sig = scale_from_poi(poi_med, prior, poi_med)
+        sig = prior_signals(prior)
         idx = grp["pincode"]
         proxy_rows["property_rates.csv"].append(pd.DataFrame({"pincode": idx, "rate_per_sqft": sig["rate_per_sqft"]}))
         proxy_rows["nightlights.csv"].append(pd.DataFrame({"pincode": idx, "radiance_mean": sig["radiance_mean"]}))
-        proxy_rows["poi_density.csv"].append(pd.DataFrame({"pincode": idx, "premium_poi_per_km2": sig["premium_poi_per_km2"]}))
         proxy_rows["itr_filers.csv"].append(pd.DataFrame({"pincode": idx, "filers_per_capita": sig["filers_per_capita"]}))
         proxy_rows["vehicle_density.csv"].append(pd.DataFrame({"pincode": idx, "cars_per_1000": sig["cars_per_1000"]}))
         proxy_rows["rto_enhanced.csv"].append(pd.DataFrame({
@@ -213,9 +203,8 @@ def main():
             "luxury_share": sig["luxury_share"], "ev_share": sig["ev_share"],
         }))
         dep_rows.append(pd.DataFrame({"pincode": idx, "deposits_per_capita": sig["deposits_per_capita"]}))
-        fin_rows.append(pd.DataFrame({"pincode": idx, "fin_density_per_km2": sig["fin_density_per_km2"]}))
 
-    # bank_branches_per_lakh / financial_inclusion branch counts: batch IDW from
+    # bank_branches_per_lakh: batch IDW from
     # whichever existing rows already have a real value (same rationale as
     # estimate_via_idw(), just vectorized across all candidates at once).
     def idw_from_existing(fname, col):
@@ -239,17 +228,10 @@ def main():
     if bbpl is not None:
         dep_df["bank_branches_per_lakh"] = np.round(bbpl, 1)
 
-    fin_df = pd.concat(fin_rows, ignore_index=True)
-    for col in ("sfb_branches", "coop_branches", "rrb_branches", "fin_branches_total"):
-        est = idw_from_existing("financial_inclusion.csv", col)
-        if est is not None:
-            fin_df[col] = np.round(est)
-
     for fname, parts in proxy_rows.items():
         combined = pd.concat(parts, ignore_index=True).set_index("pincode")
         append_batch(fname, combined)
     append_batch("bank_deposits.csv", dep_df.set_index("pincode"))
-    append_batch("financial_inclusion.csv", fin_df.set_index("pincode"))
 
     # coords/names
     coords_new = mpce.set_index("pincode")[["lat", "lng"]]

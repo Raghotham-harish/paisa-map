@@ -33,7 +33,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, PREFIX_STATE, scale_from_poi, estimate_via_idw
+from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, PREFIX_STATE, prior_signals, estimate_via_idw
 from _filelock import write_lock
 import _db
 
@@ -182,32 +182,16 @@ def mpce_adj_factor(mpce: float, state_median: float) -> float:
     return ratio ** 0.35
 
 
-def _city_poi_median(state: str) -> float:
-    """Median premium_poi_per_km2 among existing pincodes in this state.
-    Same fallback logic as enrich_single.py's inline version."""
-    poi_path = RAW / "poi_density.csv"
-    if not poi_path.exists():
-        return 15.0
-    poi_df = pd.read_csv(poi_path, dtype={"pincode": str})
-    city_pcs = [p for p in poi_df["pincode"] if PREFIX_STATE.get(str(p)[:2]) == state]
-    med = (poi_df.set_index("pincode").reindex(city_pcs)["premium_poi_per_km2"]
-           .dropna().median())
-    return 15.0 if pd.isna(med) or med < 1 else float(med)
-
-
 def backfill_raw_proxies(pincode: str, state: str, lat: float, lng: float):
     """
-    Batch mode has no Overpass POI query (that's the whole point — see module
-    docstring), so unlike enrich_single.py we can't scale off a live POI
-    reading. Use the state prior directly (ratio=1.0 in scale_from_poi terms)
-    so this pincode still gets *some* raw-proxy row -- without this, a full
+    Use the state prior directly (enrich_single.prior_signals — no OSM input,
+    issue #8) so this pincode still gets *some* raw-proxy row -- without this, a full
     ml_refinement.py rerun only knows pincodes with raw CSV rows and silently
     drops every batch-enriched district (discovered 2026-07-15: dropped
     ppi_map_data.csv from 172 to 121 rows on a full rerun).
     """
     prior = CITY_PRIORS.get(state, _DEFAULT_PRIOR)
-    poi_med = _city_poi_median(state)
-    signals = scale_from_poi(poi_med, prior, poi_med)
+    signals = prior_signals(prior)
 
     def _append_multi(fname, col_vals):
         # Sets several columns on the same new row in one read-modify-write —
@@ -230,7 +214,6 @@ def backfill_raw_proxies(pincode: str, state: str, lat: float, lng: float):
     with write_lock():
         _append_multi("property_rates.csv",  {"rate_per_sqft":   signals["rate_per_sqft"]})
         _append_multi("nightlights.csv",     {"radiance_mean":   signals["radiance_mean"]})
-        _append_multi("poi_density.csv",     {"premium_poi_per_km2": signals["premium_poi_per_km2"]})
         _append_multi("itr_filers.csv",      {"filers_per_capita": signals["filers_per_capita"]})
         _append_multi("vehicle_density.csv", {"cars_per_1000":   signals["cars_per_1000"]})
 
@@ -244,12 +227,7 @@ def backfill_raw_proxies(pincode: str, state: str, lat: float, lng: float):
             "bank_branches_per_lakh": round(bbpl, 1) if bbpl is not None else None,
         })
 
-        if (RAW / "financial_inclusion.csv").exists():
-            fin_vals = {"fin_density_per_km2": signals["fin_density_per_km2"]}
-            for col in ("sfb_branches", "coop_branches", "rrb_branches", "fin_branches_total"):
-                est = estimate_via_idw(lat, lng, state, RAW / "financial_inclusion.csv", col)
-                fin_vals[col] = round(est) if est is not None else None
-            _append_multi("financial_inclusion.csv", fin_vals)
+        # No poi_density.csv / financial_inclusion.csv rows: both are OSM-derived (issue #8).
 
         rto_path = RAW / "rto_enhanced.csv"
         if rto_path.exists():

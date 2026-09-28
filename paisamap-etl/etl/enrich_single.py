@@ -95,65 +95,22 @@ CITY_PRIORS: dict[str, dict] = {
 _DEFAULT_PRIOR = dict(rate=7000, dep=220000, nl=28.0, itr=0.14,
                       c2w=0.32, lux=0.045, ev=0.038, veh=34)
 
-# ── Overpass POI query ────────────────────────────────────────────────────────
-OVERPASS = "https://overpass-api.de/api/interpreter"
-RADIUS_M = 2000
-AREA_KM2 = math.pi * (RADIUS_M / 1000) ** 2
-
-_POI_Q = """[out:json][timeout:25];
-(
-  nwr["shop"="mall"](around:{r},{lat},{lng});
-  nwr["shop"="department_store"](around:{r},{lat},{lng});
-  nwr["shop"="supermarket"](around:{r},{lat},{lng});
-  nwr["amenity"="bank"](around:{r},{lat},{lng});
-  nwr["shop"="jewelry"](around:{r},{lat},{lng});
-  nwr["leisure"="fitness_centre"](around:{r},{lat},{lng});
-  nwr["amenity"="school"](around:{r},{lat},{lng});
-  nwr["amenity"="hospital"](around:{r},{lat},{lng});
-  nwr["amenity"="fuel"](around:{r},{lat},{lng});
-  nwr["amenity"="pharmacy"](around:{r},{lat},{lng});
-);
-out count;"""
-
-
-def fetch_poi(lat: float, lng: float, retries: int = 3):
-    for attempt in range(retries):
-        try:
-            q    = _POI_Q.format(r=RADIUS_M, lat=lat, lng=lng)
-            data = urllib.parse.urlencode({"data": q}).encode()
-            req  = urllib.request.Request(
-                OVERPASS, data=data,
-                headers={"User-Agent": "PaisaMap-Enrich/1.0",
-                         "Content-Type": "application/x-www-form-urlencoded"})
-            with urllib.request.urlopen(req, timeout=30) as r:
-                j = json.loads(r.read())
-            total = int(j["elements"][0]["tags"]["total"])
-            return round(total / AREA_KM2, 1)
-        except Exception as e:
-            print(f"  WARN Overpass attempt {attempt+1}: {e}", flush=True)
-            time.sleep(6 * (attempt + 1))
-    return None
-
-
-def scale_from_poi(poi: float, prior: dict, city_poi_median: float = 15.0) -> dict:
-    """Estimate all proxy signals from POI density relative to city prior."""
-    # POI density is the best real-time signal; scale others proportionally.
-    # Use dampened power scaling (exponent < 1) to avoid wild extrapolation.
-    ratio = max(0.15, min(5.0, poi / max(city_poi_median, 0.5)))
-    # fin_density scales with POI density (financial inclusion tracks economic activity)
-    # National median ~0.04 SFB+COOP+RRB branches/km² from 73-pincode dataset
-    fin_national_median = 0.04
+# ── State-prior proxy signals ─────────────────────────────────────────────────
+# No OpenStreetMap lookup: Overpass POI density used to scale these priors per
+# pincode, but OSM is ODbL and out of every paid surface (issue #8). A new
+# pincode now gets its state prior as-is (the old ratio=1 case) and no
+# premium_poi_per_km2 / fin_* values at all; issue #7 tags these as `prior`.
+def prior_signals(prior: dict) -> dict:
+    """Proxy signals for a pincode with no measured data: the state prior itself."""
     return {
-        "rate_per_sqft":       round(prior["rate"]   * ratio ** 0.80),
-        "deposits_per_capita": round(prior["dep"]    * ratio ** 0.75),
-        "radiance_mean":       round(prior["nl"]     * ratio ** 0.25, 1),
-        "filers_per_capita":   round(prior["itr"]    * ratio ** 0.55, 4),
-        "cars_per_1000":       round(prior["veh"]    * ratio ** 0.35, 1),
+        "rate_per_sqft":       round(prior["rate"]),
+        "deposits_per_capita": round(prior["dep"]),
+        "radiance_mean":       round(prior["nl"], 1),
+        "filers_per_capita":   round(prior["itr"], 4),
+        "cars_per_1000":       round(prior["veh"], 1),
         "car_2w_ratio":        prior["c2w"],
         "luxury_share":        prior["lux"],
         "ev_share":            prior["ev"],
-        "premium_poi_per_km2": poi,
-        "fin_density_per_km2": round(fin_national_median * ratio ** 0.50, 4),
     }
 
 
@@ -307,47 +264,10 @@ def main():
     if not already_in_raw:
         print(f"  State: {state}  prior: ₹{prior['rate']:,}/sqft")
 
-    # ── Fetch POI density (our best live signal) ──────────────────────────────
-    # already_in_raw is only checked against pincode_coords.csv (above), so a
-    # pincode can be "already in raw" there while missing from poi_density.csv
-    # specifically — e.g. a pre-existing row lost to an unlocked concurrent
-    # write before write_lock() existed. Don't assume the other file has it too.
-    poi_in_density = False
-    if already_in_raw:
-        poi_density_df = pd.read_csv(RAW / "poi_density.csv", dtype={"pincode": str}).set_index("pincode")
-        poi_in_density = pc in poi_density_df.index
-
-    if not (already_in_raw and poi_in_density):
-        if already_in_raw:
-            print(f"  WARN: {pc} in raw CSVs but missing from poi_density.csv — re-fetching POI", flush=True)
-        else:
-            print(f"  Querying Overpass POI density…", flush=True)
-    poi = fetch_poi(lat, lng) if not (already_in_raw and poi_in_density) else None
-
-    # Fallback / skip when already_in_raw
-    if already_in_raw and poi_in_density:
-        poi = poi_density_df.at[pc, "premium_poi_per_km2"]
-    elif poi is None:
-        poi = round(prior["nl"] * 0.38, 1)
-        print(f"  WARN: Overpass failed — using estimated POI={poi}")
-    else:
-        print(f"  POI density: {poi} poi/km²")
-
-    # ── Compute city POI median from existing data ────────────────────────────
-    poi_df = pd.read_csv(RAW / "poi_density.csv", dtype={"pincode": str})
-    city_pcs = [p for p in poi_df["pincode"] if PREFIX_STATE.get(str(p)[:2]) == state]
-    city_poi_med = (poi_df.set_index("pincode")
-                    .reindex(city_pcs)["premium_poi_per_km2"]
-                    .dropna().median())
-    if pd.isna(city_poi_med) or city_poi_med < 1:
-        city_poi_med = 15.0
+    # ── Proxy signals from the state prior (no OSM lookup — issue #8) ────────
+    signals = prior_signals(prior)
     if not already_in_raw:
-        print(f"  City POI median: {city_poi_med:.1f} poi/km²")
-
-    # ── Scale all signals ─────────────────────────────────────────────────────
-    signals = scale_from_poi(poi, prior, city_poi_med)
-    if not already_in_raw:
-        print(f"  Estimated rate: ₹{signals['rate_per_sqft']:,}/sqft  "
+        print(f"  Prior rate: ₹{signals['rate_per_sqft']:,}/sqft  "
               f"ITR: {signals['filers_per_capita']:.3f}  "
               f"cars: {signals['cars_per_1000']:.1f}/1k")
 
@@ -395,7 +315,6 @@ def main():
 
         _append("property_rates.csv",      "rate_per_sqft",         signals["rate_per_sqft"])
         _append("nightlights.csv",         "radiance_mean",         signals["radiance_mean"])
-        _append("poi_density.csv",         "premium_poi_per_km2",   signals["premium_poi_per_km2"])
         _append("itr_filers.csv",          "filers_per_capita",     signals["filers_per_capita"])
         _append("vehicle_density.csv",     "cars_per_1000",         signals["cars_per_1000"])
 
@@ -410,12 +329,7 @@ def main():
             "bank_branches_per_lakh": round(bbpl, 1) if bbpl is not None else None,
         })
 
-        if (RAW / "financial_inclusion.csv").exists():
-            fin_vals = {"fin_density_per_km2": signals["fin_density_per_km2"]}
-            for col in ("sfb_branches", "coop_branches", "rrb_branches", "fin_branches_total"):
-                est = estimate_via_idw(lat, lng, state, RAW / "financial_inclusion.csv", col)
-                fin_vals[col] = round(est) if est is not None else None
-            _append_multi("financial_inclusion.csv", fin_vals)
+        # No poi_density.csv / financial_inclusion.csv rows: both are OSM-derived (issue #8).
 
         # rto_enhanced — 4 columns
         rto_df = pd.read_csv(RAW / "rto_enhanced.csv", dtype={"pincode": str}).set_index("pincode")

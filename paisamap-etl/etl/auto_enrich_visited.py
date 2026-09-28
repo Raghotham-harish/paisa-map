@@ -4,7 +4,7 @@ auto_enrich_visited.py — Enrich pincodes recently visited by users but not yet
 
 Reads enrichment_log.csv for entries with source=yah|search|prefetch from the
 last N days.  For each new pincode (not already in ppi_ml_refined.csv) it calls
-enrich_single.py — the full pipeline: Overpass POI + state priors + IDW PPI.
+enrich_single.py — the full pipeline: state priors + IDW PPI (no OSM lookup since issue #8).
 
 Run this daily on the server (via cron_enrich.sh) to turn blue pins green
 automatically without waiting for the user to click "enrich".

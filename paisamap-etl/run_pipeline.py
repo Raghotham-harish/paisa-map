@@ -4,7 +4,7 @@ run_pipeline.py — PaisaMap full ETL + ML pipeline runner
 Run order:
   1. fetch_rto_enhanced.py   — RTO vehicle data: car/2W ratio, luxury share, EV share
   2. fetch_itr.py            — ITR filer rates per pincode (CBDT AY2022-23)
-  3. fetch_financial.py      — SFB / cooperative / RRB branch counts (Overpass, slow)
+  3. (removed) fetch_financial.py — OSM/Overpass, ODbL; not run (issue #8)
   4. pipeline.py             — Fixed-weight composite PPI (baseline)
   5. ml_refinement.py        — Multi-model ML refinement of PPI
   6. update_app_data.py      — Write ppi_map_data.csv for the web app
@@ -96,7 +96,6 @@ def main():
     steps = [
         ("rto",       "fetch_rto_enhanced.py", "RTO enhanced signals (car/2W, luxury, EV)"),
         ("itr",       "fetch_itr.py",           "ITR filer rates (CBDT AY2022-23)"),
-        ("financial", "fetch_financial.py",      "SFB / coop / RRB branches (Overpass — slow)"),
         ("pipeline",  "pipeline.py",             "Fixed-weight composite PPI"),
         ("ml",        "ml_refinement.py",        "Multi-model ML refinement"),
     ]
