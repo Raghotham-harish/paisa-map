@@ -94,7 +94,7 @@ for f in osm_files:
     check(snapshot(f) == before[f], f"{f} untouched by a pin-drop enrich")
 rates = pd.read_csv(E.RAW / "property_rates.csv", dtype={"pincode": str}).set_index("pincode")
 check(pc in rates.index, "the new pincode still gets a property_rates row (so the refit keeps it)")
-prior = E.CITY_PRIORS.get(E.state_from_pincode(pc), E._DEFAULT_PRIOR)
+prior = E.CITY_PRIORS.get(E.state_for_pincode(pc), E._DEFAULT_PRIOR)
 check(float(rates.at[pc, "rate_per_sqft"]) == round(prior["rate"]), "its rate is the plain state prior (ratio 1)")
 app_csv = Path(tmp, "data", "output", "ppi_map_data.csv")
 check(app_csv.exists(), "public map CSV written")
@@ -103,7 +103,7 @@ check(open(app_csv).readline().strip() == "pincode,name,lat,lng,ppi,income", "pu
 # batch path (cron step 3)
 requested.clear()
 pc2 = next(p for p in ("110097", "110098", "110099", "560301") if p not in set(rates.index))
-B.backfill_raw_proxies(pc2, E.state_from_pincode(pc2), 28.6, 77.2)
+B.backfill_raw_proxies(pc2, E.state_for_pincode(pc2), 28.6, 77.2)
 check(not requested or not [u for u in requested if "overpass" in u.lower()], f"batch backfill: no Overpass request ({requested})")
 for f in osm_files:
     check(snapshot(f) == before[f], f"{f} untouched by the batch backfill")

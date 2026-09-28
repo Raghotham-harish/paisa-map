@@ -35,7 +35,8 @@ import pandas as pd
 from scipy.spatial import cKDTree
 
 sys.path.insert(0, str(Path(__file__).parent))
-from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, PREFIX_STATE, state_from_pincode, prior_signals
+from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, prior_signals
+from pincode_master import state_for_pincode
 import _db
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -183,7 +184,7 @@ def main():
 
     # ── Raw proxy backfill (state-level CITY_PRIORS, batched) ────────────────
     print("Backfilling raw proxy columns (CITY_PRIORS baseline, per state)...")
-    mpce["state_code"] = mpce["pincode"].map(state_from_pincode)
+    mpce["state_code"] = mpce["pincode"].map(state_for_pincode)
 
     # No poi_density.csv / financial_inclusion.csv rows: both are OSM-derived (issue #8).
     proxy_rows = {"property_rates.csv": [], "nightlights.csv": [],
