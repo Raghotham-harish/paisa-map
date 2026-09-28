@@ -151,7 +151,7 @@ SIGNAL_TIERS = {
         # signal refills the slot is a pending founder decision (U9).
         "extra_signals": ("bank_branches_per_lakh", "upi_txn_value_per_capita",
                           "deposits_per_capita", "msme_per_lakh", "nsdp_per_capita",
-                          "radiance_mean", "cars_per_1000",
+                          "radiance_mean", "lmv_per_1000",
                           "car_2w_ratio", "luxury_share"),
     },
     "pro": {"label": "Signals Pro", "price_paise": 50_000, "extra_signals": "all"},
