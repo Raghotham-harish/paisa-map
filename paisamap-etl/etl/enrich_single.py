@@ -22,6 +22,7 @@ from pathlib import Path
 import pandas as pd
 
 from _filelock import write_lock
+from pincode_master import state_for_pincode
 import _db
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,29 +44,9 @@ STATE_NAMES = {
     "AR": "Arunachal Pradesh", "MZ": "Mizoram",           "SK": "Sikkim",
 }
 
-# ── Pincode → state (first two digits of Indian pincode) ─────────────────────
-PREFIX_STATE: dict[str, str] = {
-    "11": "DL", "12": "HR",    # 11x = Delhi, 12x = Haryana (Gurgaon/Faridabad)
-    "13": "HP", "14": "PB", "15": "PB", "16": "CH", "17": "HP",
-    "18": "JK", "19": "JK",
-    "20": "UP", "21": "UP", "22": "UP", "24": "UP",
-    "25": "UP", "26": "UP", "27": "UP", "28": "UP",
-    "30": "RJ", "31": "RJ", "32": "RJ", "33": "RJ", "34": "RJ",
-    "36": "GJ", "37": "GJ", "38": "GJ", "39": "GJ",
-    "40": "MH", "41": "MH", "42": "MH", "43": "MH", "44": "MH",
-    "45": "MP", "46": "MP", "47": "MP", "48": "MP", "49": "CG",
-    "50": "TS", "51": "AP", "52": "AP", "53": "AP",
-    "56": "KA", "57": "KA", "58": "KA", "59": "KA",
-    "60": "TN", "61": "TN", "62": "TN", "63": "TN", "64": "TN",
-    "67": "KL", "68": "KL", "69": "KL",
-    "70": "WB", "71": "WB", "72": "WB", "73": "WB", "74": "WB",
-    "75": "OD", "76": "OD", "77": "OD",
-    "78": "AS",
-    "80": "BR", "81": "BR", "82": "JH", "83": "JH", "84": "BR", "85": "BR",
-}
-
-def state_from_pincode(pc: str) -> str:
-    return PREFIX_STATE.get(str(pc)[:2], "XX")
+# State comes from pincode_master.state_for_pincode (India Post reference).
+# The old hand-written prefix table lived here and disagreed with that file
+# for about 6% of pincodes.
 
 # ── City-level priors for estimating signals ──────────────────────────────────
 # Recalibrated 2026-06-18 from actual raw signal medians (DL=22, MH=25, KA=23, HR=2 pincodes).
@@ -264,7 +245,7 @@ def estimate_via_idw(lat: float, lng: float, state: str, csv_path: Path, col: st
         return None
 
     # Same-state neighbours preferred, same fallback rule as the PPI interpolation below.
-    same_state = pool[[state_from_pincode(idx) == state for idx in pool.index]]
+    same_state = pool[[state_for_pincode(idx) == state for idx in pool.index]]
     if len(same_state) >= 3:
         pool = same_state
 
@@ -302,7 +283,7 @@ def main():
         print(f"  {pc} in raw CSVs but not in ML output — skipping CSV append, re-running pipeline")
 
     # ── Determine state ───────────────────────────────────────────────────────
-    state  = state_from_pincode(pc)
+    state  = state_for_pincode(pc)
     prior  = CITY_PRIORS.get(state, _DEFAULT_PRIOR)
     if not already_in_raw:
         print(f"  State: {state}  prior: ₹{prior['rate']:,}/sqft")
@@ -335,7 +316,7 @@ def main():
 
     # ── Compute city POI median from existing data ────────────────────────────
     poi_df = pd.read_csv(RAW / "poi_density.csv", dtype={"pincode": str})
-    city_pcs = [p for p in poi_df["pincode"] if PREFIX_STATE.get(str(p)[:2]) == state]
+    city_pcs = [p for p in poi_df["pincode"] if state_for_pincode(p) == state]
     city_poi_med = (poi_df.set_index("pincode")
                     .reindex(city_pcs)["premium_poi_per_km2"]
                     .dropna().median())
@@ -443,7 +424,7 @@ def main():
         dists = haversine_series(lat, lng, ml_df["lat"], ml_df["lng"])
 
         # Use same-state neighbours preferentially; fall back to global if too few
-        same_state = ml_df[[state_from_pincode(idx) == state for idx in ml_df.index]]
+        same_state = ml_df[[state_for_pincode(idx) == state for idx in ml_df.index]]
         pool = same_state if len(same_state) >= 3 else ml_df
         pool_dists = dists.reindex(pool.index)
 

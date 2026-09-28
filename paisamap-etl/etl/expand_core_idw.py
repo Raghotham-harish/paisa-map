@@ -35,7 +35,8 @@ import pandas as pd
 from scipy.spatial import cKDTree
 
 sys.path.insert(0, str(Path(__file__).parent))
-from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, PREFIX_STATE, state_from_pincode, scale_from_poi
+from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, scale_from_poi
+from pincode_master import state_for_pincode
 import _db
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -183,13 +184,13 @@ def main():
 
     # ── Raw proxy backfill (state-level CITY_PRIORS, batched) ────────────────
     print("Backfilling raw proxy columns (CITY_PRIORS baseline, per state)...")
-    mpce["state_code"] = mpce["pincode"].map(state_from_pincode)
+    mpce["state_code"] = mpce["pincode"].map(state_for_pincode)
 
     poi_df = pd.read_csv(RAW / "poi_density.csv", dtype={"pincode": str}) \
              if (RAW / "poi_density.csv").exists() else pd.DataFrame(columns=["pincode", "premium_poi_per_km2"])
     poi_by_state = {}
     for sc in mpce["state_code"].unique():
-        pcs = [p for p in poi_df["pincode"] if PREFIX_STATE.get(str(p)[:2]) == sc]
+        pcs = [p for p in poi_df["pincode"] if state_for_pincode(p) == sc]
         med = poi_df.set_index("pincode").reindex(pcs)["premium_poi_per_km2"].dropna().median() \
               if pcs else np.nan
         poi_by_state[sc] = 15.0 if pd.isna(med) or med < 1 else float(med)

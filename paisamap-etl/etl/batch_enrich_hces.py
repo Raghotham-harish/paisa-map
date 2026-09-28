@@ -33,7 +33,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, PREFIX_STATE, scale_from_poi, estimate_via_idw
+from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, scale_from_poi, estimate_via_idw
+from pincode_master import state_for_pincode
 from _filelock import write_lock
 import _db
 
@@ -143,18 +144,16 @@ def haversine_series(lat: float, lng: float, lats: pd.Series, lngs: pd.Series) -
 
 
 def interpolate_ppi(lat: float, lng: float, ml_df: pd.DataFrame,
-                    state_prefix: str = "") -> tuple[float, float, float]:
+                    state_code: str = "") -> tuple[float, float, float]:
     """
     IDW interpolation from k=5 nearest ML pincodes.
-    Same logic as enrich_single.py.
+    Same logic as enrich_single.py. Same-state neighbours are chosen with
+    state_for_pincode, not the first two digits (those prefixes span more
+    than one state).
     Returns (ppi, monthly_income, monthly_spend).
     """
-    # Prefer same-state pincodes
-    def _prefix(pc):
-        return str(pc)[:2]
-
-    if state_prefix:
-        same_state = ml_df[[_prefix(pc) == state_prefix for pc in ml_df.index]]
+    if state_code:
+        same_state = ml_df[[state_for_pincode(pc) == state_code for pc in ml_df.index]]
         pool = same_state if len(same_state) >= 3 else ml_df
     else:
         pool = ml_df
@@ -189,7 +188,7 @@ def _city_poi_median(state: str) -> float:
     if not poi_path.exists():
         return 15.0
     poi_df = pd.read_csv(poi_path, dtype={"pincode": str})
-    city_pcs = [p for p in poi_df["pincode"] if PREFIX_STATE.get(str(p)[:2]) == state]
+    city_pcs = [p for p in poi_df["pincode"] if state_for_pincode(p) == state]
     med = (poi_df.set_index("pincode").reindex(city_pcs)["premium_poi_per_km2"]
            .dropna().median())
     return 15.0 if pd.isna(med) or med < 1 else float(med)
@@ -457,8 +456,7 @@ def main():
             continue
 
         # 5. Compute PPI via IDW + MPCE adjustment
-        prefix = str(pincode)[:2] if pincode.isdigit() else ""
-        ppi_raw, income, spend = interpolate_ppi(lat, lng, ml_df, prefix)
+        ppi_raw, income, spend = interpolate_ppi(lat, lng, ml_df, state_for_pincode(pincode))
 
         s_median = state_medians.get(state, 6000)
         adj = mpce_adj_factor(mpce, s_median)
@@ -512,7 +510,7 @@ def main():
 
         # 7b. Backfill raw proxy CSVs (property_rates, bank_deposits, etc.)
         # so this pincode survives a full ml_refinement.py rerun.
-        backfill_raw_proxies(pincode, PREFIX_STATE.get(prefix, ""), lat, lng)
+        backfill_raw_proxies(pincode, state_for_pincode(pincode), lat, lng)
 
         append_batch_log({
             "timestamp":       datetime.now(timezone.utc).isoformat(),
