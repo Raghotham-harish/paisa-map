@@ -104,6 +104,7 @@ def _mirror_to_static():
 from _signals_data import (EXPORT_CORE_FIELDS, EXPORT_ALL_COLUMNS, columns_for_plan,
                             haversine_km as _haversine_km, coerce as _coerce,
                             load_ppi_signals_rows as _load_ppi_signals_rows)
+from pincode_master import validate_pincode
 
 # Guarded like every other cross-package import here: /api/export is a public
 # endpoint that predates the whole auth stack and must keep working even if
@@ -275,7 +276,6 @@ _ENRICH_MAX_CONCURRENT  = int(os.environ.get("ENRICH_MAX_CONCURRENT", "3"))
 _ENRICH_MAX_OUTSTANDING = int(os.environ.get("ENRICH_MAX_OUTSTANDING", "40"))
 _enrich_slots = threading.BoundedSemaphore(_ENRICH_MAX_CONCURRENT)
 _ENRICH_SOURCES = {"yah", "prefetch", "search", "manual", "phase1"}
-_PINCODE_RE = re.compile(r"\d{6}")
 _INDIA_LAT, _INDIA_LNG = (6.0, 38.0), (68.0, 98.0)   # generous bounding box
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
@@ -422,8 +422,13 @@ def api_enrich():
 
     if not pc or not lat or not lng:
         return jsonify({"error": "pincode, lat, lng are required"}), 400
-    if not _PINCODE_RE.fullmatch(pc):
-        return jsonify({"error": "pincode must be exactly 6 digits"}), 400
+    ok, reason, pc = validate_pincode(pc)
+    if not ok:
+        return jsonify({
+            "error": "invalid_pincode",
+            "reason": reason,
+            "detail": "pincode must be a real 6-digit Indian pincode",
+        }), 400
     try:
         lat_f, lng_f = float(lat), float(lng)
     except ValueError:

@@ -330,6 +330,16 @@ export default function CustomerData() {
                 {upload.quality_report.duplicate_count > 0 && (
                   <Pill tone="reviewing">{upload.quality_report.duplicate_count} possible duplicates</Pill>
                 )}
+                {(upload.quality_report.invalid_pincodes?.length ?? 0) > 0 && (
+                  <Pill
+                    tone="rejected"
+                    title={upload.quality_report.invalid_pincodes!
+                      .map((r) => `Row ${r.row}: ${r.pincode} (${r.reason})`)
+                      .join("\n")}
+                  >
+                    {upload.quality_report.invalid_pincodes!.length} invalid pincode{upload.quality_report.invalid_pincodes!.length === 1 ? "" : "s"}
+                  </Pill>
+                )}
                 <button className="btn secondary" onClick={() => setUpload(null)}>Upload another</button>
               </div>
             )}

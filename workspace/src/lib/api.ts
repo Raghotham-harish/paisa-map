@@ -502,6 +502,7 @@ export interface QualityReport {
   missing_location: number;
   duplicate_count: number;
   numeric_parse_failures: Record<string, number>;
+  invalid_pincodes?: { row: number; pincode: string; reason: string }[];
 }
 
 export interface CustomerUpload {

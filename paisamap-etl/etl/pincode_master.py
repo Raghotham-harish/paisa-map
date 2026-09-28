@@ -163,6 +163,54 @@ def _note_fallback(pc: str, state: str, confidence: str) -> None:
             fcntl.flock(lockf, fcntl.LOCK_UN)
 
 
+_MASTER_IDS: set[str] | None = None
+
+
+def pincode_master_ids() -> set[str]:
+    """Pincodes that exist in the India Post reference, the office directory,
+    or the DoP PIN polygons. Loaded once."""
+    global _MASTER_IDS
+    if _MASTER_IDS is not None:
+        return _MASTER_IDS
+    _load()
+    ids = set(_BY_PIN)
+    office = ROOT / "data" / "reference" / "pincode_office_names.csv"
+    with open(office, newline="") as f:
+        for row in csv.DictReader(f):
+            pc = (row.get("pincode") or "").strip()
+            if REAL_PINCODE_RE.fullmatch(pc):
+                ids.add(pc)
+    geo = (ROOT / "data" / "reference" / "pincode_boundary_master"
+           / "india_pincode_boundaries_simplified.geojson")
+    # The file is one large line of geometry. The pincode is a property;
+    # a regex avoids parsing every coordinate.
+    for pc in re.findall(r'"pincode"\s*:\s*"(\d{6})"', geo.read_text()):
+        if REAL_PINCODE_RE.fullmatch(pc):
+            ids.add(pc)
+    _MASTER_IDS = ids
+    return ids
+
+
+def validate_pincode(raw) -> tuple[bool, str, str]:
+    """Return (ok, reason, normalized).
+
+    reason is ``ok``, ``empty``, ``invalid_format`` or ``unknown_pincode``.
+    Whitespace is removed (``560 038`` → ``560038``). A leading zero fails
+    the format check. Existence is the union of the India Post reference,
+    the office directory and the DoP polygons.
+    """
+    if raw is None:
+        return False, "empty", ""
+    normalized = re.sub(r"\s+", "", str(raw).strip())
+    if not normalized:
+        return False, "empty", ""
+    if not REAL_PINCODE_RE.fullmatch(normalized):
+        return False, "invalid_format", normalized
+    if normalized not in pincode_master_ids():
+        return False, "unknown_pincode", normalized
+    return True, "ok", normalized
+
+
 def fallback_use_count() -> int:
     """How many distinct pincodes have used the prefix fallback in this process."""
     return len(_FALLBACK_SEEN)
