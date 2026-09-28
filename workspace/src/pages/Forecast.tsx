@@ -297,7 +297,7 @@ export default function Forecast() {
                     points={rp.sites.map((s) => ({
                       name: s.name, reach_gross: s.reach_gross, monthly_revenue: s.monthly_revenue,
                       households: s.households, capex: s.capex, ppi_percentile: s.ppi_percentile,
-                      income_percentile: s.income_percentile, footfall_percentile: s.footfall_percentile,
+                      income_percentile: s.income_percentile,
                       within_budget: s.within_budget, state: s.state,
                       tier: s.ppi_percentile >= 200 / 3 ? "core" : s.ppi_percentile >= 100 / 3 ? "edge" : "expansion",
                     }))}

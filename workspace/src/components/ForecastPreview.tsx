@@ -48,17 +48,17 @@ const SAMPLE_SWOT = SAMPLE_FACTOR_SITES.map((s) => ({
   swot: {
     strengths: s.factors.filter((f) => f.score >= 65).map((f) => ({ label: f.label, score: f.score, basis: "sample" })),
     weaknesses: s.factors.filter((f) => f.score <= 55).map((f) => ({ label: f.label, score: f.score, basis: "sample" })),
-    opportunities: [{ label: "Room to grow: footfall", basis: "sample" }],
+    opportunities: [{ label: "Room to grow: Transport & logistics", basis: "sample" }],
     threats: [{ label: "Medium data-volatility risk", basis: "sample" }],
   },
 }));
 
 const SAMPLE_SITES = [
-  { name: "Indiranagar", reach_gross: 9.2e8, monthly_revenue: 8.5e5, households: 41000, capex: 90e5, ppi_percentile: 88, income_percentile: 84, footfall_percentile: 79, within_budget: true, state: "Karnataka", tier: "core" },
-  { name: "Whitefield", reach_gross: 7.4e8, monthly_revenue: 6.0e5, households: 52000, capex: 62e5, ppi_percentile: 62, income_percentile: 58, footfall_percentile: 55, within_budget: true, state: "Karnataka", tier: "edge" },
-  { name: "HSR Layout", reach_gross: 8.0e8, monthly_revenue: 7.2e5, households: 38000, capex: 55e5, ppi_percentile: 80, income_percentile: 77, footfall_percentile: 74, within_budget: true, state: "Karnataka", tier: "core" },
-  { name: "Yelahanka", reach_gross: 4.0e8, monthly_revenue: 3.5e5, households: 29000, capex: 40e5, ppi_percentile: 44, income_percentile: 41, footfall_percentile: 38, within_budget: false, state: "Karnataka", tier: "expansion" },
-  { name: "Kanakapura Rd", reach_gross: 5.0e8, monthly_revenue: 4.8e5, households: 33000, capex: 44e5, ppi_percentile: 55, income_percentile: 52, footfall_percentile: 49, within_budget: false, state: "Karnataka", tier: "edge" },
+  { name: "Indiranagar", reach_gross: 9.2e8, monthly_revenue: 8.5e5, households: 41000, capex: 90e5, ppi_percentile: 88, income_percentile: 84, within_budget: true, state: "Karnataka", tier: "core" },
+  { name: "Whitefield", reach_gross: 7.4e8, monthly_revenue: 6.0e5, households: 52000, capex: 62e5, ppi_percentile: 62, income_percentile: 58, within_budget: true, state: "Karnataka", tier: "edge" },
+  { name: "HSR Layout", reach_gross: 8.0e8, monthly_revenue: 7.2e5, households: 38000, capex: 55e5, ppi_percentile: 80, income_percentile: 77, within_budget: true, state: "Karnataka", tier: "core" },
+  { name: "Yelahanka", reach_gross: 4.0e8, monthly_revenue: 3.5e5, households: 29000, capex: 40e5, ppi_percentile: 44, income_percentile: 41, within_budget: false, state: "Karnataka", tier: "expansion" },
+  { name: "Kanakapura Rd", reach_gross: 5.0e8, monthly_revenue: 4.8e5, households: 33000, capex: 44e5, ppi_percentile: 55, income_percentile: 52, within_budget: false, state: "Karnataka", tier: "edge" },
 ];
 
 export function ForecastPreview({ detail }: { detail?: string | null }) {

@@ -147,9 +147,11 @@ SIGNAL_TIERS = {
     "lite": {
         "label": "Signals Lite", "price_paise": 20_000,
         # PROPOSAL from the doc (§2) — still an open question (§10 #1).
+        # premium_poi_per_km2 (OSM/ODbL) removed — never in a paid tier; which
+        # signal refills the slot is a pending founder decision (U9).
         "extra_signals": ("bank_branches_per_lakh", "upi_txn_value_per_capita",
                           "deposits_per_capita", "msme_per_lakh", "nsdp_per_capita",
-                          "premium_poi_per_km2", "radiance_mean", "cars_per_1000",
+                          "radiance_mean", "cars_per_1000",
                           "car_2w_ratio", "luxury_share"),
     },
     "pro": {"label": "Signals Pro", "price_paise": 50_000, "extra_signals": "all"},

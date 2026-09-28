@@ -28,7 +28,6 @@ export const RAMPS: Record<string, string[]> = {
   income: ["#762A83", "#AF8DC3", "#E7D4E8", "#D9F0D3", "#7FBF7B", "#1B7837"], // PRGn
   spend: ["#8C510A", "#D8B365", "#F6E8C3", "#C7EAE5", "#5AB4AC", "#01665E"], // BrBG
   suitability: ["#D53E4F", "#FC8D59", "#FEE08B", "#E6F598", "#99D594", "#3288BD"], // Spectral
-  footfall: ["#C51B7D", "#E9A3C9", "#FDE0EF", "#E6F5D0", "#A1D76A", "#4D9221"], // PiYG
 };
 
 /** Map a 0–100 value onto a ramp (6 buckets). */

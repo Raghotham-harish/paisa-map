@@ -94,7 +94,9 @@ check([p["price_paise"] / p["credits"] / 100 for p in packs] == [6.0, 5.0, 4.4],
 check(P.TOPUP_CREDIT_ROLLOVER_DAYS == 60, "top-ups roll 60 days")
 check(P.annual_credits_per_month("starter") == 1050, "annual starter grants 1,050 credits/month")
 lite = P.SIGNAL_TIERS["lite"]["extra_signals"]
-check(len(lite) == 10 and len(set(lite)) == 10 and not set(lite) & set(P.CORE_SIGNALS), "Lite: 10 distinct signals beyond the 3 core")
+# 9, not 10: premium_poi_per_km2 (OSM/ODbL) left in issue #8; its replacement is a pending decision (U9).
+check(len(lite) == 9 and len(set(lite)) == 9 and not set(lite) & set(P.CORE_SIGNALS), "Lite: 9 distinct signals beyond the 3 core")
+check("premium_poi_per_km2" not in lite, "Lite carries no OSM signal (issue #8)")
 check(P.SIGNAL_TIERS["lite"]["price_paise"] == 20000 and P.SIGNAL_TIERS["pro"]["price_paise"] == 50000, "signal tiers Rs 200 / Rs 500")
 
 # The namespace hazard: legacy 'pro' (Rs 999) vs v2 Pro (Rs 50,000) share a string.

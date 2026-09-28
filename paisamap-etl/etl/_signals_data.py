@@ -38,14 +38,20 @@ DIAGNOSTICS_JSON  = ETL_OUT / "ml_diagnostics.json"
 # ── Export: PPI/income/spend joined with every pincode-level raw signal ────────
 EXPORT_CORE_FIELDS = ["pincode", "name", "lat", "lng", "ppi_ml", "ppi_original",
                        "est_monthly_income_hh", "est_monthly_spend_hh"]
+# OpenStreetMap-derived columns (Overpass: poi_density.csv via fetch_poi.py /
+# enrich_single.py, financial_inclusion.csv via fetch_financial.py). ODbL
+# share-alike — docs/DATA_LICENSING.md says do not sell. They stay in the raw
+# CSVs (the current PPI model still trains on two of them until the retrain)
+# but are NOT joined into any served row: not in the export, the catalog, the
+# forecast, intelligence or any tier. Enforced by tests/test_osm_out_of_paid.py.
+OSM_COLUMNS = frozenset({"premium_poi_per_km2", "fin_density_per_km2", "sfb_branches",
+                         "coop_branches", "rrb_branches", "fin_branches_total"})
+
 EXPORT_SIGNAL_FILES = [
     ("property_rates.csv",      ["rate_per_sqft"]),
     ("bank_deposits.csv",       ["bank_branches_per_lakh", "deposits_per_capita"]),
-    ("financial_inclusion.csv", ["sfb_branches", "coop_branches", "rrb_branches",
-                                  "fin_branches_total", "fin_density_per_km2"]),
     ("itr_filers.csv",          ["filers_per_capita"]),
     ("nightlights.csv",         ["radiance_mean"]),
-    ("poi_density.csv",         ["premium_poi_per_km2"]),
     ("rto_enhanced.csv",        ["lmv_per_1000", "car_2w_ratio", "luxury_share", "ev_share"]),
     ("vehicle_density.csv",     ["cars_per_1000"]),
     ("upi_activity.csv",        ["upi_txn_value_per_capita"]),
@@ -66,13 +72,12 @@ EXPORT_ALL_COLUMNS = EXPORT_CORE_FIELDS + [c for _, cols in EXPORT_SIGNAL_FILES 
 # index.html ever changes which columns are pro:true, update this set to match.
 PRO_COLUMNS = {
     # Banking & UPI
-    "bank_branches_per_lakh", "deposits_per_capita", "sfb_branches", "coop_branches",
-    "rrb_branches", "fin_branches_total", "fin_density_per_km2", "upi_txn_value_per_capita",
+    "bank_branches_per_lakh", "deposits_per_capita", "upi_txn_value_per_capita",
     # Tax & economy
     "filers_per_capita", "msme_per_lakh", "factories_per_lakh", "nsdp_per_capita",
     "cropping_intensity_pct",
     # Infrastructure
-    "radiance_mean", "premium_poi_per_km2", "schools_per_lakh",
+    "radiance_mean", "schools_per_lakh",
     # Vehicles
     "cars_per_1000", "lmv_per_1000", "car_2w_ratio", "luxury_share", "ev_share",
 }
@@ -102,11 +107,6 @@ SIGNAL_LABELS = {
     "rate_per_sqft": "Property rate /sqft",
     "bank_branches_per_lakh": "Bank branches /lakh",
     "deposits_per_capita": "Deposits per capita",
-    "sfb_branches": "SFB branches",
-    "coop_branches": "Co-op branches",
-    "rrb_branches": "RRB branches",
-    "fin_branches_total": "Total fin. branches",
-    "fin_density_per_km2": "Fin. density /km²",
     "upi_txn_value_per_capita": "UPI txn value /capita",
     "filers_per_capita": "ITR filers /capita",
     "msme_per_lakh": "MSMEs /lakh",
@@ -114,7 +114,6 @@ SIGNAL_LABELS = {
     "nsdp_per_capita": "NSDP per capita",
     "cropping_intensity_pct": "Cropping intensity",
     "radiance_mean": "Night-lights radiance",
-    "premium_poi_per_km2": "Premium POI density",
     "schools_per_lakh": "Schools /lakh",
     "cars_per_1000": "Cars /1000",
     "lmv_per_1000": "LMVs /1000",

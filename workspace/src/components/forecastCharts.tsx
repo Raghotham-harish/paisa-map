@@ -188,18 +188,16 @@ export function SignalRevenuePanel({ rows }: { rows: SignalRow[] }) {
 export type HotspotSite = {
   name: string; reach_gross: number; monthly_revenue: number; households?: number | null;
   capex?: number | null; ppi_percentile: number; income_percentile?: number | null;
-  footfall_percentile?: number | null; within_budget?: boolean; state?: string | null; tier: string;
+  within_budget?: boolean; state?: string | null; tier: string;
 };
 const COLOR_BY = [
   { k: "ppi", label: "PPI percentile", ramp: "ppi" as const, get: (s: HotspotSite) => s.ppi_percentile },
   { k: "income", label: "Income percentile", ramp: "income" as const, get: (s: HotspotSite) => s.income_percentile },
-  { k: "footfall", label: "Footfall proxy", ramp: "footfall" as const, get: (s: HotspotSite) => s.footfall_percentile },
   { k: "tier", label: "Market tier", ramp: null, get: (s: HotspotSite) => s.tier },
 ];
 const X_BY = [
   { k: "reach", label: "Reachable spend", get: (s: HotspotSite) => s.reach_gross, fmt: (v: number) => money(v, true) },
   { k: "households", label: "Households", get: (s: HotspotSite) => s.households ?? 0, fmt: (v: number) => Math.round(v).toLocaleString("en-IN") },
-  { k: "footfall", label: "Footfall proxy", get: (s: HotspotSite) => s.footfall_percentile ?? 0, fmt: (v: number) => String(Math.round(v)) },
 ];
 export function HotspotBubbles({ points }: { points: HotspotSite[] }) {
   const [colorBy, setColorBy] = useState("ppi");

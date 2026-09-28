@@ -1391,6 +1391,8 @@ const fmtShort = n => n >= 100000 ? "₹" + (n/100000).toFixed(1).replace(/\.0$/
 //   "per lakh" / "per km²" / other area-normalized density → heatmap (matches the
 //     thermal-hotspot style of Esri's own density layers)
 //   a raw, un-normalized count of things                   → symbol (size = the count)
+// OSM-derived signals (premium POI density, SFB/co-op/RRB branch counts,
+// fin. density) were removed — ODbL, not sold (_signals_data.OSM_COLUMNS).
 const SIGNAL_GROUPS = [
   { label:"Property", pro:false, cols:[
     {id:"rate_per_sqft", label:"Property rate /sqft", fmt:v=>fmtINR(v), viz:"choropleth"},
@@ -1398,11 +1400,6 @@ const SIGNAL_GROUPS = [
   { label:"Banking & UPI", pro:true, cols:[
     {id:"bank_branches_per_lakh",     label:"Bank branches /lakh",   fmt:v=>v.toFixed(1), viz:"heatmap"},
     {id:"deposits_per_capita",        label:"Deposits per capita",  fmt:v=>fmtINR(v), viz:"choropleth"},
-    {id:"sfb_branches",               label:"SFB branches",         fmt:v=>v.toFixed(0), viz:"symbol"},
-    {id:"coop_branches",              label:"Co-op branches",       fmt:v=>v.toFixed(0), viz:"symbol"},
-    {id:"rrb_branches",               label:"RRB branches",         fmt:v=>v.toFixed(0), viz:"symbol"},
-    {id:"fin_branches_total",         label:"Total fin. branches",  fmt:v=>v.toFixed(0), viz:"symbol"},
-    {id:"fin_density_per_km2",        label:"Fin. density /km²",    fmt:v=>v.toFixed(2), viz:"heatmap"},
     {id:"upi_txn_value_per_capita",   label:"UPI txn value /capita",fmt:v=>fmtINR(v), viz:"choropleth"},
   ]},
   { label:"Tax & economy", pro:true, cols:[
@@ -1414,7 +1411,6 @@ const SIGNAL_GROUPS = [
   ]},
   { label:"Infrastructure", pro:true, cols:[
     {id:"radiance_mean",        label:"Night-lights radiance", fmt:v=>v.toFixed(2), viz:"heatmap"},
-    {id:"premium_poi_per_km2",  label:"Premium POI density",   fmt:v=>v.toFixed(2), viz:"heatmap"},
     {id:"schools_per_lakh",     label:"Schools /lakh",         fmt:v=>v.toFixed(1), viz:"heatmap"},
   ]},
   { label:"Vehicles", pro:true, cols:[

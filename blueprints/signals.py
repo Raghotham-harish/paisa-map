@@ -23,7 +23,6 @@ signals_bp = Blueprint("signals", __name__, url_prefix="/api/signals")
 _GROUP_BY_FILE = {
     "property_rates.csv": "Property",
     "bank_deposits.csv": "Banking & UPI",
-    "financial_inclusion.csv": "Banking & UPI",
     "upi_activity.csv": "Banking & UPI",
     "itr_filers.csv": "Tax & economy",
     "commercial.csv": "Tax & economy",
@@ -31,7 +30,6 @@ _GROUP_BY_FILE = {
     "economic.csv": "Tax & economy",
     "agriculture.csv": "Tax & economy",
     "nightlights.csv": "Infrastructure",
-    "poi_density.csv": "Infrastructure",
     "education.csv": "Infrastructure",
     "rto_enhanced.csv": "Vehicles",
     "vehicle_density.csv": "Vehicles",

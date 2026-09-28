@@ -98,7 +98,12 @@ CURVE_STEPS = 14
 DIMINISHING_RETURNS_RATIO = 0.5   # marginal revenue/rupee below this fraction of the first segment's => "diminishing" zone
 EXPANSION_MARGIN_KM = 25.0       # how far beyond the catchment radius to look for candidate pincodes
 MAX_CANDIDATES = 3000            # hard cap on the candidate universe (keeps the request O(seconds))
-DENSITY_PROXY_COLS = ("radiance_mean", "premium_poi_per_km2", "fin_density_per_km2")
+# Night-lights only: the two OSM columns (premium_poi_per_km2, fin_density_per_km2)
+# that used to sit here are ODbL and out of every paid surface (issue #8 —
+# _signals_data.OSM_COLUMNS). radiance_mean is itself mostly a prior constant
+# today, so within-district household splits are close to uniform until real
+# density data (WorldPop/Overture) lands.
+DENSITY_PROXY_COLS = ("radiance_mean",)
 CANNIBALISATION_SHARE = 0.5      # fraction of an overlap that a new store cedes to the incumbent
 DEFAULT_STORE_SQFT = 800         # typical small-format retail footprint — used only when neither your
                                   # own stores' capex nor their rent/rate ratio is available (e.g. a
@@ -582,8 +587,8 @@ def compute_lever_split(budget, rows_by_pincode, candidate_pincodes):
         return sum(pcts) / len(pcts) if pcts else 0.5
 
     manufacturing = (_pct_avg("factories_per_lakh") + _pct_avg("msme_per_lakh")) / 2
-    distribution = (_pct_avg("bank_branches_per_lakh") + _pct_avg("fin_density_per_km2")) / 2
-    demand_density = (_pct_avg("premium_poi_per_km2") + _pct_avg("est_monthly_income_hh")) / 2
+    distribution = _pct_avg("bank_branches_per_lakh")
+    demand_density = _pct_avg("est_monthly_income_hh")   # no OSM POI density (issue #8)
 
     # tilts shift weight toward the lever a location's own profile favours; the
     # equal-and-opposite shift always lands on ops_capex so the six numbers keep
@@ -614,15 +619,15 @@ def compute_lever_split(budget, rows_by_pincode, candidate_pincodes):
         "levers": levers,
         "basis": ("A rule-based allocation framework using your budget size and the recommended "
                   "locations' own signal profile (manufacturing, financial-distribution and "
-                  "commercial-density percentiles) — not a performance-calibrated model."),
+                  "income percentiles) — not a performance-calibrated model."),
     }
 
 
 # ── location SWOT composite ───────────────────────────────────────────────────
 SWOT_PROXY_COLS = ("est_monthly_income_hh", "est_monthly_spend_hh", "car_2w_ratio", "luxury_share", "ev_share",
                     "factories_per_lakh", "msme_per_lakh", "cropping_intensity_pct",
-                    "bank_branches_per_lakh", "fin_density_per_km2",
-                    "cars_per_1000", "lmv_per_1000", "radiance_mean", "premium_poi_per_km2")
+                    "bank_branches_per_lakh",
+                    "cars_per_1000", "lmv_per_1000", "radiance_mean")
 
 
 def _swot_percentile_lookup(rows_by_pincode):
@@ -666,17 +671,15 @@ def location_swot(row, pct, opportunity_score, cannibalisation_discount, diagnos
          "basis": "Cropping-intensity percentile — an agri-linked proxy, most relevant to "
                   "agriculture/food businesses, not a literal sourcing survey"},
         {"key": "distribution", "label": "Financial distribution access",
-         "score": avg(pct(row, "bank_branches_per_lakh"), pct(row, "fin_density_per_km2")),
-         "basis": "Bank-branch + financial-institution density percentile composite"},
+         "score": pct(row, "bank_branches_per_lakh"),
+         "basis": "Bank-branch density (per lakh people) percentile"},
         {"key": "transport", "label": "Transport & logistics density",
          "score": avg(pct(row, "cars_per_1000"), pct(row, "lmv_per_1000")),
          "basis": "Car + light-commercial-vehicle density percentile composite"},
         {"key": "geography", "label": "Geographic / infrastructure benefit",
-         "score": avg(pct(row, "radiance_mean"), pct(row, "premium_poi_per_km2")),
-         "basis": "Night-lights + commercial-POI density percentile composite"},
-        {"key": "footfall", "label": "Commercial density (footfall proxy)",
-         "score": pct(row, "premium_poi_per_km2"),
-         "basis": "Commercial POI density percentile — a footfall PROXY, not measured foot traffic"},
+         "score": pct(row, "radiance_mean"),
+         "basis": "Night-lights radiance percentile — a built-up-area proxy"},
+        # No footfall factor: its only input was OSM POI density (issue #8).
     ]
 
     strengths = [f for f in factors if f["score"] is not None and f["score"] >= SWOT_STRENGTH_PCT]
@@ -708,8 +711,8 @@ def location_swot(row, pct, opportunity_score, cannibalisation_discount, diagnos
 FACTOR_DEFS = (
     ("supply_chain", "Supply chain", ("factories_per_lakh", "msme_per_lakh"),
      "Factories + MSME density percentile — a manufacturing / vendor-base proxy"),
-    ("distribution", "Distribution access", ("bank_branches_per_lakh", "fin_density_per_km2"),
-     "Bank-branch + financial-institution density percentile"),
+    ("distribution", "Distribution access", ("bank_branches_per_lakh",),
+     "Bank-branch density (per lakh people) percentile"),
     ("transport", "Transport & logistics", ("cars_per_1000", "lmv_per_1000"),
      "Car + light-commercial-vehicle density percentile"),
     ("mobility", "Mobility & connectivity", ("cars_per_1000", "radiance_mean"),
@@ -717,9 +720,9 @@ FACTOR_DEFS = (
     ("eodb", "Ease of doing business", ("msme_per_lakh", "bank_branches_per_lakh"),
      "MSME formation + bank-branch (credit access) density percentile — a business-environment "
      "proxy, not an official EoDB score"),
-    ("geo_infra", "Geo-infra / residential mix", ("premium_poi_per_km2", "luxury_share"),
-     "Commercial-POI density + luxury-spend share composite — a proxy for a dense, affluent "
-     "residential/retail mix (apartments, malls, schools) vs. a sparse one"),
+    ("geo_infra", "Geo-infra / residential mix", ("luxury_share",),
+     "Luxury-vehicle share percentile — a proxy for an affluent residential/retail mix "
+     "(was blended with OSM POI density until issue #8)"),
 )
 
 
@@ -1253,7 +1256,6 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
                     "ppi_percentile": e["ppi_percentile"],
                     # hotspot-chart filter fields — cheap, all 25 sites carry them
                     "income_percentile": swot_pct(rows_by_pincode.get(e["pincode"]) or {}, "est_monthly_income_hh"),
-                    "footfall_percentile": swot_pct(rows_by_pincode.get(e["pincode"]) or {}, "premium_poi_per_km2"),
                     "households": round(hh_by_pincode.get(e["pincode"]) or 0),
                     "cannibalisation_discount": e["cannibalisation_discount"],
                     "payback_months": payback_months(e["capex"], e["monthly_revenue"] * gross_margin) if e["capex"] else None,

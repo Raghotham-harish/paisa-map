@@ -690,7 +690,6 @@ export interface ForecastSite {
   capture_rate: number;
   ppi_percentile: number;
   income_percentile: number | null;
-  footfall_percentile: number | null;
   households: number;
   cannibalisation_discount: number;
   payback_months: number | null;
