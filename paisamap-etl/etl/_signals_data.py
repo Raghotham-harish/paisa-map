@@ -27,6 +27,8 @@ try:
 except ImportError:
     _db = None
 
+from pincode_master import real_pincode_id
+
 ETL_ROOT  = Path(__file__).resolve().parent.parent
 ETL_RAW   = ETL_ROOT / "data" / "raw"
 ETL_OUT   = ETL_ROOT / "data" / "output"
@@ -165,7 +167,7 @@ def load_ppi_signals_rows():
     if db_rows is not None:
         source = "database"
         for r in db_rows:
-            pc = r.get("pincode")
+            pc = real_pincode_id(r.get("pincode"))
             if pc:
                 rows[pc] = {k: r.get(k, "") for k in EXPORT_CORE_FIELDS}
     else:
@@ -173,7 +175,7 @@ def load_ppi_signals_rows():
         if core_path.exists():
             with open(core_path, newline="") as f:
                 for r in csv.DictReader(f):
-                    pc = r.get("pincode")
+                    pc = real_pincode_id(r.get("pincode"))
                     if pc:
                         rows[pc] = {k: r.get(k, "") for k in EXPORT_CORE_FIELDS}
 
@@ -183,7 +185,7 @@ def load_ppi_signals_rows():
             continue
         with open(fpath, newline="") as f:
             for r in csv.DictReader(f):
-                pc = r.get("pincode")
+                pc = real_pincode_id(r.get("pincode"))
                 if pc not in rows:
                     continue
                 for c in cols:

@@ -22,7 +22,7 @@ from pathlib import Path
 import pandas as pd
 
 from _filelock import write_lock
-from pincode_master import state_for_pincode
+from pincode_master import assert_real_pincode_ids, real_pincode_id, state_for_pincode
 import _db
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -218,7 +218,10 @@ def main():
         print("Usage: python3 enrich_single.py <pincode> <lat> <lng> [<name>]")
         sys.exit(1)
 
-    pc   = sys.argv[1].strip()
+    pc   = real_pincode_id(sys.argv[1])
+    if not pc:
+        print(f"  REFUSING {sys.argv[1].strip()}: not a real 6-digit pincode")
+        sys.exit(2)
     lat  = float(sys.argv[2])
     lng  = float(sys.argv[3])
     name = sys.argv[4].strip() if len(sys.argv) > 4 else pc
@@ -271,6 +274,7 @@ def main():
             for col, val in col_vals.items():
                 if val is not None:
                     df.loc[pc, col] = val
+            assert_real_pincode_ids(df.index, context=fname)
             df.to_csv(RAW / fname)
         return df
 
@@ -287,11 +291,13 @@ def main():
 
         coords_df = pd.read_csv(RAW / "pincode_coords.csv", dtype={"pincode": str}).set_index("pincode")
         coords_df.loc[pc] = {"lat": lat, "lng": lng}
+        assert_real_pincode_ids(coords_df.index, context="pincode_coords.csv")
         coords_df.to_csv(RAW / "pincode_coords.csv")
 
         names_df = (pd.read_csv(RAW / "pincode_names.csv", dtype={"pincode": str}).set_index("pincode")
                     if (RAW / "pincode_names.csv").exists() else pd.DataFrame())
         names_df.loc[pc] = {"name": name}
+        assert_real_pincode_ids(names_df.index, context="pincode_names.csv")
         names_df.to_csv(RAW / "pincode_names.csv")
 
         _append("property_rates.csv",      "rate_per_sqft",         signals["rate_per_sqft"])
@@ -319,6 +325,7 @@ def main():
             rto_df.loc[pc, "car_2w_ratio"]  = signals["car_2w_ratio"]
             rto_df.loc[pc, "luxury_share"]  = signals["luxury_share"]
             rto_df.loc[pc, "ev_share"]      = signals["ev_share"]
+            assert_real_pincode_ids(rto_df.index, context="rto_enhanced.csv")
             rto_df.to_csv(RAW / "rto_enhanced.csv")
 
         n_total = len(pd.read_csv(RAW / "pincode_coords.csv"))
@@ -363,6 +370,7 @@ def main():
             "est_monthly_income_hh": income_ml_new,
             "est_monthly_spend_hh":  spend_ml_new,
         }
+        assert_real_pincode_ids(ml_df.index, context="ppi_ml_refined.csv")
         ml_df.sort_values("ppi_ml", ascending=False).to_csv(OUT / "ppi_ml_refined.csv")
 
         # Dual-write to the database (no-op unless DATABASE_URL is set — see _db.py).

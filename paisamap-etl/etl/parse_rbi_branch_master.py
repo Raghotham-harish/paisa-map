@@ -114,6 +114,12 @@ def aggregate_by_pincode(branches: pd.DataFrame) -> pd.DataFrame:
 
 
 def write_output(counts: pd.DataFrame, dry_run: bool = False) -> None:
+    from pincode_master import real_pincode_id
+    keep = counts["pincode"].map(lambda p: bool(real_pincode_id(p)))
+    dropped = int((~keep).sum())
+    if dropped:
+        log.info("Dropping %d pincode(s) that are not real 6-digit ids", dropped)
+    counts = counts.loc[keep]
     out_path = RAW / "rbi_branch_counts_india.csv"
     if dry_run:
         log.info("[DRY RUN] %s head:\n%s", out_path.name, counts.head(15))

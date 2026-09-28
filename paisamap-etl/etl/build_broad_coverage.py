@@ -102,6 +102,11 @@ def build() -> pd.DataFrame:
 
     merged["name"] = merged["pincode"]
     out = merged[PUBLIC_COLUMNS]
+    from pincode_master import real_pincode_id
+    before_ids = len(out)
+    out = out[out["pincode"].map(lambda p: bool(real_pincode_id(p)))]
+    if len(out) != before_ids:
+        print(f"  Dropped {before_ids - len(out)} non-pincode ids")
     out = out.sort_values("pincode")
     return out
 

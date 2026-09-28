@@ -51,7 +51,7 @@ from sklearn.metrics import mean_squared_error
 
 import _db
 from _filelock import write_lock
-from pincode_master import state_for_pincode
+from pincode_master import assert_real_pincode_ids, state_for_pincode
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW  = ROOT / "data" / "raw"
@@ -910,6 +910,7 @@ def main():
                 keep_cols = [c for c in cols_out if c in added_during_run.columns]
                 out_df = pd.concat([out_df, added_during_run[keep_cols]])
         out_df = out_df.sort_values("ppi_ml", ascending=False)
+        assert_real_pincode_ids(out_df.index, context="ppi_ml_refined.csv")
         out_df.to_csv(ml_out_path)
 
         # ppi_map_data.csv — frontend-facing format (public, unauthenticated —

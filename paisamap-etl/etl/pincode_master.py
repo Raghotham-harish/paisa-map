@@ -16,11 +16,42 @@ import csv
 import fcntl
 import logging
 import os
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 log = logging.getLogger("pincode_master")
+
+# A real Indian pincode id: 6 digits, no leading zero. Army Postal Service
+# pins (9xxxxx) match this pattern; synthetic D###### ids and 0-padded
+# junk do not.
+REAL_PINCODE_RE = re.compile(r"^[1-9]\d{5}$")
+
+
+def real_pincode_id(pc) -> str:
+    """Return `pc` if it is a real 6-digit pincode id, else ''."""
+    if pc is None:
+        return ""
+    s = str(pc).strip()
+    return s if REAL_PINCODE_RE.fullmatch(s) else ""
+
+
+def assert_real_pincode_ids(ids, *, context: str) -> None:
+    """Raise if any id would be written as a pincode but is not a real one."""
+    bad_n = 0
+    examples = []
+    for i in ids:
+        if real_pincode_id(i):
+            continue
+        bad_n += 1
+        if len(examples) < 5:
+            examples.append(str(i))
+    if bad_n:
+        raise ValueError(
+            f"{context}: refusing to write {bad_n} id(s) that are not real "
+            f"6-digit pincodes, e.g. {examples}"
+        )
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE_CSV = ROOT / "data" / "reference" / "pincode_district_state_india.csv"

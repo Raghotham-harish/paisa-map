@@ -1,0 +1,10 @@
+source_file,pincode,state,district,psu_branch_count,reason
+paisamap-etl/data/raw/rbi_branch_counts_india.csv,030506,GOA,NORTH GOA,1,invalid_format
+paisamap-etl/data/raw/rbi_branch_counts_india.csv,000000,JHARKHAND,RANCHI,42,invalid_format
+paisamap-etl/data/raw/rbi_branch_counts_india.csv,081052,MAHARASHTRA,KOLHAPUR,1,invalid_format
+paisamap-etl/data/raw/rbi_branch_counts_india.csv,000702,MAHARASHTRA,RAIGAD,1,invalid_format
+paisamap-etl/data/raw/rbi_branch_counts_india.csv,050001,RAJASTHAN,AJMER,1,invalid_format
+paisamap-etl/data/raw/rbi_branch_counts_india.csv,000003,TELANGANA,HYDERABAD,1,invalid_format
+paisamap-etl/data/raw/rbi_branch_counts_india.csv,000006,WEST BENGAL,KOLKATA,1,invalid_format
+paisamap-etl/data/raw/rbi_branch_counts_mh.csv,081052,,KOLHAPUR,1,invalid_format
+paisamap-etl/data/raw/rbi_branch_counts_mh.csv,000702,,RAIGAD,1,invalid_format

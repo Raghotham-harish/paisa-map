@@ -36,7 +36,7 @@ from scipy.spatial import cKDTree
 
 sys.path.insert(0, str(Path(__file__).parent))
 from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, prior_signals
-from pincode_master import state_for_pincode
+from pincode_master import assert_real_pincode_ids, state_for_pincode
 import _db
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -115,6 +115,7 @@ def append_batch(fname: str, new_rows: pd.DataFrame):
     if new_rows.empty:
         return
     combined = pd.concat([df, new_rows[[c for c in new_rows.columns if c in df.columns]]])
+    assert_real_pincode_ids(combined.index, context=fname)
     combined.to_csv(p)
     print(f"  {fname}: +{len(new_rows)} rows ({len(combined)} total)")
 
@@ -246,6 +247,7 @@ def main():
                                           "est_monthly_income_hh", "est_monthly_spend_hh"]].copy()
     new_ml["ppi_original"] = None
     ml_out = pd.concat([ml_df, new_ml[ml_df.columns]])
+    assert_real_pincode_ids(ml_out.index, context="ppi_ml_refined.csv")
     ml_out.sort_values("ppi_ml", ascending=False).to_csv(OUT / "ppi_ml_refined.csv")
     print(f"  ppi_ml_refined.csv: {len(ml_out)} total ({len(new_ml)} new)")
 
