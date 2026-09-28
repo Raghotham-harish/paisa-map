@@ -34,7 +34,7 @@ from pathlib import Path
 import pandas as pd
 
 from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, scale_from_poi, estimate_via_idw
-from pincode_master import state_for_pincode
+from pincode_master import assert_real_pincode_ids, real_pincode_id, state_for_pincode
 from _filelock import write_lock
 import _db
 
@@ -91,9 +91,8 @@ def geocode_district(district: str, state: str):
                 if results:
                     r0 = results[0]
                     addr = r0.get("address", {})
-                    pincode = addr.get("postcode", "").replace(" ", "").strip()
-                    if pincode and (len(pincode) != 6 or not pincode.isdigit()):
-                        pincode = ""
+                    pincode = real_pincode_id(
+                        addr.get("postcode", "").replace(" ", ""))
                     return {
                         "lat": float(r0["lat"]),
                         "lng": float(r0["lon"]),
@@ -123,8 +122,8 @@ def reverse_pincode(lat: float, lng: float) -> str:
         with urllib.request.urlopen(req, timeout=10) as r:
             addr = json.loads(r.read()).get("address", {})
         time.sleep(NOMINATIM_DELAY)
-        pc = addr.get("postcode", "").replace(" ", "").strip()
-        if pc and len(pc) == 6 and pc.isdigit():
+        pc = real_pincode_id(addr.get("postcode", "").replace(" ", ""))
+        if pc:
             return pc
     except Exception as e:
         print(f"    WARN reverse geocode failed: {e}")
@@ -221,6 +220,7 @@ def backfill_raw_proxies(pincode: str, state: str, lat: float, lng: float):
             for col, val in col_vals.items():
                 if val is not None:
                     df.loc[pincode, col] = val
+            assert_real_pincode_ids(df.index, context=fname)
             df.to_csv(p)
 
     # Same shared raw CSVs enrich_single.py writes (live pin-drops) — lock the
@@ -258,6 +258,7 @@ def backfill_raw_proxies(pincode: str, state: str, lat: float, lng: float):
                 rto_df.loc[pincode, "car_2w_ratio"] = signals["car_2w_ratio"]
                 rto_df.loc[pincode, "luxury_share"] = signals["luxury_share"]
                 rto_df.loc[pincode, "ev_share"]     = signals["ev_share"]
+                assert_real_pincode_ids(rto_df.index, context="rto_enhanced.csv")
                 rto_df.to_csv(rto_path)
 
 
@@ -309,6 +310,7 @@ def write_to_app(new_rows: pd.DataFrame) -> int:
         # (real Overpass-sourced data) with this run's cruder IDW estimate.
         truly_new = new_rows[~new_rows.index.isin(current.index)]
         ml_df = pd.concat([current, truly_new])
+        assert_real_pincode_ids(ml_df.index, context="ppi_ml_refined.csv")
         ml_df.sort_values("ppi_ml", ascending=False).to_csv(ml_path)
 
         names_path  = RAW / "pincode_names.csv"
@@ -430,20 +432,29 @@ def main():
             continue
 
         lat, lng = geo["lat"], geo["lng"]
-        pincode  = geo["pincode"]
+        pincode = real_pincode_id(geo.get("pincode"))
         print(f"  Geocoded: {lat:.4f}, {lng:.4f}  pc={pincode or '(none)'}")
 
-        # 2. If no pincode from forward geocode, try reverse
+        # 2. If no real pincode from forward geocode, try reverse.
+        # A missing postcode used to be replaced with a synthetic D###### id.
+        # Those are not pincodes: the id was salted with Python's per-process
+        # hash(), so a re-run minted a new one, and the rows polluted the map.
+        # Skip the district instead.
         if not pincode:
-            pincode = reverse_pincode(lat, lng)
+            pincode = real_pincode_id(reverse_pincode(lat, lng))
             if pincode:
                 print(f"  Reverse geocode pincode: {pincode}")
 
-        # 3. Generate a synthetic pincode if still none
         if not pincode:
-            # Use lat/lng fingerprint as fallback key (won't match any real pincode)
-            pincode = f"D{abs(hash(f'{lat:.3f}{lng:.3f}')) % 900000 + 100000}"
-            print(f"  Synthetic pincode: {pincode}")
+            print("  SKIP — no real pincode")
+            append_batch_log({"timestamp": datetime.now(timezone.utc).isoformat(),
+                              "district": district, "state": state, "pincode": "",
+                              "lat": round(lat, 5), "lng": round(lng, 5), "ppi": "",
+                              "mpce_combined": mpce, "mpce_adj_factor": "",
+                              "status": "no_pincode",
+                              "note": "geocoder returned no real 6-digit pincode"})
+            skipped += 1
+            continue
 
         # 4. Skip if pincode already in ML output
         if pincode in done_pincodes:
@@ -506,6 +517,7 @@ def main():
                                 df.loc[pincode, k] = v
                         else:
                             df.loc[pincode, col] = val
+                        assert_real_pincode_ids(df.index, context=fname)
                         df.to_csv(p)
 
         # 7b. Backfill raw proxy CSVs (property_rates, bank_deposits, etc.)

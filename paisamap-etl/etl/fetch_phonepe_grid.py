@@ -165,6 +165,8 @@ def main():
         "quarter_label": f"{year} Q{q}",
     }).dropna(subset=["upi_txn_count_nearby"])
     out["upi_txn_count_nearby"] = out["upi_txn_count_nearby"].round(0).astype(int)
+    from pincode_master import real_pincode_id
+    out = out[out["pincode"].map(lambda p: bool(real_pincode_id(p)))]
     out = out.sort_values("pincode")
 
     dest = RAW / "upi_txn_density_grid.csv"
