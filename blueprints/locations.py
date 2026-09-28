@@ -6,7 +6,13 @@ Locations" project (see _auth_db.get_or_create_default_project) — this is
 what lets the public map's Save button work with zero project-picker UI.
 """
 
+import sys
+from pathlib import Path
+
 from flask import Blueprint, request, jsonify
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" / "etl"))
+from pincode_master import validate_pincode  # noqa: E402
 
 from ._session import require_login, _auth_db
 
@@ -24,9 +30,15 @@ def list_locations(user_id):
 @require_login
 def create_location(user_id):
     body = request.get_json(silent=True) or {}
-    pincode = (body.get("pincode") or "").strip()
-    if not pincode:
-        return jsonify({"error": "pincode is required"}), 400
+    ok, reason, pincode = validate_pincode(body.get("pincode"))
+    if not ok:
+        if reason == "empty":
+            return jsonify({"error": "pincode is required", "reason": reason}), 400
+        return jsonify({
+            "error": "invalid_pincode",
+            "reason": reason,
+            "detail": "pincode must be a real 6-digit Indian pincode",
+        }), 400
 
     project_id = body.get("project_id")
     if project_id is not None:

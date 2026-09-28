@@ -31,6 +31,7 @@ from flask import Blueprint, request, jsonify
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" / "etl"))
 import _geocode  # noqa: E402
+from pincode_master import validate_pincode  # noqa: E402
 
 from ._session import require_login, _auth_db
 from .intelligence import compute_location_intelligence_batch  # noqa: E402
@@ -43,7 +44,6 @@ MAX_UPLOAD_ROWS = 500
 
 CANONICAL_FIELDS = ("store_name", "address", "pincode", "revenue", "rent", "capex")
 
-_PINCODE_RE = re.compile(r"^\d{6}$")
 _NUMERIC_STRIP_RE = re.compile(r"[^\d.\-]")
 
 
@@ -173,9 +173,10 @@ def _run_geocode_job(upload_id, user_id):
         pending = _auth_db.list_pending_geocode_locations(upload_id, user_id)
         for i, loc in enumerate(pending):
             result = _geocode.geocode_address(loc.get("raw_address"))
-            if result and result.get("pincode") and _PINCODE_RE.match(result["pincode"]):
+            ok, _reason, norm = validate_pincode((result or {}).get("pincode"))
+            if result and ok:
                 _auth_db.update_customer_location(
-                    loc["id"], user_id, pincode=result["pincode"],
+                    loc["id"], user_id, pincode=norm,
                     lat=result["lat"], lng=result["lng"], geocode_status="geocoded",
                 )
             else:
@@ -214,17 +215,32 @@ def commit_upload(user_id, upload_id):
     seen_keys = set()
     duplicate_count = 0
     missing_location = 0
+    invalid_pincodes = []
     numeric_parse_failures = {"revenue": 0, "rent": 0, "capex": 0}
     to_insert = []
 
-    for raw in raw_rows:
+    for row_number, raw in enumerate(raw_rows, start=1):
         store_name = (raw.get(mapping.get("store_name", "")) or "").strip() or None
         raw_pincode = (raw.get(mapping.get("pincode", "")) or "").strip()
         raw_address = (raw.get(mapping.get("address", "")) or "").strip() or None
 
-        pincode = raw_pincode if _PINCODE_RE.match(raw_pincode) else None
-        if pincode:
-            geocode_status = "direct"
+        pincode = None
+        if raw_pincode:
+            ok, reason, norm = validate_pincode(raw_pincode)
+            if ok:
+                pincode = norm
+                geocode_status = "direct"
+            else:
+                # Flag the row and keep the rest of the file. An address can
+                # still be geocoded; a bad pincode is never stored.
+                invalid_pincodes.append({
+                    "row": row_number, "pincode": raw_pincode, "reason": reason,
+                })
+                if raw_address:
+                    geocode_status = "pending"
+                else:
+                    geocode_status = "unresolvable"
+                    missing_location += 1
         elif raw_address:
             geocode_status = "pending"
         else:
@@ -257,6 +273,7 @@ def commit_upload(user_id, upload_id):
         "missing_location": missing_location,
         "duplicate_count": duplicate_count,
         "numeric_parse_failures": numeric_parse_failures,
+        "invalid_pincodes": invalid_pincodes,
     }
 
     _auth_db.create_customer_locations_bulk(user_id, upload["project_id"], upload_id, to_insert)
