@@ -4,9 +4,14 @@ projects.py — /api/projects CRUD, ownership-scoped by session user_id.
 
 import json
 import secrets
+import sys
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from flask import Blueprint, request, jsonify
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" / "etl"))
+from _signals_data import canonical_signals  # noqa: E402
 
 from ._session import require_db, require_login, _auth_db
 
@@ -65,6 +70,15 @@ def _json_array(raw):
     return json.dumps(out) if out else None
 
 
+def _signals_json(raw):
+    """Same as _json_array, then collapse deprecated signal ids (cars_per_1000
+    is an exact copy of lmv_per_1000) so a saved project stores one id."""
+    if not isinstance(raw, list):
+        return None
+    out = canonical_signals(raw)
+    return json.dumps(out) if out else None
+
+
 def _wizard_fields(body):
     """Shared shaping for the project-setup wizard fields, used by both create
     and update. Only keys actually present in `body` are returned, so a partial
@@ -73,7 +87,7 @@ def _wizard_fields(body):
     if "industry" in body:
         out["industry"] = _str_or_none(body.get("industry"))
     if "signals" in body:
-        out["signals"] = _json_array(body.get("signals"))
+        out["signals"] = _signals_json(body.get("signals"))
     if "target_pincodes" in body:
         out["target_pincodes"] = _json_array(body.get("target_pincodes"))
     if "catchment_km" in body:
@@ -132,6 +146,8 @@ def _shape(project):
                 out[field] = []
         elif raw is None:
             out[field] = []
+    if isinstance(out.get("signals"), list):
+        out["signals"] = canonical_signals(out["signals"])
     return out
 
 

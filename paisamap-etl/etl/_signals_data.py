@@ -48,8 +48,11 @@ EXPORT_SIGNAL_FILES = [
     ("itr_filers.csv",          ["filers_per_capita"]),
     ("nightlights.csv",         ["radiance_mean"]),
     ("poi_density.csv",         ["premium_poi_per_km2"]),
+    # cars_per_1000 (vehicle_density.csv) is the same series as lmv_per_1000.
+    # It stays in the raw file because ml_refinement trains on it; it is not
+    # a second signal. SIGNAL_ALIASES keeps saved projects that stored the
+    # old id working.
     ("rto_enhanced.csv",        ["lmv_per_1000", "car_2w_ratio", "luxury_share", "ev_share"]),
-    ("vehicle_density.csv",     ["cars_per_1000"]),
     ("upi_activity.csv",        ["upi_txn_value_per_capita"]),
     ("education.csv",           ["schools_per_lakh"]),
     ("commercial.csv",          ["msme_per_lakh"]),
@@ -76,7 +79,7 @@ PRO_COLUMNS = {
     # Infrastructure
     "radiance_mean", "premium_poi_per_km2", "schools_per_lakh",
     # Vehicles
-    "cars_per_1000", "lmv_per_1000", "car_2w_ratio", "luxury_share", "ev_share",
+    "lmv_per_1000", "car_2w_ratio", "luxury_share", "ev_share",
 }
 # Everything else in EXPORT_ALL_COLUMNS (Property, Nationwide coverage, and the
 # core identity/PPI fields) is free.
@@ -118,12 +121,33 @@ SIGNAL_LABELS = {
     "radiance_mean": "Night-lights radiance",
     "premium_poi_per_km2": "Premium POI density",
     "schools_per_lakh": "Schools /lakh",
-    "cars_per_1000": "Cars /1000",
+    "cars_per_1000": "LMVs /1000",  # deprecated alias of lmv_per_1000
     "lmv_per_1000": "LMVs /1000",
     "car_2w_ratio": "Car:2W ratio",
     "luxury_share": "Luxury vehicle share",
     "ev_share": "EV share",
 }
+
+
+# cars_per_1000 was published as its own signal but is an exact copy of
+# lmv_per_1000. Keep the old id working for saved projects; do not export it.
+SIGNAL_ALIASES = {"cars_per_1000": "lmv_per_1000"}
+
+
+def canonical_signal(key: str) -> str:
+    return SIGNAL_ALIASES.get(key, key)
+
+
+def canonical_signals(keys) -> list:
+    """Map deprecated signal ids onto the one that is actually published."""
+    out = []
+    seen = set()
+    for key in keys or []:
+        canon = canonical_signal(str(key).strip())
+        if canon and canon not in seen:
+            seen.add(canon)
+            out.append(canon)
+    return out
 
 
 def haversine_km(lat1, lng1, lat2, lng2):

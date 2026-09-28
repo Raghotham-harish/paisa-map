@@ -149,7 +149,7 @@ SIGNAL_TIERS = {
         # PROPOSAL from the doc (§2) — still an open question (§10 #1).
         "extra_signals": ("bank_branches_per_lakh", "upi_txn_value_per_capita",
                           "deposits_per_capita", "msme_per_lakh", "nsdp_per_capita",
-                          "premium_poi_per_km2", "radiance_mean", "cars_per_1000",
+                          "premium_poi_per_km2", "radiance_mean", "lmv_per_1000",
                           "car_2w_ratio", "luxury_share"),
     },
     "pro": {"label": "Signals Pro", "price_paise": 50_000, "extra_signals": "all"},

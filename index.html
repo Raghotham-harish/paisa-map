@@ -1416,7 +1416,6 @@ const SIGNAL_GROUPS = [
     {id:"schools_per_lakh",     label:"Schools /lakh",         fmt:v=>v.toFixed(1), viz:"heatmap"},
   ]},
   { label:"Vehicles", pro:true, cols:[
-    {id:"cars_per_1000",  label:"Cars /1000",       fmt:v=>v.toFixed(1), viz:"choropleth"},
     {id:"lmv_per_1000",   label:"LMVs /1000",       fmt:v=>v.toFixed(1), viz:"choropleth"},
     {id:"car_2w_ratio",   label:"Car:2W ratio",     fmt:v=>v.toFixed(2), viz:"choropleth"},
     {id:"luxury_share",   label:"Luxury vehicle share", fmt:v=>(v*100).toFixed(1)+"%", viz:"choropleth"},
@@ -3155,7 +3154,7 @@ function renderMyStores(){
 // the rest. Ordered roughly by how widely each signal is populated today.
 const POPUP_SNAPSHOT_PRIORITY = [
   "rate_per_sqft","bank_branches_per_lakh","msme_per_lakh","schools_per_lakh",
-  "cars_per_1000","nsdp_per_capita","upi_txn_value_per_capita","radiance_mean",
+  "lmv_per_1000","nsdp_per_capita","upi_txn_value_per_capita","radiance_mean",
 ];
 
 // ── Compare basket — session-local only (not persisted across reloads, same scope

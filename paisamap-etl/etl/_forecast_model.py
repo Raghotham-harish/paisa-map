@@ -622,7 +622,7 @@ def compute_lever_split(budget, rows_by_pincode, candidate_pincodes):
 SWOT_PROXY_COLS = ("est_monthly_income_hh", "est_monthly_spend_hh", "car_2w_ratio", "luxury_share", "ev_share",
                     "factories_per_lakh", "msme_per_lakh", "cropping_intensity_pct",
                     "bank_branches_per_lakh", "fin_density_per_km2",
-                    "cars_per_1000", "lmv_per_1000", "radiance_mean", "premium_poi_per_km2")
+                    "lmv_per_1000", "radiance_mean", "premium_poi_per_km2")
 
 
 def _swot_percentile_lookup(rows_by_pincode):
@@ -669,8 +669,8 @@ def location_swot(row, pct, opportunity_score, cannibalisation_discount, diagnos
          "score": avg(pct(row, "bank_branches_per_lakh"), pct(row, "fin_density_per_km2")),
          "basis": "Bank-branch + financial-institution density percentile composite"},
         {"key": "transport", "label": "Transport & logistics density",
-         "score": avg(pct(row, "cars_per_1000"), pct(row, "lmv_per_1000")),
-         "basis": "Car + light-commercial-vehicle density percentile composite"},
+         "score": pct(row, "lmv_per_1000"),
+         "basis": "Light-motor-vehicle density percentile (VAHAN LMV stock)"},
         {"key": "geography", "label": "Geographic / infrastructure benefit",
          "score": avg(pct(row, "radiance_mean"), pct(row, "premium_poi_per_km2")),
          "basis": "Night-lights + commercial-POI density percentile composite"},
@@ -710,9 +710,9 @@ FACTOR_DEFS = (
      "Factories + MSME density percentile — a manufacturing / vendor-base proxy"),
     ("distribution", "Distribution access", ("bank_branches_per_lakh", "fin_density_per_km2"),
      "Bank-branch + financial-institution density percentile"),
-    ("transport", "Transport & logistics", ("cars_per_1000", "lmv_per_1000"),
-     "Car + light-commercial-vehicle density percentile"),
-    ("mobility", "Mobility & connectivity", ("cars_per_1000", "radiance_mean"),
+    ("transport", "Transport & logistics", ("lmv_per_1000",),
+     "Light-motor-vehicle density percentile (VAHAN LMV stock)"),
+    ("mobility", "Mobility & connectivity", ("lmv_per_1000", "radiance_mean"),
      "Vehicle-ownership + night-lights percentile — a road-mobility / built-up-corridor proxy"),
     ("eodb", "Ease of doing business", ("msme_per_lakh", "bank_branches_per_lakh"),
      "MSME formation + bank-branch (credit access) density percentile — a business-environment "
@@ -1033,7 +1033,7 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
     store_revs = [s["monthly_revenue"] for s in stores]
     radar_focus_pcs = [e["pincode"] for e in (portfolio or ranked[:5])]
     radar = []
-    for sig in (project.get("signals") or ["ppi_ml"]):
+    for sig in _signals_data.canonical_signals(project.get("signals") or ["ppi_ml"]):
         pairs = [(_num(s["row"].get(sig)), rev) for s, rev in zip(stores, store_revs)]
         pairs = [(x, y) for x, y in pairs if x is not None]
         r = _pearson([x for x, _ in pairs], [y for _, y in pairs]) if len(pairs) >= 3 else None
@@ -1096,7 +1096,7 @@ def build_forecast(project, locations, budget, rows_by_pincode, geography, diagn
     # only ever showing how well the project's signals fit past stores.
     # National percentile, not relative to whatever's nearby, so it's
     # comparable across candidates the same way ppi_pct() already is.
-    lever_sig_ids = project.get("signals") or ["ppi_ml"]
+    lever_sig_ids = _signals_data.canonical_signals(project.get("signals") or ["ppi_ml"])
     lever_sorted_vals = {}
     for sig in lever_sig_ids:
         vals = sorted(v for v in (_num(r.get(sig)) for r in rows_by_pincode.values()) if v is not None)
