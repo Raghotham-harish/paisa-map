@@ -8,20 +8,20 @@ ones that have been through deep enrichment (property-rate scraping, POI
 density, nightlights, etc. via enrich_single.py / batch_enrich_hces.py).
 That's a slow, targeted process (batch cron capped at 30 districts/day).
 
-But two real, pan-India datasets already sit unused past that 600-pincode
-boundary:
-  - rbi_branch_counts_india.csv   — 18,599 pincodes, real RBI branch-master data
+But a real, pan-India dataset already sits past that boundary:
   - mpce_district.csv             — 15,443 pincodes, real HCES 2023-24 district
                                      spend data (mpce_combined, hces_ppi)
 
-Neither has its own lat/lng. This script derives one from data/boundaries.geojson
+(The RBI branch count and the PhonePe live-site grid used to ride along here;
+both were removed — this file is public, see PUBLIC_COLUMNS below.)
+
+It has no lat/lng of its own. This script derives one from data/boundaries.geojson
 (19,444 real government PIN-code polygons, computed via centroid of each
 polygon's bounding box) — the same source the frontend already uses for
 choropleth shapes — so no new geocoding is needed.
 
 Output: data/output/broad_coverage.csv (served statically, same as
-ppi_map_data.csv), columns: pincode,name,lat,lng,psu_branch_count,
-mpce_combined,hces_ppi,state,district
+ppi_map_data.csv), columns: PUBLIC_COLUMNS
 
 Usage:
   cd paisamap-etl && python3 etl/build_broad_coverage.py
@@ -36,6 +36,8 @@ RAW  = ROOT / "data" / "raw"
 OUT  = ROOT / "data" / "output"
 APP_BOUNDARIES = ROOT.parent / "data" / "boundaries.geojson"
 APP_OUT        = ROOT.parent / "data" / "output" / "broad_coverage.csv"
+
+PUBLIC_COLUMNS = ["pincode", "name", "lat", "lng", "mpce_combined", "hces_ppi", "state", "district"]
 
 
 def load_boundary_centroids() -> dict[str, tuple[float, float]]:
@@ -78,35 +80,17 @@ def build() -> pd.DataFrame:
     centroids = load_boundary_centroids()
     print(f"  {len(centroids)} pincodes with a real boundary")
 
-    rbi = pd.read_csv(RAW / "rbi_branch_counts_india.csv", dtype={"pincode": str})
-    print(f"  RBI branch data: {len(rbi)} pincodes")
-
     mpce = pd.read_csv(RAW / "mpce_district.csv", dtype={"pincode": str})
     print(f"  MPCE data: {len(mpce)} pincodes")
 
-    # Outer-join on pincode — a pincode can have RBI data, MPCE data, or both.
-    merged = rbi[["pincode", "state", "district", "psu_branch_count"]].merge(
-        mpce[["pincode", "mpce_combined", "hces_ppi", "hces_state", "hces_district"]],
-        on="pincode", how="outer",
-    )
-    # Prefer the RBI-sourced state/district name; fall back to the HCES one.
-    merged["state"]    = merged["state"].fillna(merged["hces_state"])
-    merged["district"] = merged["district"].fillna(merged["hces_district"])
-    merged = merged.drop(columns=["hces_state", "hces_district"])
-
-    # PhonePe Pulse transaction-count grid (fetch_phonepe_grid.py) — already
-    # IDW-interpolated onto every boundary-centroid pincode, so this is a
-    # plain left-merge, not another outer-join. Broadest of the three sources
-    # (19,322 pincodes) since it's a dense spatial grid, not an administrative
-    # join. Optional file — build_broad_coverage.py still works without it.
-    grid_path = RAW / "upi_txn_density_grid.csv"
-    if grid_path.exists():
-        grid = pd.read_csv(grid_path, dtype={"pincode": str})
-        merged = merged.merge(grid[["pincode", "upi_txn_count_nearby"]], on="pincode", how="outer")
-        print(f"  UPI transaction-count grid: {len(grid)} pincodes")
-    else:
-        merged["upi_txn_count_nearby"] = pd.NA
-        print("  · upi_txn_density_grid.csv (not present — run fetch_phonepe_grid.py first)")
+    # This file is served statically to anonymous visitors, so it carries ONLY
+    # redistributable columns. The RBI branch count (psu_branch_count) is
+    # internal-only until the RBI terms question is answered, and the PhonePe
+    # live-site grid was dropped entirely (site terms ban commercial use) —
+    # see docs/DATA_LICENSING.md. PUBLIC_COLUMNS is enforced by
+    # tests/test_public_data_licensing.py.
+    merged = mpce[["pincode", "mpce_combined", "hces_ppi", "hces_state", "hces_district"]].rename(
+        columns={"hces_state": "state", "hces_district": "district"})
 
     merged["lat"] = merged["pincode"].map(lambda pc: centroids.get(pc, (None, None))[0])
     merged["lng"] = merged["pincode"].map(lambda pc: centroids.get(pc, (None, None))[1])
@@ -117,8 +101,7 @@ def build() -> pd.DataFrame:
           f"no way to plot them without one)")
 
     merged["name"] = merged["pincode"]
-    out = merged[["pincode", "name", "lat", "lng", "psu_branch_count",
-                  "mpce_combined", "hces_ppi", "upi_txn_count_nearby", "state", "district"]]
+    out = merged[PUBLIC_COLUMNS]
     out = out.sort_values("pincode")
     return out
 
@@ -134,9 +117,7 @@ def main():
     df.to_csv(APP_OUT, index=False)
     print(f"Synced -> {APP_OUT}")
 
-    print(f"\nCoverage: {df['psu_branch_count'].notna().sum()} with branch data, "
-          f"{df['mpce_combined'].notna().sum()} with MPCE data, "
-          f"{((df['psu_branch_count'].notna()) & (df['mpce_combined'].notna())).sum()} with both")
+    print(f"\nCoverage: {df['mpce_combined'].notna().sum()} with MPCE data")
 
 
 if __name__ == "__main__":

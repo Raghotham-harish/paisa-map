@@ -47,7 +47,10 @@ def main():
         print(f"[merge] {repo_path}: no server-side-only rows, repo version kept as-is")
         return 0
 
-    merged = pd.concat([repo, new_only], ignore_index=True)
+    # Only the repo file's columns: a column deliberately dropped in the repo
+    # (e.g. the OSM-derived `poi` column, removed for licensing) must not be
+    # re-added from a server-side backup that still carries it.
+    merged = pd.concat([repo, new_only.reindex(columns=repo.columns)], ignore_index=True)
     merged.to_csv(repo_path, index=False)
     print(f"[merge] {repo_path}: kept repo content for {len(repo)} rows, "
           f"added {len(new_only)} server-side-only row(s) -> {len(merged)}")

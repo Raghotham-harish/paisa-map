@@ -266,13 +266,9 @@ def main():
     ml_out.sort_values("ppi_ml", ascending=False).to_csv(OUT / "ppi_ml_refined.csv")
     print(f"  ppi_ml_refined.csv: {len(ml_out)} total ({len(new_ml)} new)")
 
-    poi_final = pd.read_csv(RAW / "poi_density.csv", dtype={"pincode": str}).set_index("pincode")["premium_poi_per_km2"]
-    poi_p95 = float(poi_final.quantile(0.95)) if not poi_final.empty else 1.0
-    poi_norm = (poi_final / poi_p95 * 100).clip(0, 100).round(1)
     app_df = pd.DataFrame({
         "name": ml_out["name"], "lat": ml_out["lat"], "lng": ml_out["lng"],
         "ppi": ml_out["ppi_ml"], "income": ml_out["est_monthly_income_hh"],
-        "poi": poi_norm.reindex(ml_out.index),
     })
     app_df.index.name = "pincode"
     app_df.sort_values("ppi", ascending=False).to_csv(OUT / "ppi_map_data.csv")

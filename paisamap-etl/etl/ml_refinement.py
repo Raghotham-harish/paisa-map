@@ -127,7 +127,7 @@ def _to_cartesian(lats, lngs):
     """lat/lng (degrees) -> 3D Cartesian km on Earth's surface. Euclidean chord
     distance between two such points is a distortion-free proxy for great-circle
     distance at the scales this module cares about (tens of km) — same technique
-    used in fetch_phonepe_grid.py/build_broad_coverage.py this session, avoids
+    used elsewhere in the ETL, avoids
     the latitude-dependent distortion a raw lat/lng KDTree would have."""
     lat_r = np.radians(np.asarray(lats, dtype=float))
     lng_r = np.radians(np.asarray(lngs, dtype=float))
@@ -164,9 +164,7 @@ def load_features() -> pd.DataFrame:
         # some flipping the full 40-200 floor-to-ceiling range. Same leakage class already
         # fixed once for Karnataka income (see load_karnataka_income() below) — that one was
         # worth a scoped post-ensemble blend since it had real regional coverage; this one
-        # doesn't (it's superseded pan-India by fetch_phonepe_grid.py's upi_txn_count_nearby,
-        # a different but better-covered metric), so it's simplest to just keep it out of the
-        # model. Still served as-is via server.py's EXPORT_SIGNAL_FILES for the 195 pincodes
+        # doesn't, so it's simplest to just keep it out of the model. Still served as-is via server.py's EXPORT_SIGNAL_FILES for the 195 pincodes
         # it's real for — this only removes it from PPI scoring, not from the map.
         ("vehicle_density.csv",  "cars_per_1000"),
         ("nightlights.csv",      "radiance_mean"),
@@ -897,14 +895,6 @@ def main():
     # fresh calibration yet, same as any newly-added pincode always is before
     # its first refit. Found + fixed the same class of bug in deploy.sh
     # (b020a5e) this session; this is the other real gap the audit found.
-    # ppi_map_data.csv's poi column — computed before the lock, doesn't touch
-    # any file another writer shares.
-    poi_path = RAW / "poi_density.csv"
-    poi_raw = pd.read_csv(poi_path, dtype={"pincode": str}).set_index("pincode")["premium_poi_per_km2"] \
-              if poi_path.exists() else pd.Series(dtype=float)
-    poi_p95 = float(poi_raw.quantile(0.95)) if not poi_raw.empty else 1.0
-    poi_norm = (poi_raw / poi_p95 * 100).clip(0, 100).round(1)
-
     ml_out_path = OUT / "ppi_ml_refined.csv"
     app_path    = OUT / "ppi_map_data.csv"
     app_dest    = ROOT.parent / "data" / "output" / "ppi_map_data.csv"
@@ -919,7 +909,8 @@ def main():
         out_df = out_df.sort_values("ppi_ml", ascending=False)
         out_df.to_csv(ml_out_path)
 
-        # ppi_map_data.csv — frontend-facing format with poi column. Written
+        # ppi_map_data.csv — frontend-facing format (public, unauthenticated —
+        # no OSM-derived `poi` column, enforced by tests/test_public_data_licensing.py). Written
         # inside the same lock acquisition as ppi_ml_refined.csv above (not a
         # separate one) since enrich_single.py's own writes to this file are
         # part of the identical read-modify-write cycle it holds the lock for.
@@ -929,14 +920,13 @@ def main():
             "lng":    out_df["lng"],
             "ppi":    out_df["ppi_ml"],
             "income": out_df["est_monthly_income_hh"],
-            "poi":    poi_norm.reindex(out_df.index),
         })
         app_df.index.name = "pincode"
         app_df = app_df.sort_values("ppi", ascending=False)
         app_df.to_csv(app_path)
         app_dest.parent.mkdir(parents=True, exist_ok=True)
         app_df.to_csv(app_dest)
-    print(f"  {app_dest}  ({len(app_df)} pincodes, poi included)")
+    print(f"  {app_dest}  ({len(app_df)} pincodes)")
 
     # Dual-write to the database (no-op unless DATABASE_URL is set — see _db.py).
     # Only enrich_single.py/batch_enrich_hces.py did this before — a full refit

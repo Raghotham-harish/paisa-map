@@ -1341,8 +1341,10 @@ async function loadPPIData(){
     const text = await res.text();
     const lines = text.trim().split("\n");
     const parsed = lines.slice(1).map(line=>{
-      const [pincode,name,lat,lng,ppi,income,poi] = splitCsvLine(line);
-      return {pincode, name, lat:+lat, lng:+lng, ppi:+ppi||100, income:+income, poi:+poi||0};
+      // No `poi` column any more (OSM/ODbL — not redistributable); the spider
+      // chart below falls back to its count+PPI formula when every poi is 0.
+      const [pincode,name,lat,lng,ppi,income] = splitCsvLine(line);
+      return {pincode, name, lat:+lat, lng:+lng, ppi:+ppi||100, income:+income, poi:0};
     }).filter(r=>r.lat&&r.lng&&r.income);
     if(parsed.length > 0){
       // Build lookup indexes
@@ -1422,18 +1424,14 @@ const SIGNAL_GROUPS = [
     {id:"luxury_share",   label:"Luxury vehicle share", fmt:v=>(v*100).toFixed(1)+"%", viz:"choropleth"},
     {id:"ev_share",       label:"EV share",         fmt:v=>(v*100).toFixed(1)+"%", viz:"choropleth"},
   ]},
-  // Real pan-India data (18,338 pincodes — RBI branch master + HCES 2023-24
-  // district spend survey) independent of the ~600-pincode deep-enriched PPI
-  // set. Coarser than the full ML ensemble (branch counts aren't population-
-  // normalized here, hces_ppi is a simple min-max scale of district MPCE, not
-  // the calibrated multi-model PPI) but real, government-sourced, and covers
-  // most of the country the deep-enriched set doesn't reach yet. Not Pro —
-  // this is a coverage floor, not a premium tier.
+  // Real pan-India data (HCES 2023-24 district spend survey) independent of
+  // the deep-enriched PPI set. hces_ppi is a simple min-max scale of district
+  // MPCE, not the calibrated multi-model PPI. Not Pro — this is a coverage
+  // floor, not a premium tier. The RBI branch count and the PhonePe live-site
+  // grid were removed from this public layer (licensing — docs/DATA_LICENSING.md).
   { label:"Nationwide coverage", pro:false, cols:[
-    {id:"psu_branch_count",     label:"PSU bank branches",     fmt:v=>v.toFixed(0), viz:"symbol"},
     {id:"mpce_combined",        label:"Household spend (MPCE)",fmt:v=>fmtINR(v),    viz:"choropleth"},
     {id:"hces_ppi",             label:"HCES spend index (0-100)", fmt:v=>v.toFixed(1), viz:"choropleth"},
-    {id:"upi_txn_count_nearby", label:"UPI transactions (nearby, live)", fmt:v=>(v/1e6).toFixed(1)+"M", viz:"heatmap"},
   ]},
 ];
 const SIGNAL_DEFS = {};
@@ -1533,14 +1531,13 @@ async function loadSignalData(){
   }
 }
 
-// Broad-coverage signals (bank branch count, HCES MPCE) — real pan-India data
-// (18,338 pincodes) independent of full PPI, which only covers the ~600
+// Broad-coverage signals (HCES MPCE) — real pan-India data independent of full PPI, which only covers the ~600
 // deep-enriched pincodes. See build_broad_coverage.py. These pincodes have NO
 // income/spend/PPI figure — every place that reads d.income/d.spend/d.ppi has
 // to tolerate that (computePPI, the headline avg stats, popupHTML all guard
 // on Number.isFinite(d.income) / d.isBroadOnly, search those call sites
 // before assuming every row in `rows` has a real income).
-const BROAD_SIGNAL_IDS = new Set(["psu_branch_count", "mpce_combined", "hces_ppi", "upi_txn_count_nearby"]);
+const BROAD_SIGNAL_IDS = new Set(["mpce_combined", "hces_ppi"]);
 let broadDataset = [];
 async function loadBroadCoverage(){
   try{
@@ -1549,13 +1546,19 @@ async function loadBroadCoverage(){
     const text = await res.text();
     const lines = text.trim().split("\n");
     const records = [];
+    // Read by header name, not position, so the file's columns can change
+    // without silently shifting every value into the wrong field.
+    const header = splitCsvLine(lines[0]);
     lines.slice(1).forEach((line, i) => {
-      const [pincode,name,lat,lng,psu_branch_count,mpce_combined,hces_ppi,upi_txn_count_nearby,state,district] = splitCsvLine(line);
+      const cells = splitCsvLine(line);
+      const row = {};
+      header.forEach((h, j) => { row[h] = cells[j]; });
+      const {pincode, name, lat, lng, mpce_combined, hces_ppi, state, district} = row;
       const latN = +lat, lngN = +lng;
       if(!latN || !lngN) return;
       // Merge the broad-coverage columns into signalMap regardless — a pincode
       // that already has full PPI data (e.g. Delhi/Bangalore core set) can
-      // still genuinely have real branch/MPCE/UPI values worth showing when
+      // still genuinely have real MPCE values worth showing when
       // that specific signal is selected. Only skip adding a *second*,
       // duplicate locality row to the search-radius dataset for it.
       if(!pincodeMap[pincode]){
@@ -1566,10 +1569,8 @@ async function loadBroadCoverage(){
       }
       signalMap[pincode] = {
         ...(signalMap[pincode] || {}), pincode,
-        psu_branch_count: psu_branch_count || "",
         mpce_combined: mpce_combined || "",
         hces_ppi: hces_ppi || "",
-        upi_txn_count_nearby: upi_txn_count_nearby || "",
       };
     });
     broadDataset = records;
