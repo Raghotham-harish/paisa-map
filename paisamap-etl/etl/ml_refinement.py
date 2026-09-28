@@ -840,24 +840,38 @@ def main():
 
     # ── Validation gates ─────────────────────────────────────────────────────
     print("\nValidation gates (ML PPI):")
+    # Every PIN here is checked against its India Post office name by
+    # tests/test_refit_gates.py — several used to point at the wrong PIN
+    # (issue #5: "Indiranagar" was 560025 = Museum Road; Juhu, Koramangala,
+    # Hebbal, Electronic City, Borivali and Vashi had the same drift).
     gates = [("110003","110017","Golf Links > Saket"),
              ("110017","110040","Saket > Narela"),
              ("110003","110075","Golf Links > Dwarka"),
+             # 122022 is not an India Post PIN (no office in the directory). The honest
+             # replacement, DLF QE 122002 > Gurgaon 122001, FAILS on current data —
+             # left as-is pending a founder decision (fix brief item 2).
              ("122022","122002","Golf Course Rd > Gurgaon City"),
-             ("400021","400086","Cuffe Parade > Borivali"),
+             ("400021","400068","Nariman Point > Dahisar"),
              ("400006","400097","Malabar Hill > Malad East"),
-             ("400060","400614","Juhu > Vashi"),
-             ("560025","560035","Indiranagar > Electronic City"),
-             ("560025","560064","Indiranagar > Yelahanka"),
-             ("560027","560047","Koramangala > Hebbal")]
+             ("400049","400703","Juhu > Vashi"),
+             ("560038","560100","Indiranagar > Electronics City"),
+             ("560038","560064","Indiranagar > Yelahanka"),
+             ("560034","560024","Koramangala > Hebbal (H.A. Farm)")]
     gate_results = []
     for hi, lo, label in gates:
-        if hi in income_df.index and lo in income_df.index:
-            ok = income_df.loc[hi,"ppi_ml"] > income_df.loc[lo,"ppi_ml"]
-            r = (f"{'PASS' if ok else 'FAIL'}  {label}: "
-                 f"PPI({hi})={income_df.loc[hi,'ppi_ml']} vs PPI({lo})={income_df.loc[lo,'ppi_ml']}")
+        missing = [pc for pc in (hi, lo) if pc not in income_df.index]
+        if missing:
+            # Used to be skipped silently, so a gate PIN dropping out of the refit
+            # quietly turned the gate off. A missing gate PIN now fails the refit.
+            r = f"FAIL  {label}: gate PIN(s) {', '.join(missing)} missing from this refit"
             print(f"  {r}")
             gate_results.append(r)
+            continue
+        ok = income_df.loc[hi,"ppi_ml"] > income_df.loc[lo,"ppi_ml"]
+        r = (f"{'PASS' if ok else 'FAIL'}  {label}: "
+             f"PPI({hi})={income_df.loc[hi,'ppi_ml']} vs PPI({lo})={income_df.loc[lo,'ppi_ml']}")
+        print(f"  {r}")
+        gate_results.append(r)
 
     # ── PPI stability gate: no swing > 10pt vs previous run ──────────────────
     PPI_SWING_LIMIT = 10

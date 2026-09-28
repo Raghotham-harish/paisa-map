@@ -28,18 +28,19 @@ RAW    = ETL / "data" / "raw"
 OUT    = ETL / "data" / "output"
 PC_MAP = REF / "pincode_district_map.csv"
 
-# The 10 validation gates (higher-income pincode MUST score higher PPI)
+# The 10 validation gates (higher-income pincode MUST score higher PPI).
+# Same PINs as ml_refinement.py's gates (issue #5 re-keyed them to India Post names).
 VALIDATION_GATES = [
     ("110003", "Golf Links",        "110040", "Narela"),
     ("110003", "Golf Links",        "110017", "Saket"),
     ("110017", "Saket",             "110040", "Narela"),
     ("122022", "Golf Course Rd GGN","122002", "Gurgaon City"),
-    ("400021", "Cuffe Parade",      "400086", "Borivali"),
+    ("400021", "Nariman Point",     "400068", "Dahisar"),
     ("400006", "Malabar Hill",      "400097", "Malad East"),
-    ("400049", "Bandra West",       "400614", "Vashi"),
-    ("560025", "Indiranagar",       "560035", "Electronic City"),
-    ("560025", "Indiranagar",       "560064", "Yelahanka"),
-    ("560027", "Koramangala",       "560047", "Hebbal"),
+    ("400049", "Juhu",              "400703", "Vashi"),
+    ("560038", "Indiranagar",       "560100", "Electronics City"),
+    ("560038", "Indiranagar",       "560064", "Yelahanka"),
+    ("560034", "Koramangala",       "560024", "Hebbal (H.A. Farm)"),
 ]
 
 
