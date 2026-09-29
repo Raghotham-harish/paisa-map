@@ -106,4 +106,10 @@ for path in sorted(etl.glob("*.py")):
 check(hits and all(h.startswith("pincode_master.py:") for h in hits),
       f"PREFIX_STATE only in the fallback module, found {hits}")
 
+# The refit keeps its old grouping table until the PPI retrain (see the
+# comment on _REFIT_GROUP_PREFIX in ml_refinement.py and TODO.md). It must not
+# spread to other modules.
+held = [f"{p.name}" for p in sorted(etl.glob("*.py")) if "_REFIT_GROUP_PREFIX" in p.read_text()]
+check(held == ["ml_refinement.py"], f"legacy refit grouping only in ml_refinement.py, found {held}")
+
 print(f"\n{passed} checks passed")

@@ -51,7 +51,7 @@ from sklearn.metrics import mean_squared_error
 
 import _db
 from _filelock import write_lock
-from pincode_master import assert_real_pincode_ids, state_for_pincode
+from pincode_master import assert_real_pincode_ids
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW  = ROOT / "data" / "raw"
@@ -225,7 +225,7 @@ def load_features() -> pd.DataFrame:
         for s in frames.values():
             all_pincodes.update(s.index)
         growth_series = pd.Series(
-            {pc: vst_map.get(state_for_pincode(pc))
+            {pc: vst_map.get(PINCODE_STATE.get(pc) or _REFIT_GROUP_PREFIX.get(str(pc)[:2]))
              for pc in all_pincodes},
             name="vehicle_growth_4yr"
         )
@@ -253,19 +253,41 @@ def winsorize(s: pd.Series, lo=0.02, hi=0.98) -> pd.Series:
     return s.clip(s.quantile(lo), s.quantile(hi))
 
 
-def _state(pc: str) -> str:
-    """City group for within-city feature normalisation.
+# HELD UNTIL THE PPI RETRAIN (decided 2026-09-29). This is the refit's own
+# old prefix → group table, kept on purpose. It is wrong for ~6% of pincodes
+# (12x Gurgaon/Faridabad grouped with Delhi, Goa with Maharashtra,
+# Uttarakhand with UP, the 79x Northeast unmapped), but correcting it moves
+# the fitted PPI (median 1pt, 2.5% of pincodes >=10pt, up to 160pt) and ties
+# the Indiranagar > E-City gate, so the weekly refit would revert every week.
+# Enrichment (priors, same-state neighbours) already uses
+# pincode_master.state_for_pincode. Switch this to state_for_pincode as part
+# of the retrain + backtest (issue #7), not before. See TODO.md.
+_REFIT_GROUP_PREFIX: dict = {
+    "11": "DL", "12": "DL", "13": "HP", "14": "PB", "15": "PB",
+    "16": "CH", "17": "HP", "18": "JK", "19": "JK",
+    "20": "UP", "21": "UP", "22": "UP", "24": "UP",
+    "25": "UP", "26": "UP", "27": "UP", "28": "UP",
+    "30": "RJ", "31": "RJ", "32": "RJ", "33": "RJ", "34": "RJ",
+    "36": "GJ", "37": "GJ", "38": "GJ", "39": "GJ",
+    "40": "MH", "41": "MH", "42": "MH", "43": "MH", "44": "MH",
+    "45": "MP", "46": "MP", "47": "MP", "48": "MP", "49": "CG",
+    "50": "TS", "51": "AP", "52": "AP", "53": "AP",
+    "56": "KA", "57": "KA", "58": "KA", "59": "KA",
+    "60": "TN", "61": "TN", "62": "TN", "63": "TN", "64": "TN",
+    "67": "KL", "68": "KL", "69": "KL",
+    "70": "WB", "71": "WB", "72": "WB", "73": "WB", "74": "WB",
+    "75": "OD", "76": "OD", "77": "OD",
+    "78": "AS",
+    "80": "BR", "81": "BR", "82": "JH", "83": "JH",
+    "84": "BR", "85": "BR",
+}
 
-    PINCODE_STATE is an intentional metro grouping for the original anchor
-    set (Gurgaon is kept with Delhi NCR). It is not a state assignment.
-    Every other pincode uses state_for_pincode, which reads the India Post
-    reference and only falls back to a prefix — logged — when the pincode
-    is missing from that file.
-    """
-    grouped = PINCODE_STATE.get(pc)
-    if grouped:
-        return grouped
-    return state_for_pincode(pc)
+
+def _state(pc: str) -> str:
+    """Refit group for within-city feature normalisation: PINCODE_STATE (an
+    intentional metro grouping — Gurgaon kept with Delhi NCR), then the held
+    legacy prefix table above. Not a state assignment."""
+    return PINCODE_STATE.get(pc, _REFIT_GROUP_PREFIX.get(str(pc)[:2], "XX"))
 
 
 def load_district_groups() -> dict[str, str]:
