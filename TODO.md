@@ -5,6 +5,41 @@
 > long-form history; several sections below predate it. Items ticked on 2026-09-21 were
 > confirmed live from memory notes of the verified deploys, not re-tested today.
 
+## Signal quality & data integrity — backlog (GitHub issues #2–#9, updated 2026-09-29)
+
+Order agreed: #8 → #5 → #3 → #4 → #2 → #6 → #9 → #7, then retrain PPI without prior values + backtest.
+
+**Done**
+- [x] #8 — OSM-derived signals out of every paid surface; no Overpass lookup for new pincodes (live, e3448a1)
+- [x] #5 — refit gates keyed to the right India Post PINs; a missing gate PIN now fails the refit (live, e3448a1)
+- [x] Public data files: `poi` column dropped from `ppi_map_data.csv`; `broad_coverage.csv` HCES-only (live, e3448a1)
+
+**In review — Cursor branch, rebased onto main as `review/cursor-pincode-quality`**
+- [ ] #2 state from the India Post master · #3 no synthetic D-pincodes (252 rows quarantined) · #4 reject non-pincodes · #6 `cars_per_1000` ≡ `lmv_per_1000`
+- [x] Found in review: `deploy.sh`'s merge step would have re-added all 252 D rows from the server backup, and the refit would then abort. Fixed + tested (0c01248).
+- [ ] Decide: #2 changes the refit's city/state groups (Gurgaon/Faridabad no longer grouped with Delhi, Goa ≠ Maharashtra, Uttarakhand ≠ UP, Northeast mapped). Refit is deterministic, so the effect is real: median 1pt, 2.5% of pincodes move ≥10pt, max 160pt (e.g. Jalandhar 144001 189 → 65); Indiranagar-vs-E-City gate becomes a 113–113 tie → weekly refit would revert every Sunday.
+- [ ] After it deploys (owner runs, prod write): delete the 252 D rows from the Postgres `pincodes` table. Harmless meanwhile — the only bulk reader already filters them.
+
+**Data rebuild (do together with the PPI retrain)**
+- [ ] ~280 original hand-built core rows hold another place's coordinates + priors under the wrong PIN (e.g. 560034 row = Whitefield data 14 km off; 400068 = Powai 16 km off; Borivali / Kandivali / Malad W PINs missing entirely). Rebuild from India Post PIN → polygon, then refit.
+- [ ] 12 relabelled pincodes (`pincode_names.csv`) still sit at the old label place's coordinates; moving them tied the Indiranagar gate, so it waits for the rebuild.
+- [ ] States with no `CITY_PRIORS` entry (Odisha, Bihar, Assam, Uttarakhand, Jharkhand, HP, J&K, Chhattisgarh, the Northeast, UTs) fall back to the default prior.
+
+**Refit gates**
+- [ ] Indiranagar (560038) > Electronics City (560100) passes by 1pt on main — fragile.
+- [ ] Gurgaon gate uses 122022, which is not an India Post PIN; the honest pair 122002 (DLF) > 122001 fails 53 vs 131. Owner decision.
+- [ ] Stability gate (±10pt) only warns; make very large jumps (>50pt, e.g. Ballygunge 40 → 200) block the refit.
+
+**Next build items**
+- [ ] #9 — geocoder: Nominatim everywhere; batch log shows 818 geocode failures vs 607 successes. Needs a paid-geocoder budget decision.
+- [ ] #7 — most "signals" are state-prior constants, and the PPI target (within-city z of rate/sqft) is circular. Retrain without prior values + backtest.
+- [ ] Free map still calls Overpass from the browser (`index.html` ~L2391) — decide.
+- [ ] Signals Lite has 9 extras after the OSM slot was removed — pick the 10th or leave at 9 (U9).
+
+**Owner questions**
+- [ ] Consent / DPDP basis to use customer store revenue in backtests
+- [ ] PPI meaning: regional-relative ("100 = regional mean") or nationally comparable?
+
 ## Map-first workspace (branch `feat/map-first-workspace` → PR)
 
 **P1 + the project-setup wizard are built and Playwright-verified locally**
