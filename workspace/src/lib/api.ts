@@ -54,6 +54,16 @@ export interface User {
   credits_budget?: BudgetStatus | null;
   // This person's own allowance inside that company, if an admin set one.
   credits_member_budget?: BudgetStatus | null;
+  // Billing standing of the wallet behind this company: null when all is well. `locked`
+  // = a renewal has been unpaid past the grace days — spending is refused server-side.
+  account?: AccountStanding | null;
+}
+
+export interface AccountStanding {
+  past_due: boolean;
+  locked: boolean;
+  lock_at: string;
+  past_due_since: string;
 }
 
 export type BudgetPeriod = "billing_cycle" | "calendar_month" | "weekly" | "quarterly" | "one_off" | "until_date";
@@ -913,6 +923,8 @@ export interface PricingConfig {
   report_purchase_price_paise: number;
   /** What may be bought right now. Absent on an older server = everything (test-mode behaviour). */
   checkout?: { live: boolean; plans: boolean; credits: boolean; reports: boolean };
+  /** Whether monthly plan subscriptions can be started. Absent on an older server = no. */
+  subscriptions?: { enabled: boolean; reason: string | null };
   /** List prices are ex-GST; `charged` = GST is added on top at checkout. Absent on an older server = no GST shown. */
   gst?: { charged: boolean; rate: number; seller_state?: string; states?: Record<string, string> };
 }
@@ -929,6 +941,52 @@ export interface BuyerDetails {
 
 export function formatListPrice(paise: number, gstCharged?: boolean): string {
   return `₹${(paise / 100).toLocaleString("en-IN")}${gstCharged ? " + GST" : ""}`;
+}
+
+export type SubscriptionStatus =
+  | "created" | "authenticated" | "active" | "pending" | "halted" | "paused"
+  | "cancelled" | "completed" | "expired";
+
+// A company's monthly plan subscription as the Billing page may see it (no Razorpay ids).
+export interface SubscriptionView {
+  tier: string;
+  label: string;
+  cycle: string;
+  status: SubscriptionStatus;
+  amount_paise: number;
+  current_start: string | null;
+  current_end: string | null;
+  cancel_at_period_end: boolean;
+  ends_at: string | null;
+  paid_count: number | null;
+}
+
+export interface SubscriptionOption {
+  tier: string;
+  label: string;
+  list_paise: number;
+  // What one month actually charges right now (list + GST when GST is charged).
+  amount_paise: number;
+  credits_per_month?: number;
+  seats?: number | null;
+}
+
+export interface SubscriptionsResponse {
+  // Whether a subscription may be STARTED now; `reason` says why not.
+  state: { enabled: boolean; reason: string | null };
+  standing: AccountStanding | null;
+  // A plan PaisaMap set up directly (invoice/NEFT).
+  assisted: { tier: string; label: string; period_start: string | null; period_end: string | null } | null;
+  subscription: SubscriptionView | null;
+  options: SubscriptionOption[];
+}
+
+export interface SubscriptionCheckout {
+  razorpay_subscription_id: string;
+  razorpay_key_id: string;
+  amount_paise: number;
+  currency: string;
+  tier: string;
 }
 
 export type OrderKind = "credit_pack" | "plan_upgrade" | "report_purchase";
@@ -1200,6 +1258,26 @@ export const api = {
     }) as Promise<RazorpayOrderResponse>,
   verifyPayment: (params: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) =>
     request("/api/billing/verify", { method: "POST", body: JSON.stringify(params) }) as Promise<{ order: Order; status: string }>,
+  // Monthly plan subscriptions live on the PAYING company; owner/admin only.
+  getSubscriptions: (orgId?: number | null) =>
+    request(`/api/billing/subscriptions${orgId != null ? `?org_id=${orgId}` : ""}`) as Promise<SubscriptionsResponse>,
+  createSubscription: (tier: string, orgId?: number | null, billing?: BuyerDetails) =>
+    request("/api/billing/subscriptions", {
+      method: "POST",
+      body: JSON.stringify({ tier, ...(orgId != null ? { org_id: orgId } : {}), ...(billing ? { billing } : {}) }),
+    }) as Promise<SubscriptionCheckout>,
+  verifySubscription: (params: { razorpay_subscription_id: string; razorpay_payment_id: string; razorpay_signature: string }) =>
+    request("/api/billing/subscriptions/verify", { method: "POST", body: JSON.stringify(params) }) as
+      Promise<{ status: "active" | "pending"; subscription?: SubscriptionView }>,
+  cancelSubscription: (orgId?: number | null) =>
+    request("/api/billing/subscriptions/cancel", {
+      method: "POST", body: JSON.stringify(orgId != null ? { org_id: orgId } : {}),
+    }) as Promise<{ subscription: SubscriptionView | null }>,
+  // Replaces a failing subscription with a fresh one on a new payment method.
+  recoverSubscription: (orgId?: number | null) =>
+    request("/api/billing/subscriptions/recover", {
+      method: "POST", body: JSON.stringify(orgId != null ? { org_id: orgId } : {}),
+    }) as Promise<SubscriptionCheckout>,
   listInvoices: () => request("/api/billing/invoices") as Promise<{ invoices: Invoice[] }>,
   invoiceDownloadUrl: (id: number) => `/api/billing/invoices/${id}/download`,
 

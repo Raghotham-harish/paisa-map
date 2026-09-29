@@ -80,8 +80,18 @@ The webhook is the existing `/api/billing/webhook`, now also handling `subscript
   paid period ended used to let the *old* subscription's end revoke the plan the *new*
   one had just granted.
 
-**Still not done for P13:** the frontend blur overlay and Billing UI ("update payment"
-button), and the deferred top-up accrual ledger (mid-cycle top-ups billed on the next
+**Frontend (Billing UI v2, 2026-09-30):** the Billing page's Plan section becomes
+`components/SubscriptionPanel.tsx` once subscriptions are enabled (or a company has a
+subscription/assisted plan/failed payment): Starter/Growth cards → Razorpay Checkout
+(`subscription_id` flow) → `/subscriptions/verify`; current plan + next renewal; cancel
+(keeps access to period end); a failed renewal shows "Update payment method" (→ `/recover`)
+and replaces credit-pack buttons with a "paused" note (the server 402s them anyway). The
+workspace shell shows a banner during the grace days and, once locked, a blur overlay on
+every page except Billing (`App.tsx`, reads `/api/auth/me` `account`). Browser-verified
+locally in all six states. Known gap: `account` on /me is the user's *primary* company's
+standing, not the company picked in the switcher.
+
+**Still not done for P13:** the deferred top-up accrual ledger (mid-cycle top-ups billed on the next
 renewal via Razorpay add-ons). Top-ups are a normal one-off checkout for now.
 
 ## Assisted sales — the invoice/NEFT rail (round 3)
@@ -177,6 +187,6 @@ sales still grant all their months' credits up front with no expiry; v2 top-ups
 ## Not in this round (Gantt order)
 
 P4 trial, P6 paywall,
-P5 seats, P7 signal tiers, Billing UI v2 (no frontend yet), a
+P5 seats, P7 signal tiers, a
 reconcile job for a missed `charged` webhook, gap-free invoice numbering under
 concurrent duplicate deliveries.

@@ -568,6 +568,10 @@ check(r.status_code == 200 and j["subscription"]["tier"] == "growth" and j["subs
       "the owner reads the subscription")
 check("razorpay" not in json.dumps(j["subscription"]), "the view never exposes Razorpay ids")
 check({o["tier"] for o in j["options"]} == {"starter", "growth"}, "options list only self-serve tiers")
+_opt = {o["tier"]: o for o in j["options"]}
+check(_opt["growth"]["credits_per_month"] == _pricing.TIERS["growth"]["credits_per_month"]
+      and _opt["starter"]["seats"] == _pricing.TIERS["starter"]["seats"],
+      "options carry each tier's monthly credits and seats (what the plan cards show)")
 check(client_as(m_user).get(f"/api/billing/subscriptions?org_id={h_org}").status_code == 403, "a member can't read it")
 check(client_as(x_user).get(f"/api/billing/subscriptions?org_id={h_org}").status_code == 403, "a stranger can't read it")
 

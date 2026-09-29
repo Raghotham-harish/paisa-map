@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, BudgetStatus, BuyerDetails, CreditLedgerEntry, formatListPrice, Invoice, PaidBy, PricingConfig } from "../lib/api";
+import {
+  api, ApiError, BudgetStatus, BuyerDetails, CreditLedgerEntry, formatListPrice, Invoice, PaidBy, PricingConfig,
+  SubscriptionsResponse,
+} from "../lib/api";
 import { EmptyState } from "../components/EmptyState";
 import { useAuth } from "../lib/auth";
 import { useWorkspace } from "../lib/workspace";
@@ -13,6 +16,7 @@ import { BudgetsManager } from "../components/BudgetsManager";
 import { MemberBudgetsManager } from "../components/MemberBudgetsManager";
 import { LinkRequestsInbox, WhoPaysPanel } from "../components/WhoPays";
 import { BillingDetails, BUYER_ERRORS, EMPTY_BUYER } from "../components/BillingDetails";
+import { LIVE_STATUSES, SubscriptionPanel, subscriptionPanelActive } from "../components/SubscriptionPanel";
 
 const PLAN_ORDER: Array<"free" | "pro" | "team"> = ["free", "pro", "team"];
 
@@ -48,6 +52,13 @@ export default function Billing() {
   const [buying, setBuying] = useState<string | null>(null);
   const [buyError, setBuyError] = useState<string | null>(null);
   const [buyer, setBuyer] = useState<BuyerDetails>(EMPTY_BUYER);
+  // Monthly plan subscription of the paying company. null = not loaded, or not yours to manage
+  // (only the paying company's owner/admin may) — either way the legacy plan section shows.
+  const [subs, setSubs] = useState<SubscriptionsResponse | null>(null);
+
+  const loadSubs = () => {
+    api.getSubscriptions(activeOrgId).then(setSubs).catch(() => setSubs(null));
+  };
 
   const loadInvoices = () => {
     setInvoicesError(null);
@@ -74,9 +85,26 @@ export default function Billing() {
   // The wallet shown is the selected company's, so reload when the switcher changes.
   useEffect(() => {
     loadCredits();
+    setSubs(null);
+    loadSubs();
     setBuyer(EMPTY_BUYER);
     api.getBuyerDetails(activeOrgId).then((d) => setBuyer(d.buyer ?? EMPTY_BUYER)).catch(() => {});
   }, [activeOrgId]);
+
+  const onSubsChanged = () => {
+    loadSubs();
+    loadCredits();
+    loadInvoices();
+    refresh();
+  };
+
+  const subsActive = subscriptionPanelActive(subs);
+  const walletHidden = !!paidBy && balance == null;
+  const canSubscribe = !!subs?.state.enabled && !subs.assisted
+    && !(subs.subscription && LIVE_STATUSES.includes(subs.subscription.status));
+  // One GST-details form for every purchase on the page (a plan and credit packs alike).
+  const showBuyerForm = !!pricing?.gst?.charged && !!pricing.gst.states && !walletHidden
+    && (canSubscribe || (pricing.checkout?.credits !== false && !subs?.standing));
 
   const checkoutError = (e: unknown) =>
     (e instanceof ApiError && BUYER_ERRORS[e.message]) || "Couldn't start checkout — try again.";
@@ -140,10 +168,26 @@ export default function Billing() {
 
       {error && <div style={{ color: "var(--flame)", fontSize: 12, marginBottom: 10 }}>{error}</div>}
 
+      {showBuyerForm && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <BillingDetails value={buyer} onChange={setBuyer} states={pricing!.gst!.states!} />
+        </div>
+      )}
+
       <p className="kicker" style={{ marginBottom: 10 }}>Plan</p>
+      {subs && subsActive && (
+        <SubscriptionPanel
+          data={subs}
+          orgId={activeOrgId}
+          buyer={buyer}
+          gstCharged={!!pricing?.gst?.charged}
+          email={user?.email}
+          onChanged={onSubsChanged}
+        />
+      )}
       {/* An account on a price-book tier isn't on the legacy Pro/Team ladder below: offering it "Upgrade to Team
           ₹2,999" would be both wrong and cheaper than the tier it holds. Its plan is set up with PaisaMap directly. */}
-      {pricing && user && user.tier?.startsWith("v2_") && (
+      {!subsActive && pricing && user && user.tier?.startsWith("v2_") && (
         <div className="card" style={{ borderColor: "var(--rupee)", marginBottom: 28 }} data-testid="v2-plan-card">
           <p style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700 }}>{user.tier_label}</p>
           <span className={`pill plan-${user.plan}`}>Current plan</span>
@@ -152,7 +196,7 @@ export default function Billing() {
           </p>
         </div>
       )}
-      {pricing && user && !user.tier?.startsWith("v2_") && (
+      {!subsActive && pricing && user && !user.tier?.startsWith("v2_") && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 28 }}>
           {PLAN_ORDER.map((plan) => {
             const isCurrent = user.plan === plan;
@@ -224,7 +268,16 @@ export default function Billing() {
           </div>
         </div>
       )}
-      {pricing && !(paidBy && balance == null) && pricing.checkout?.credits === false && (
+      {/* The server refuses top-ups while a renewal is unpaid (402 unpaid_balance) — say so instead. */}
+      {pricing && !walletHidden && subs?.standing && (
+        <div className="card" style={{ marginBottom: 20 }} data-testid="purchases-paused">
+          <p className="kicker" style={{ marginBottom: 8 }}>Buy credits</p>
+          <div style={{ fontSize: 13 }}>
+            Buying credits is paused until the failed plan payment is fixed (see Plan above).
+          </div>
+        </div>
+      )}
+      {pricing && !walletHidden && !subs?.standing && pricing.checkout?.credits === false && (
         <div className="card" style={{ marginBottom: 20 }} data-testid="purchases-not-open">
           <p className="kicker" style={{ marginBottom: 8 }}>Buy credits</p>
           <div style={{ fontSize: 13 }}>
@@ -232,12 +285,9 @@ export default function Billing() {
           </div>
         </div>
       )}
-      {pricing && !(paidBy && balance == null) && pricing.checkout?.credits !== false && (
+      {pricing && !walletHidden && !subs?.standing && pricing.checkout?.credits !== false && (
         <div className="card" style={{ marginBottom: 20 }}>
           <p className="kicker" style={{ marginBottom: 14 }}>Buy credits</p>
-          {pricing.gst?.charged && pricing.gst.states && (
-            <BillingDetails value={buyer} onChange={setBuyer} states={pricing.gst.states} />
-          )}
           {buyError && <div style={{ color: "var(--flame)", fontSize: 12, marginBottom: 10 }}>{buyError}</div>}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             {Object.entries(pricing.credit_packs).map(([packId, pack]) => (

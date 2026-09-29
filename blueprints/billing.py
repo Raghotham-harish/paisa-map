@@ -569,7 +569,8 @@ def get_subscription(user_id):
         "assisted": _assisted_sale.public_view(_assisted_sale.active_for_org(payer)) if ready else None,
         "subscription": _subscriptions.public_view(_subscriptions.get_latest(payer)) if ready else None,
         "options": [{"tier": t, "label": _pricing.TIERS[t]["label"],
-                     "list_paise": _pricing.subscription_list_paise(t), "amount_paise": _sub_amount(t)}
+                     "list_paise": _pricing.subscription_list_paise(t), "amount_paise": _sub_amount(t),
+                     "credits_per_month": _pricing.TIERS[t]["credits_per_month"], "seats": _pricing.TIERS[t]["seats"]}
                     for t in _pricing.TIERS if _pricing.subscription_error(t) is None],
     })
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { Link, Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { fmtDate } from "./components/SubscriptionPanel";
 import { useAuth } from "./lib/auth";
 import { WorkspaceProvider, useSyncProjectFromUrl } from "./lib/workspace";
 import { ProjectSwitcher } from "./components/ProjectSwitcher";
@@ -172,6 +173,27 @@ export default function App() {
             {DESKTOP_PAGES.includes(location.pathname) && (
               <div className="desktop-hint" role="note">
                 <i className="ti ti-device-desktop" aria-hidden="true" /> This page is easier on a computer.
+              </div>
+            )}
+            {/* A failed renewal (P13). The server already refuses paid actions once locked;
+                this is only the explanation. Billing stays usable so it can be fixed. */}
+            {user.account?.past_due && !user.account.locked && location.pathname !== "/billing" && (
+              <div className="past-due-banner" role="alert" data-testid="past-due-banner">
+                <i className="ti ti-alert-triangle" aria-hidden="true" />
+                <span>Your last payment failed. Update your payment method by {fmtDate(user.account.lock_at)} to keep using paid features.</span>
+                <Link to="/billing">Fix in Billing</Link>
+              </div>
+            )}
+            {user.account?.locked && location.pathname !== "/billing" && (
+              <div className="lock-overlay" data-testid="lock-overlay">
+                <div className="card lock-card" role="alertdialog" aria-labelledby="lock-title">
+                  <p id="lock-title" style={{ margin: "0 0 8px", fontSize: 18, fontWeight: 700 }}>Your account is paused</p>
+                  <p style={{ margin: "0 0 16px", fontSize: 13.5 }}>
+                    This month's plan renewal is still unpaid. Your projects, saved locations and reports are safe —
+                    everything comes back the moment a payment goes through.
+                  </p>
+                  <Link className="btn" to="/billing">Update payment in Billing</Link>
+                </div>
               </div>
             )}
             <Routes>
