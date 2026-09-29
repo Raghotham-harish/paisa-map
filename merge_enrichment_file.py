@@ -18,9 +18,16 @@ Exits 0 and leaves repo_path untouched on any error (missing pincode
 column, unparseable CSV, etc.) — never risk corrupting the repo's already-
 correct content just because the merge itself couldn't run.
 """
+import re
 import sys
 
 import pandas as pd
+
+# Same rule as pincode_master.REAL_PINCODE_RE (kept inline: this script runs
+# from the repo root with no etl/ on sys.path). Issue #3: synthetic D######
+# ids were quarantined out of the repo; a server-side backup still carrying
+# them must not put them back, or ml_refinement refuses to write.
+REAL_PINCODE_RE = re.compile(r"^[1-9]\d{5}$")
 
 
 def main():
@@ -40,7 +47,8 @@ def main():
         print(f"[merge] {repo_path}: no pincode column, nothing to merge")
         return 0
 
-    bak_new = bak[bak["pincode"].notna() & (bak["pincode"] != "")]
+    bak_new = bak[bak["pincode"].notna()
+                  & bak["pincode"].astype(str).str.strip().str.fullmatch(REAL_PINCODE_RE)]
     new_only = bak_new[~bak_new["pincode"].isin(set(repo["pincode"]))]
 
     if new_only.empty:

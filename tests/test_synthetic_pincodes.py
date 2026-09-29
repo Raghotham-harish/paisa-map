@@ -91,4 +91,18 @@ with open(inv, newline="") as f:
 check(inv_rows and all(not PIN.fullmatch(r["pincode"]) for r in inv_rows),
       "other invalid pincode rows were quarantined rather than deleted")
 
+# deploy.sh restores server-side-only rows with merge_enrichment_file.py. The
+# server's pre-deploy backup still holds the D###### rows, so the merge must
+# not add them back (or ml_refinement's assert_real_pincode_ids aborts the refit).
+import subprocess, sys as _sys, tempfile
+with tempfile.TemporaryDirectory() as td:
+    repo_f, bak_f = Path(td, "repo.csv"), Path(td, "bak.csv")
+    repo_f.write_text("pincode,rate\n560038,100\n")
+    bak_f.write_text("pincode,rate\n560038,999\nD123456,5\n012345,6\n,7\n560100,80\n")
+    subprocess.run([_sys.executable, str(REPO / "merge_enrichment_file.py"), str(bak_f), str(repo_f)],
+                   check=True, capture_output=True)
+    merged = repo_f.read_text().split()
+    check(merged == ["pincode,rate", "560038,100", "560100,80"],
+          f"deploy merge re-adds only real server-side pincodes, got {merged}")
+
 print(f"\n{passed} checks passed")
