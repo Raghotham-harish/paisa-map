@@ -498,16 +498,6 @@ def _get_tables():
         # charges, "buyer": the GST-invoice details given}. Each charge's order
         # copies it, so every invoice uses the same place of supply and heads.
         Column("meta", JSONType),
-        # P4 free trial: a Starter subscription whose first charge is scheduled
-        # TRIAL_DAYS out (Razorpay start_at). trial_ends_at is that scheduled charge
-        # time; trial_started_at is stamped when the mandate/card is authenticated
-        # and the trial plan + credits are granted; trial_ended_at when the trial is
-        # over (converted by a charge, or taken back to Free); trial_reminded_at
-        # once the "trial ends tomorrow" email is claimed.
-        Column("trial_ends_at", DateTime(timezone=True)),
-        Column("trial_started_at", DateTime(timezone=True)),
-        Column("trial_ended_at", DateTime(timezone=True)),
-        Column("trial_reminded_at", DateTime(timezone=True)),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("updated_at", DateTime(timezone=True), nullable=False),
         Index("ix_subscriptions_org", "org_id"),
@@ -636,6 +626,25 @@ def _get_tables():
         Index("ix_credit_lots_wallet_expiry", "billing_org_id", "expires_at"),
     )
 
+    # Billing-v2 P4: the no-card free trial. One row per trial ever started. The
+    # UNIQUE company and UNIQUE person are the real "one trial each" rule — two
+    # racing clicks, or a second company of the same person, hit the constraint.
+    # The trial gives the PAYING company the 'trial' plan + TRIAL_CREDITS until
+    # ends_at; then (unless it has subscribed) the sweep puts it back on Free.
+    # outcome: NULL while running, 'converted' (had a paid plan by the end) or
+    # 'lapsed' (went back to Free). Created by db/apply_subscriptions_tables.py.
+    trials = Table(
+        "trials", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("org_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, unique=True),
+        Column("user_id", Integer, ForeignKey("users.id", ondelete="SET NULL"), unique=True),
+        Column("started_at", DateTime(timezone=True), nullable=False),
+        Column("ends_at", DateTime(timezone=True), nullable=False),
+        Column("reminded_at", DateTime(timezone=True)),
+        Column("ended_at", DateTime(timezone=True)),
+        Column("outcome", Text),
+    )
+
     # A paying company's REQUEST to pay for another company's credits. It is
     # addressed to an EMAIL (the person who should decide), never to a specific
     # company: the recipient picks which company they own to link when approving,
@@ -682,6 +691,7 @@ def _get_tables():
         "subscriptions": subscriptions, "razorpay_plans": razorpay_plans,
         "assisted_sales": assisted_sales,
         "credit_lots": credit_lots,
+        "trials": trials,
     }
     return _tables
 
@@ -707,7 +717,7 @@ def init_schema():
         tables["api_keys"], tables["credit_budgets"], tables["credit_member_budgets"],
         tables["credit_link_requests"], tables["org_domains"],
         tables["subscriptions"], tables["razorpay_plans"], tables["assisted_sales"],
-        tables["credit_lots"],
+        tables["credit_lots"], tables["trials"],
     ])
     _ensure_invoice_sequence(engine)
 

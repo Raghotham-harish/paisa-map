@@ -4,8 +4,8 @@ subscription_sweep.py — the time-driven half of subscription billing (P2 + P13
     period is over;
   * emails the paying company once when a renewal has failed, and once more when
     the lock starts (the lock itself needs no job — it is computed at read time);
-  * P4 free trials: emails "your trial ends tomorrow" once, marks converted trials
-    ended, and takes a trial whose first charge never landed back to Free;
+  * P4 no-card free trials: emails "your trial ends tomorrow" once, and at the end
+    puts a company still on the trial back on Free (or marks it converted);
   * writes off plan credits that have expired (P3) in wallets nobody has looked
     at since — balance reads and spends also do this for their own wallet.
 Idempotent, and each email is claimed with a conditional UPDATE so overlapping runs
@@ -36,5 +36,6 @@ if not S.tables_ready():
 
 print(f"revoked plans for {S.sweep_ended()} ended subscription(s)")
 print(f"sent {len(S.dunning_sweep())} dunning notice(s)")
-print(f"sent {len(S.trial_sweep())} trial notice(s)")
+import _trial  # noqa: E402
+print(f"sent {len(_trial.sweep())} trial notice(s)")
 print(f"wrote off {S.A.expire_due_credits()} expired plan credit(s)")

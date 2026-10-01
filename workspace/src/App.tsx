@@ -84,14 +84,15 @@ function Paid({ children }: { children: JSX.Element }) {
         <i className="ti ti-lock" aria-hidden="true" /> Projects, forecasts and reports are part of a paid plan
       </p>
       <p style={{ margin: "0 0 14px", fontSize: 14 }}>
-        Start a free 7-day trial — or pick a plan — to plan expansions, forecast revenue, compare sites and
-        generate reports. Anything this company already saved is kept and comes back as soon as it has a plan.
+        Choose a plan to plan expansions, forecast revenue, compare sites and generate reports — a company
+        that hasn't had one yet can start with a free 7-day trial, no card needed. Anything this company
+        already saved is kept and comes back as soon as it has a plan.
       </p>
       <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--ink-soft)" }}>
         The map and your saved locations stay free.
       </p>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <Link className="btn" to="/billing">Start free trial or choose a plan</Link>
+        <Link className="btn" to="/billing">See plans and the free trial</Link>
         <Link className="btn secondary" to="/map">Open the map</Link>
       </div>
     </div>

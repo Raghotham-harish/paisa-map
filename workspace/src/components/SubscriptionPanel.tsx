@@ -15,7 +15,6 @@ const ERRORS: Record<string, string> = {
   no_subscription: "There's no subscription to cancel — refresh the page.",
   not_configured: "Payments aren't set up on this server.",
   trial_not_available: "This company, or your account, has already had a free trial — pick a plan instead.",
-  trial_tier: "The free trial leads into Starter.",
 };
 
 export function fmtDate(iso: string | null | undefined): string {
@@ -60,17 +59,28 @@ export function SubscriptionPanel({
   const [note, setNote] = useState<string | null>(null);
 
   const sub = data.subscription;
-  const trial = sub?.trial ?? null;
-  // A trial whose first charge never went through is still "live" at Razorpay (retrying),
-  // but the company is back on Free and may subscribe again: treat it as not live here.
-  const lapsed = !!sub && LIVE_STATUSES.includes(sub.status) && trial?.state === "lapsed";
-  const live = !!sub && LIVE_STATUSES.includes(sub.status) && !lapsed;
-  const inTrial = live && (trial?.state === "running" || trial?.state === "pending");
+  const live = !!sub && LIVE_STATUSES.includes(sub.status);
   const standing = data.standing;
   const offer = data.trial?.available ? data.trial : null;
+  const trial = data.current_trial ?? null;
+  const trialRunning = trial?.state === "running";
 
-  const checkout = async (key: string, label: string, start: () => Promise<SubscriptionCheckout>,
-                          isTrial = false) => {
+  const onStartTrial = async () => {
+    setBusy("trial");
+    setError(null);
+    setNote(null);
+    try {
+      const r = await api.startTrial(orgId);
+      setNote(`Your free trial has started — ${r.trial.credits.toLocaleString("en-IN")} credits are in your balance until ${fmtDate(r.trial.ends_at)}.`);
+      onChanged();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const checkout = async (key: string, label: string, start: () => Promise<SubscriptionCheckout>) => {
     setBusy(key);
     setError(null);
     setNote(null);
@@ -79,17 +89,13 @@ export function SubscriptionPanel({
       await openSubscriptionCheckout({
         key: co.razorpay_key_id,
         subscription_id: co.razorpay_subscription_id,
-        description: isTrial ? `${label} — free trial, then monthly` : `${label} plan — monthly`,
+        description: `${label} plan — monthly`,
         prefillEmail: email,
         onSuccess: async (resp) => {
           try {
             const r = await api.verifySubscription(resp);
-            setNote(r.status === "trial"
-              ? `Your free trial has started — ${data.trial?.credits ?? ""} credits are in your balance. ${label} begins on ${fmtDate(r.subscription?.trial?.ends_at)} unless you cancel before then.`
-              : r.status === "active"
+            setNote(r.status === "active"
               ? `Done — you're on ${label}. Your monthly credits are in your balance.`
-              : isTrial
-              ? "We're waiting for your bank to confirm the payment method. Your trial starts in a few minutes."
               : "Payment received — we're waiting for the bank to confirm it. Your plan switches on in a few minutes.");
           } catch {
             setError("Your payment went through but we couldn't confirm it yet. Refresh in a minute — you won't be charged twice.");
@@ -111,9 +117,7 @@ export function SubscriptionPanel({
 
   const onCancel = async () => {
     if (!sub) return;
-    const msg = trial?.state === "running"
-      ? `Cancel your free trial? You won't be charged, and you keep the trial until ${fmtDate(trial.ends_at)}.`
-      : sub.status === "active"
+    const msg = sub.status === "active"
       ? `Cancel the ${sub.label} plan? You keep it until ${fmtDate(sub.current_end)} and won't be charged again. There's no refund for the current month.`
       : `Cancel the ${sub.label} plan? It hasn't been paid for yet, so it ends now.`;
     if (!window.confirm(msg)) return;
@@ -175,17 +179,12 @@ export function SubscriptionPanel({
               </p>
             </div>
             <span className={`pill ${standing ? "rejected" : sub.cancel_at_period_end ? "reviewing" : "approved"}`}>
-              {standing ? "Payment failed" : sub.cancel_at_period_end ? "Cancelling"
-                : trial?.state === "running" ? "Free trial" : !sub.paid_count ? "Setting up" : "Active"}
+              {standing ? "Payment failed" : sub.cancel_at_period_end ? "Cancelling" : !sub.paid_count ? "Setting up" : "Active"}
             </span>
           </div>
           <p style={{ margin: "12px 0 0", fontSize: 13 }} data-testid="renewal-line">
             {standing
               ? "This month's renewal hasn't been paid yet — see above."
-              : trial?.state === "running"
-              ? `Free trial until ${fmtDate(trial.ends_at)}. ${sub.label} then starts at ₹${(sub.amount_paise / 100).toLocaleString("en-IN")} a month on the payment method you set up, unless you cancel before then.`
-              : trial?.state === "pending"
-              ? "We're waiting for your bank to confirm the payment method. Your free trial starts as soon as it does."
               : !sub.paid_count
               ? "We're waiting for the first payment to be confirmed. Your plan switches on as soon as it is."
               : sub.cancel_at_period_end
@@ -195,7 +194,7 @@ export function SubscriptionPanel({
           {!sub.cancel_at_period_end && (
             <button className="btn secondary" style={{ marginTop: 14 }} disabled={busy !== null}
                     onClick={onCancel} data-testid="cancel-subscription">
-              {busy === "cancel" ? "Cancelling…" : inTrial ? "Cancel trial" : "Cancel plan"}
+              {busy === "cancel" ? "Cancelling…" : "Cancel plan"}
             </button>
           )}
         </div>
@@ -203,37 +202,40 @@ export function SubscriptionPanel({
 
       {!live && sub && ENDED.includes(sub.status) && (
         <p style={{ fontSize: 13, color: "var(--ink-soft)", margin: "0 0 12px" }} data-testid="ended-subscription">
-          {trial?.state === "running"
-            ? `Your free trial is cancelled — you keep it until ${fmtDate(trial.ends_at)} and won't be charged.`
-            : trial?.state === "pending" || trial?.state === "lapsed"
-            ? "Your free trial has ended."
-            : `Your ${sub.label} subscription ended${sub.ends_at ? ` on ${fmtDate(sub.ends_at)}` : ""}.`}
+          Your {sub.label} subscription ended{sub.ends_at ? ` on ${fmtDate(sub.ends_at)}` : ""}.
         </p>
       )}
 
-      {lapsed && (
-        <div className="card" style={{ marginBottom: 14 }} data-testid="trial-lapsed">
-          <p style={{ margin: "0 0 6px", fontWeight: 700 }}>Your free trial has ended</p>
-          <p style={{ margin: 0, fontSize: 13 }}>
-            The first {sub!.label} payment didn't go through, so this company is on the free plan now. Your projects,
-            saved locations and reports are all kept — subscribe below to pick up where you left off.
+      {trialRunning && !live && !data.assisted && (
+        <div className="card" style={{ borderColor: "var(--rupee)", marginBottom: 14 }} data-testid="trial-running">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
+            <p style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 700 }}>Free trial</p>
+            <span className="pill approved">Until {fmtDate(trial!.ends_at)}</span>
+          </div>
+          <p style={{ margin: "8px 0 0", fontSize: 13 }}>
+            You have the full dashboard until {fmtDate(trial!.ends_at)}. To keep it, choose a plan below — you can do
+            that any time, and it starts straight away. If you don't, the account goes back to the free plan; nothing
+            you saved is deleted. We don't have a card on file, so nothing is charged automatically.
           </p>
         </div>
       )}
 
+      {trial?.state === "ended" && trial.outcome === "lapsed" && !live && !data.assisted && (
+        <p style={{ fontSize: 13, color: "var(--ink-soft)", margin: "0 0 12px" }} data-testid="trial-ended">
+          Your free trial ended on {fmtDate(trial.ends_at)}. Choose a plan to pick up where you left off — everything
+          you saved is still here.
+        </p>
+      )}
+
       {showOptions && offer && (
         <div className="card" style={{ borderColor: "var(--rupee)", marginBottom: 14 }} data-testid="trial-offer">
-          <p style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 700 }}>Try {offer.label} free for {offer.days} days</p>
+          <p style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 700 }}>Try the full dashboard free for {offer.days} days</p>
           <p style={{ margin: "0 0 12px", fontSize: 13 }}>
-            The full dashboard and {offer.credits.toLocaleString("en-IN")} credits to use during the trial. Set up UPI
-            Autopay or a card now — nothing is charged today. {offer.label} then starts at
-            ₹{(offer.amount_paise / 100).toLocaleString("en-IN")} a month{gstCharged ? " incl. GST" : ""} unless you
-            cancel before the trial ends.
+            Projects, forecasts, reports and store data, with {offer.credits.toLocaleString("en-IN")} credits to use
+            during the trial. No card needed — when it ends, choose a plan or carry on with the free map.
           </p>
-          <button className="btn" disabled={busy !== null} data-testid="start-trial"
-                  onClick={() => checkout("trial", offer.label,
-                                          () => api.createSubscription(offer.tier, orgId, buyer, true), true)}>
-            {busy === "trial" ? "Opening…" : "Start free trial"}
+          <button className="btn" disabled={busy !== null} onClick={onStartTrial} data-testid="start-trial">
+            {busy === "trial" ? "Starting…" : "Start free trial"}
           </button>
         </div>
       )}

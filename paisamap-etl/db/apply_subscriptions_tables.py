@@ -1,6 +1,7 @@
 """
 apply_subscriptions_tables.py — creates the billing-v2 P2 tables (`subscriptions`,
-`razorpay_plans`) and the assisted-sale audit table (`assisted_sales`) and adds any of their columns that are missing.
+`razorpay_plans`), the assisted-sale audit table (`assisted_sales`), P3's `credit_lots`
+and P4's `trials`, and adds any of their columns that are missing.
 
 Needs the NEW code deployed (it uses the code's own table definitions, so the
 tables can never drift from what the app expects). Only ever ADDS: it creates
@@ -24,7 +25,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "etl"))
 import _auth_db as A  # noqa: E402
 from sqlalchemy import inspect, text  # noqa: E402
 
-TABLES = ("subscriptions", "razorpay_plans", "assisted_sales", "credit_lots")
+TABLES = ("subscriptions", "razorpay_plans", "assisted_sales", "credit_lots", "trials")
 
 if not os.environ.get("DATABASE_URL"):
     sys.exit("DATABASE_URL is not set")

@@ -184,45 +184,58 @@ for everyone else — never taking a wallet below zero. `/api/credits` returns
 sales still grant all their months' credits up front with no expiry; v2 top-ups
 (60 days) have no purchase flow yet; annual +5% (annual is invoice-only).
 
-## P4 — the 7-day free trial (built 2026-10-01)
+## P4 — the 7-day free trial, no card (built 2026-10-01)
 
-Card/mandate-required (decision #2). A trial is an ordinary **Starter** subscription
-created with Razorpay `start_at` = now + `TRIAL_DAYS` (7), so Checkout only
-*authenticates* the card or UPI mandate — Razorpay takes a token amount and refunds it.
-`POST /subscriptions {"tier":"starter","trial":true}`; `GET /subscriptions` returns
-`trial: {available, reason, days, credits, tier, label, amount_paise}` and each
-subscription view carries `trial: {state: pending|running|lapsed|converted, ends_at}`.
+**No card** (U10, decided 2026-10-01 — reverses decision #2's "card-required"; the first
+build used a Razorpay `start_at` mandate and was replaced the same day). Nothing is charged
+automatically, ever.
 
-- **Start:** `/subscriptions/verify` (Razorpay reports `authenticated`, `paid_count` 0) or
-  the `subscription.authenticated` webhook → `start_trial`: company plan `v2_trial`
-  (dashboard, all signals, no raised API limit) + `TRIAL_CREDITS` (500) as one lot that
-  expires at the trial's end. Idempotent; the credit grant heals a crash on the next call.
-- **Money guard:** `/verify` never treats a payment as a charge while Razorpay says
-  `paid_count` is 0 — for trials *and* ordinary subscriptions. Before this, the trial's
-  token authentication payment would have been recorded as a paid Starter month.
-- **Day 8:** Razorpay charges; `subscription.charged` → `apply_charge` grants Starter and
-  its 1,000 credits exactly like a renewal.
-- **First charge fails:** `TRIAL_GRACE_HOURS` (12) after the scheduled charge the sweep
-  takes `v2_trial` back to **Free** and emails the payers once. Not past due, never
-  locked. A later Razorpay retry that succeeds grants Starter. Subscribing again cancels
-  the old (still-retrying) mandate at Razorpay first.
-- **Cancel during the trial:** cancelled at Razorpay immediately (nothing will be charged);
-  the company keeps the trial until its end, then Free, no "payment failed" email.
-- **Reminder:** `TRIAL_REMINDER_HOURS` (24) before the charge, one "your trial ends
-  tomorrow" email to owners/admins (needs SES, like dunning). Razorpay's own pre-debit
-  notification is separate (`customer_notify: 1`).
-- **One trial per company and per person, ever** — a company that had a trial or any paid
-  subscription, or a person who started a trial anywhere, gets `trial_used`; a company on
-  a dashboard plan gets `has_plan`.
-- **Schema:** four nullable columns on `subscriptions` (`trial_ends_at`,
-  `trial_started_at`, `trial_ended_at`, `trial_reminded_at`). `apply_subscriptions_tables.py`
-  creates them with the table, or adds them if the table already exists.
-- **Not in P4:** the Free-account limits (3 core signals, no dashboard) are P6/P7
-  enforcement; a trial banner on the dashboard; changing tier during a trial.
+- `POST /api/billing/trial` (owner/admin of the paying company; same dark gate as
+  subscriptions) → the company's plan becomes `v2_trial` (dashboard, all signals, no raised
+  API limit) and `TRIAL_CREDITS` (500) land as one lot that expires with the trial.
+  No Razorpay call, no order, no invoice.
+- `GET /subscriptions` returns `trial: {available, reason, days, credits}` and
+  `current_trial: {state: running|ended, ends_at, outcome, credits}`.
+- **Subscribing during the trial** works at once (a paid tier outranks `trial`); the
+  plan's credits arrive on top of what's left of the trial's.
+- **End** (`_trial.sweep`, hourly cron + webhook + Billing reads): still on `v2_trial` →
+  back to Free, outcome `lapsed`, one email; on a paid plan → outcome `converted`, nothing
+  undone. A plan someone set by hand is never touched. `TRIAL_REMINDER_HOURS` (24) before,
+  one "subscribe to keep access" email — skipped if it already subscribed. Emails need SES.
+- **One trial per company and per person, ever**, and none for a company that has paid for
+  a subscription before or already has the dashboard (`trial_used` / `has_plan`). The
+  `trials` table's UNIQUE `org_id` and UNIQUE `user_id` enforce it even under a race.
+  *Known weakness of no-card:* a new Google account + new company gets a new trial.
+- **Money guard kept from the first build:** `/subscriptions/verify` never records a
+  payment as a charge while Razorpay reports `paid_count` 0 (an authentication-only
+  payment would otherwise have bought a month for a few rupees).
+- **Schema:** table `trials`, created by `apply_subscriptions_tables.py` (now 5 tables;
+  rehearsed on a DB built by ca68b27). `tables_ready()` requires it.
+
+## P6 — dashboard paywall (built 2026-10-01)
+
+Dark behind **`DASHBOARD_PAYWALL=1`**, which only takes effect in **wallet scope** (the plan
+lives on the company). Decided by the plan of the **paying company behind the company the
+data belongs to** (a project's company; `?org_id=`/body `org_id` for lists, ignored unless
+the caller is a member; else their own company).
+
+- **Paywalled (402 `dashboard_plan_required`):** project read/create/edit/duplicate/share,
+  forecast, expansion drivers/surface/recommend, report generate/download/share, store-data
+  upload/read/commit/retry/lists, GA4/Search Console connections.
+- **Always open:** the map, `/api/intelligence/*`, saved locations, project and report
+  *lists* (names only), billing/company/activity/API keys, the OAuth callback; and anything
+  that takes access away — delete, archive/unarchive, un-share, disconnect.
+- **Share links** made while paying keep working after the plan ends (they're already in the
+  customer's clients' hands); new ones can't be made.
+- `/api/auth/me` returns `dashboard: {allowed, paywall, plan}`; the workspace replaces paid
+  pages with an upgrade card and puts a lock on them in the nav.
+- **Turn on only after** subscriptions + the trial are open (`BILLING_SUBSCRIPTIONS=1`) and
+  `plan_mapping` has moved legacy `pro`/`team` accounts onto company plans — otherwise a
+  legacy customer's company would read as Free.
 
 ## Not in this round (Gantt order)
 
-P6 paywall,
+
 P5 seats, P7 signal tiers, a
 reconcile job for a missed `charged` webhook, gap-free invoice numbering under
 concurrent duplicate deliveries.

@@ -19,7 +19,7 @@ built**. Depends on the Company layer — roadmap Phase C
 | # | Decision | Set |
 |---|---|---|
 | 1 | **3-lever model** — plan tier, credits, seats. No hard project/keyword quotas; companies stay a hard limit. | 09-11 |
-| 2 | **Both** a card-required trial **and** a free account — but the free account is **map + 3 core signals + save-locations only; the dashboard is paid/trial-only**. | 09-11 |
+| 2 | **Both** a ~~card-required~~ **no-card** trial (changed 2026-10-01, U10) **and** a free account — but the free account is **map + 3 core signals + save-locations only; the dashboard is paid/trial-only**. | 09-11 / 10-01 |
 | 3 | Tier credits: **1,000 / 3,000 / 7,000 / 16,000 / 40,000+**. | 09-11 |
 | 4 | Annual = **−20% price + 5% credits every month**. | 09-11 |
 | 5 | New-keyword research = **12 credits** (subsidised; we keep the data). | 09-11 |
@@ -47,7 +47,7 @@ product and includes all signals. The signal ladder is a stepping stone to it.
 
 | | **Anonymous** | **Free** (login) | **Signals Lite** ₹200/mo | **Signals Pro** ₹500/mo | **Trial** | **Dashboard** ₹5k+ |
 |---|---|---|---|---|---|---|
-| Sign-in | no | yes, free | yes | yes | yes + card | yes + subscription |
+| Sign-in | no | yes, free | yes | yes | yes, no card | yes + subscription |
 | Open map + score any pincode | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Signals on the map | **3 core** | **3 core** | 3 core + **~10 pro** | **all 20 pro** | all | all |
 | Save locations / shortlist | — | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -68,8 +68,8 @@ Notes:
   schools, LMV, EV share, etc.).
 - A free account is a **permanent** state — the top-of-funnel for nurture and the
   save-locations retention hook.
-- The trial auto-converts to **Starter** on day 8 unless cancelled; a failed card
-  drops the account to **Free** (never locked out — they keep their saved locations).
+- The trial needs **no card** (changed 2026-10-01): on day 8 a company that hasn't chosen a
+  plan drops to **Free** (never locked out — they keep their saved locations and data).
 - Signals Lite/Pro are **month-to-month, no annual, no credits.** Upgrading to a
   Dashboard plan supersedes them (all 20 signals included).
 - Dropped: the "pick any 10 pro signals for 60 credits" credit-sink idea — the
