@@ -57,6 +57,14 @@ export interface User {
   // Billing standing of the wallet behind this company: null when all is well. `locked`
   // = a renewal has been unpaid past the grace days — spending is refused server-side.
   account?: AccountStanding | null;
+  // P6 dashboard paywall for the selected company. paywall=false = everything open.
+  dashboard?: DashboardAccess | null;
+}
+
+export interface DashboardAccess {
+  allowed: boolean;
+  paywall: boolean;
+  plan: string | null;
 }
 
 export interface AccountStanding {

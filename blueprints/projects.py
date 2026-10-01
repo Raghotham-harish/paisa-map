@@ -13,7 +13,7 @@ from flask import Blueprint, request, jsonify
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" / "etl"))
 from _signals_data import canonical_signals  # noqa: E402
 
-from ._session import require_db, require_login, _auth_db
+from ._session import require_db, require_login, _auth_db, dashboard_gate
 
 projects_bp = Blueprint("projects", __name__, url_prefix="/api/projects")
 
@@ -168,6 +168,9 @@ def create_project(user_id):
     description = (body.get("description") or "").strip() or None
     org_id = body.get("org_id")
     org_id = int(org_id) if isinstance(org_id, (int, float, str)) and str(org_id).strip().isdigit() else None
+    paywalled = dashboard_gate(user_id, org_id)
+    if paywalled:
+        return paywalled
     project = _auth_db.create_project(
         user_id, name, description, org_id=org_id,
         business_type=(body.get("business_type") or "").strip() or None,
@@ -185,14 +188,21 @@ def get_project(user_id, project_id):
     project = _auth_db.get_project(project_id, user_id)
     if project is None:
         return jsonify({"error": "not_found"}), 404
+    paywalled = dashboard_gate(user_id, project.get("org_id"))
+    if paywalled:
+        return paywalled
     return jsonify({"project": _shape(project)})
 
 
 @projects_bp.route("/<int:project_id>", methods=["PUT"])
 @require_login
 def update_project(user_id, project_id):
-    if _auth_db.get_project(project_id, user_id) is None:
+    existing = _auth_db.get_project(project_id, user_id)
+    if existing is None:
         return jsonify({"error": "not_found"}), 404
+    paywalled = dashboard_gate(user_id, existing.get("org_id"))
+    if paywalled:
+        return paywalled
     body = request.get_json(silent=True) or {}
     project = _auth_db.update_project(
         project_id, user_id,
@@ -235,6 +245,12 @@ def unarchive_project(user_id, project_id):
 @projects_bp.route("/<int:project_id>/duplicate", methods=["POST"])
 @require_login
 def duplicate_project(user_id, project_id):
+    existing = _auth_db.get_project(project_id, user_id)
+    if existing is None:
+        return jsonify({"error": "not_found"}), 404
+    paywalled = dashboard_gate(user_id, existing.get("org_id"))
+    if paywalled:
+        return paywalled
     project = _auth_db.duplicate_project(project_id, user_id)
     if project is None:
         return jsonify({"error": "not_found"}), 404
@@ -250,6 +266,9 @@ def share_project(user_id, project_id):
     existing = _auth_db.get_project(project_id, user_id)
     if existing is None:
         return jsonify({"error": "not_found"}), 404
+    paywalled = dashboard_gate(user_id, existing.get("org_id"))
+    if paywalled:
+        return paywalled
     token = existing.get("share_token") or secrets.token_urlsafe(24)
     project = _auth_db.set_project_share_token(project_id, user_id, token)
     if project is None:

@@ -28,7 +28,7 @@ import _signals_data  # noqa: E402
 import _pricing  # noqa: E402
 from _google_oauth import normalize_city  # noqa: E402
 
-from ._session import require_login, require_db, _auth_db, charge_credits, wallet_gate, locked_gate
+from ._session import require_login, require_db, _auth_db, charge_credits, wallet_gate, locked_gate, dashboard_gate
 from .analytics_connections import get_project_digital_baseline  # noqa: E402
 from .intelligence import compute_location_intelligence_batch  # noqa: E402
 from . import billing as _billing  # noqa: E402
@@ -64,6 +64,9 @@ def generate_report(user_id):
     project = _auth_db.get_project(project_id, user_id) if project_id else None
     if project is None:
         return jsonify({"error": "project not_found"}), 404
+    paywalled = dashboard_gate(user_id, project.get("org_id"))
+    if paywalled:
+        return paywalled
 
     locations = _auth_db.list_saved_locations(user_id, project_id)
     if not locations:
@@ -155,6 +158,9 @@ def download_report(user_id, report_id):
     locked = locked_gate(user_id, (project or {}).get("org_id"))
     if locked:
         return locked
+    paywalled = dashboard_gate(user_id, (project or {}).get("org_id"))
+    if paywalled:
+        return paywalled
     path = Path(report["file_path"])
     if not path.exists():
         return jsonify({"error": "file_missing",
@@ -170,6 +176,10 @@ def share_report(user_id, report_id):
     report = _auth_db.get_report(report_id, user_id)
     if report is None:
         return jsonify({"error": "not_found"}), 404
+    project = _auth_db.get_project(report.get("project_id"), user_id) if report.get("project_id") else None
+    paywalled = dashboard_gate(user_id, (project or {}).get("org_id"))
+    if paywalled:
+        return paywalled
     if report["status"] != "ready":
         return jsonify({"error": "not_ready",
                          "detail": "Only a ready report can be shared."}), 400

@@ -49,10 +49,27 @@ import _signals_data  # noqa: E402
 import _token_crypto  # noqa: E402
 from _google_oauth import GoogleOAuthError, normalize_city  # noqa: E402
 
-from ._session import require_login, _auth_db
+from ._session import require_login, _auth_db, dashboard_gate
 
 analytics_bp = Blueprint("analytics_connections", __name__, url_prefix="/api/projects/<int:project_id>/connections")
 oauth_callback_bp = Blueprint("analytics_oauth_callback", __name__, url_prefix="/api/analytics")
+
+
+@analytics_bp.before_request
+def _dashboard_paywall():
+    """P6: connecting Google Analytics / Search Console to a project is a dashboard
+    feature. Disconnecting stays open (taking access away is never paywalled); a
+    project the caller can't see is left to the route's own 404."""
+    if request.method == "DELETE":
+        return None
+    uid = session.get("user_id")
+    project_id = (request.view_args or {}).get("project_id")
+    if not uid or project_id is None or _auth_db is None or not _auth_db.enabled():
+        return None
+    project = _auth_db.get_project(project_id, uid)
+    if project is None:
+        return None
+    return dashboard_gate(uid, project.get("org_id"))
 
 PROVIDERS = ("google_analytics", "search_console")
 

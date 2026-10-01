@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" /
 import _geocode  # noqa: E402
 from pincode_master import validate_pincode  # noqa: E402
 
-from ._session import require_login, _auth_db
+from ._session import require_login, _auth_db, dashboard_gate, org_from_request
 from .intelligence import compute_location_intelligence_batch  # noqa: E402
 
 customer_data_bp = Blueprint("customer_data", __name__, url_prefix="/api/customer-data")
@@ -104,12 +104,26 @@ def _parse_numeric(raw):
         return None, True
 
 
+def _list_org(user_id, project_id):
+    """The company a store-data list is about: the project's, else ?org_id=, else
+    the caller's own (None)."""
+    if project_id is not None:
+        project = _auth_db.get_project(project_id, user_id)
+        if project is not None:
+            return project.get("org_id")
+    return org_from_request()
+
+
 @customer_data_bp.route("/uploads", methods=["POST"])
 @require_login
 def upload_file(user_id):
     project_id = request.form.get("project_id", type=int)
-    if project_id is None or _auth_db.get_project(project_id, user_id) is None:
+    project = _auth_db.get_project(project_id, user_id) if project_id is not None else None
+    if project is None:
         return jsonify({"error": "project not_found"}), 404
+    paywalled = dashboard_gate(user_id, project.get("org_id"))
+    if paywalled:
+        return paywalled
 
     f = request.files.get("file")
     if f is None or not f.filename:
@@ -148,6 +162,9 @@ def get_upload(user_id, upload_id):
     upload = _auth_db.get_customer_upload(upload_id, user_id)
     if upload is None:
         return jsonify({"error": "not_found"}), 404
+    paywalled = dashboard_gate(user_id, upload.get("org_id"))
+    if paywalled:
+        return paywalled
     raw_rows = upload.get("raw_rows") or []
     return jsonify({"upload": {
         **upload, "raw_rows": None,
@@ -160,6 +177,9 @@ def get_upload(user_id, upload_id):
 @require_login
 def list_uploads(user_id):
     project_id = request.args.get("project_id", type=int)
+    paywalled = dashboard_gate(user_id, _list_org(user_id, project_id))
+    if paywalled:
+        return paywalled
     uploads = _auth_db.list_customer_uploads(user_id, project_id)
     return jsonify({"uploads": [
         {**u, "raw_rows": None, "row_count": len(u.get("raw_rows") or []),
@@ -194,6 +214,9 @@ def commit_upload(user_id, upload_id):
     upload = _auth_db.get_customer_upload(upload_id, user_id)
     if upload is None:
         return jsonify({"error": "not_found"}), 404
+    paywalled = dashboard_gate(user_id, upload.get("org_id"))
+    if paywalled:
+        return paywalled
     if upload["status"] != "pending_mapping":
         return jsonify({"error": "already_committed",
                          "detail": f"This upload is already {upload['status']}."}), 400
@@ -299,6 +322,9 @@ def retry_upload(user_id, upload_id):
     upload = _auth_db.get_customer_upload(upload_id, user_id)
     if upload is None:
         return jsonify({"error": "not_found"}), 404
+    paywalled = dashboard_gate(user_id, upload.get("org_id"))
+    if paywalled:
+        return paywalled
     pending = _auth_db.list_pending_geocode_locations(upload_id, user_id)
     if not pending:
         return jsonify({"error": "nothing_pending",
@@ -334,6 +360,9 @@ def delete_upload(user_id, upload_id):
 @require_login
 def list_locations(user_id):
     project_id = request.args.get("project_id", type=int)
+    paywalled = dashboard_gate(user_id, _list_org(user_id, project_id))
+    if paywalled:
+        return paywalled
     locations = _auth_db.list_customer_locations(user_id, project_id)
     pincodes = sorted({loc["pincode"] for loc in locations if loc.get("pincode")})
     intel_by_pincode = {i["pincode"]: i for i in compute_location_intelligence_batch(pincodes)} \

@@ -1495,6 +1495,36 @@ def account_standing(user_id, org_id=None):
             "past_due_since": d["past_due_since"].isoformat()}
 
 
+# ── Dashboard paywall (billing-v2 P6) ────────────────────────────────────────
+# DASHBOARD_PAYWALL=1 (wallet scope only) turns the dashboard — projects, forecast,
+# expansion, reports, store data, connections — into a paid/trial feature, decided
+# by the plan of the PAYING company behind the company being worked in. The map,
+# saved locations and the account pages (billing, company, activity, API keys)
+# stay open to every signed-in account. Off by default: until it is flipped,
+# dashboard_access() always allows, so nothing changes for anyone.
+def paywall_enabled():
+    return os.environ.get("DASHBOARD_PAYWALL") == "1" and billing_scope() == "wallet"
+
+
+def dashboard_access(user_id, org_id=None):
+    """{"allowed", "paywall", "plan"} for `user_id` working in `org_id` (default:
+    their own company). A company they aren't a member of is ignored (falls back
+    to their own), so naming someone else's paid company can't open the gate.
+    `plan` is the paying company's plan (None when the paywall is off)."""
+    if not paywall_enabled():
+        return {"allowed": True, "paywall": False, "plan": None}
+    import _pricing
+    orgs = _get_tables()["organizations"]
+    from sqlalchemy import select
+    with _require_engine().connect() as conn:
+        oid = org_id if org_id is not None and _role_in(conn, org_id, user_id) is not None else None
+        if oid is None:
+            oid = _primary_org_id(conn, user_id)
+        payer = _payer_org_id(conn, oid)
+        plan = conn.execute(select(orgs.c.plan).where(orgs.c.id == payer)).scalar() if payer is not None else None
+    return {"allowed": _pricing.is_dashboard_tier(plan or "free"), "paywall": True, "plan": plan or "free"}
+
+
 def _spend_block(conn, wallet_id, org_id, user_id, amount, balance):
     """None if this spend may go ahead, else {"reason": ..., ...} (see
     SpendNotAllowedError). Runs on the caller's connection so that, inside

@@ -27,7 +27,7 @@ import _signals_data  # noqa: E402
 import _forecast_model  # noqa: E402
 import _pricing  # noqa: E402
 
-from ._session import require_login, _auth_db, charge_credits, wallet_gate
+from ._session import require_login, _auth_db, charge_credits, wallet_gate, dashboard_gate
 from .expansion import _compute_drivers  # noqa: E402
 from .projects import _shape  # decodes the JSON-array project columns (signals, target_pincodes)
 
@@ -41,6 +41,9 @@ def forecast(user_id):
     project = _auth_db.get_project(project_id, user_id) if project_id is not None else None
     if project is None:
         return jsonify({"error": "project not_found"}), 404
+    paywalled = dashboard_gate(user_id, project.get("org_id"))
+    if paywalled:
+        return paywalled
     project = _shape(project)  # signals / target_pincodes -> real lists
 
     budget = request.args.get("budget", type=float)

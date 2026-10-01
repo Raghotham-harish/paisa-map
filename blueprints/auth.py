@@ -44,6 +44,9 @@ def _user_payload(user_id, org_id=None):
         # well, else {past_due, locked, lock_at, past_due_since} — what the dashboard's
         # blur overlay and the "update payment" prompt read (P13).
         "account": _auth_db.account_standing(user_id, org_id),
+        # P6 dashboard paywall for the selected company: {allowed, paywall, plan}.
+        # paywall=False (the default, DASHBOARD_PAYWALL unset) means everything is open.
+        "dashboard": _auth_db.dashboard_access(user_id, org_id),
     }
 
 

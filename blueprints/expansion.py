@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" /
 import _signals_data  # noqa: E402
 import _pricing  # noqa: E402
 
-from ._session import require_login, _auth_db, charge_credits, wallet_gate
+from ._session import require_login, _auth_db, charge_credits, wallet_gate, dashboard_gate
 from .intelligence import opportunity_assessment, risk_assessment  # noqa: E402
 
 expansion_bp = Blueprint("expansion", __name__, url_prefix="/api/expansion")
@@ -128,8 +128,12 @@ def _estimate_store_sqft(locations, rows_by_pincode):
 @require_login
 def drivers(user_id):
     project_id = request.args.get("project_id", type=int)
-    if project_id is None or _auth_db.get_project(project_id, user_id) is None:
+    project = _auth_db.get_project(project_id, user_id) if project_id is not None else None
+    if project is None:
         return jsonify({"error": "project not_found"}), 404
+    paywalled = dashboard_gate(user_id, project.get("org_id"))
+    if paywalled:
+        return paywalled
 
     locations = _auth_db.list_customer_locations(user_id, project_id)
     rows_by_pincode, _source = _signals_data.load_ppi_signals_rows()
@@ -248,6 +252,9 @@ def surface(user_id):
     project = _auth_db.get_project(project_id, user_id) if project_id is not None else None
     if project is None:
         return jsonify({"error": "project not_found"}), 404
+    paywalled = dashboard_gate(user_id, project.get("org_id"))
+    if paywalled:
+        return paywalled
     min_score = request.args.get("min_score", default=1.0, type=float)
 
     scored = score_project_candidates(project, user_id,
@@ -278,6 +285,9 @@ def recommend(user_id):
     project = _auth_db.get_project(project_id, user_id) if project_id is not None else None
     if project is None:
         return jsonify({"error": "project not_found"}), 404
+    paywalled = dashboard_gate(user_id, project.get("org_id"))
+    if paywalled:
+        return paywalled
     if budget is None or budget <= 0:
         return jsonify({"error": "budget must be a positive number"}), 400
 

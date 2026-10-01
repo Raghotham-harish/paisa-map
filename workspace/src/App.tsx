@@ -66,6 +66,38 @@ const NAV_SECTIONS: { label: string; items: { to: string; label: string; end?: b
 
 const DESKTOP_PAGES = NAV_SECTIONS.flatMap((s) => s.items).filter((i) => i.desktop).map((i) => i.to);
 
+// P6: pages every signed-in account keeps when the dashboard paywall is on (the map,
+// saved locations and the account pages). Everything else needs a trial or a plan.
+const FREE_PAGES = ["/map", "/locations", "/company", "/activity", "/billing", "/api-keys"];
+const isFreePage = (to: string) => FREE_PAGES.includes(to);
+
+/** Stands in for a paid page when the selected company has no trial or plan. The
+ *  server refuses the page's data anyway (402); this explains it instead of showing
+ *  a page full of errors. */
+function Paid({ children }: { children: JSX.Element }) {
+  const { user } = useAuth();
+  const d = user?.dashboard;
+  if (!d || !d.paywall || d.allowed) return children;
+  return (
+    <div className="card paywall-card" data-testid="paywall">
+      <p style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 700 }}>
+        <i className="ti ti-lock" aria-hidden="true" /> Projects, forecasts and reports are part of a paid plan
+      </p>
+      <p style={{ margin: "0 0 14px", fontSize: 14 }}>
+        Start a free 7-day trial — or pick a plan — to plan expansions, forecast revenue, compare sites and
+        generate reports. Anything this company already saved is kept and comes back as soon as it has a plan.
+      </p>
+      <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--ink-soft)" }}>
+        The map and your saved locations stay free.
+      </p>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <Link className="btn" to="/billing">Start free trial or choose a plan</Link>
+        <Link className="btn secondary" to="/map">Open the map</Link>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const { user, loading, signOut } = useAuth();
   const location = useLocation();
@@ -100,6 +132,7 @@ export default function App() {
   }
 
   const initial = (user.name || user.email || "?").trim()[0]?.toUpperCase() || "?";
+  const paywalled = !!user.dashboard?.paywall && !user.dashboard.allowed;
 
   return (
     <WorkspaceProvider>
@@ -131,6 +164,9 @@ export default function App() {
                            className={({ isActive }) => [isActive ? "active" : "", item.desktop ? "desktop-only-nav" : ""].join(" ").trim()}>
                     <i className={`ti ${item.icon}`} aria-hidden="true" />
                     <span>{item.label}</span>
+                    {paywalled && !isFreePage(item.to) && (
+                      <i className="ti ti-lock nav-lock" aria-label="Needs a plan" data-testid="nav-lock" />
+                    )}
                   </NavLink>
                 ))}
               </div>
@@ -197,16 +233,16 @@ export default function App() {
               </div>
             )}
             <Routes>
-              <Route path="/" element={<Dashboard />} />
+              <Route path="/" element={<Paid><Dashboard /></Paid>} />
               <Route path="/map" element={<MapWorkspace />} />
-              <Route path="/projects" element={<Projects />} />
-              <Route path="/projects/new" element={<ProjectWizard />} />
-              <Route path="/projects/:id" element={<ProjectDetail />} />
+              <Route path="/projects" element={<Paid><Projects /></Paid>} />
+              <Route path="/projects/new" element={<Paid><ProjectWizard /></Paid>} />
+              <Route path="/projects/:id" element={<Paid><ProjectDetail /></Paid>} />
               <Route path="/locations" element={<SavedLocations />} />
-              <Route path="/customer-data" element={<CustomerData />} />
-              <Route path="/forecast" element={<Forecast />} />
-              <Route path="/connections" element={<Connections />} />
-              <Route path="/reports" element={<Reports />} />
+              <Route path="/customer-data" element={<Paid><CustomerData /></Paid>} />
+              <Route path="/forecast" element={<Paid><Forecast /></Paid>} />
+              <Route path="/connections" element={<Paid><Connections /></Paid>} />
+              <Route path="/reports" element={<Paid><Reports /></Paid>} />
               <Route path="/company" element={<CompanySettings />} />
               <Route path="/activity" element={<Activity />} />
               <Route path="/credits" element={<Navigate to="/billing" replace />} />

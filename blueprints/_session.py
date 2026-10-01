@@ -160,6 +160,35 @@ def locked_gate(user_id, org_id=None):
     return None
 
 
+def dashboard_gate(user_id, org_id=None):
+    """A ready 402 if the dashboard paywall (P6, DASHBOARD_PAYWALL=1) is on and the
+    paying company behind `org_id` has no trial or paid dashboard plan, else None.
+    Called by every dashboard data route — the upgrade screen in the workspace is
+    only the explanation; this is what actually keeps the data back. Saved data is
+    never deleted: subscribing (or a trial) opens it all again."""
+    access = _auth_db.dashboard_access(user_id, org_id)
+    if access["allowed"]:
+        return None
+    return jsonify({"error": "dashboard_plan_required",
+                    "detail": "Projects, forecasts, reports and store data are part of a paid plan. "
+                              "Start a free trial or subscribe in Billing — everything you saved is kept."}), 402
+
+
+def org_from_request(body=None):
+    """The company a project-less dashboard request is about: `org_id` from the JSON
+    body or query string, else None (= the caller's own company)."""
+    raw = (body or {}).get("org_id") if body else None
+    if raw is None:
+        raw = request.args.get("org_id")
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw
+    if isinstance(raw, str) and raw.strip().isdigit():
+        return int(raw)
+    return None
+
+
 def wallet_gate(user_id, org_id, action_key=None):
     """Pre-check for any credit-spending route: returns a ready 403 response if
     a budget rule stops this user spending the wallet behind `org_id`, else None.
