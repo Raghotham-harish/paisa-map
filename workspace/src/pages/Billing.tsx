@@ -27,6 +27,7 @@ const REASON_LABELS: Record<string, string> = {
   expansion_recommend: "Expansion recommendation",
   forecast: "Forecast",
   plan_credits: "Monthly plan credits",
+  trial_credits: "Free trial credits",
   credits_expired: "Plan credits expired",
   assisted_sale: "Plan credits (invoice)",
 };

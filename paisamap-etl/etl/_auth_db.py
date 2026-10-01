@@ -498,6 +498,16 @@ def _get_tables():
         # charges, "buyer": the GST-invoice details given}. Each charge's order
         # copies it, so every invoice uses the same place of supply and heads.
         Column("meta", JSONType),
+        # P4 free trial: a Starter subscription whose first charge is scheduled
+        # TRIAL_DAYS out (Razorpay start_at). trial_ends_at is that scheduled charge
+        # time; trial_started_at is stamped when the mandate/card is authenticated
+        # and the trial plan + credits are granted; trial_ended_at when the trial is
+        # over (converted by a charge, or taken back to Free); trial_reminded_at
+        # once the "trial ends tomorrow" email is claimed.
+        Column("trial_ends_at", DateTime(timezone=True)),
+        Column("trial_started_at", DateTime(timezone=True)),
+        Column("trial_ended_at", DateTime(timezone=True)),
+        Column("trial_reminded_at", DateTime(timezone=True)),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("updated_at", DateTime(timezone=True), nullable=False),
         Index("ix_subscriptions_org", "org_id"),

@@ -199,3 +199,44 @@ def send_dunning_notice(to_email, org_name, kind, lock_at, billing_url):
     except Exception:
         logger.exception("SES send_email failed for dunning notice to %s", to_email)
         return False
+
+
+def send_trial_notice(to_email, org_name, kind, ends_at, amount_paise, billing_url):
+    """A free-trial notice to the people who can manage the plan. kind:
+    "trial_ending" (the trial ends at `ends_at` and the first monthly charge of
+    `amount_paise` is taken then unless they cancel), "trial_lapsed" (the first
+    charge didn't go through, so the company is back on the free plan). Carries no
+    card details. Returns True if SES accepted it; callers never depend on it."""
+    client = _client()
+    if client is None:
+        logger.warning("SES not configured — trial notice (%s) for %r to %s not emailed", kind, org_name, to_email)
+        return False
+    when = ends_at.strftime("%d %b %Y") if ends_at else ""
+    price = f"Rs {amount_paise / 100:,.0f}" if amount_paise else "the monthly price"
+    if kind == "trial_lapsed":
+        subject = f"{org_name}'s PaisaMap trial has ended"
+        lead = (f"{org_name}'s free trial ended, and the first monthly payment didn't go through, so the "
+                "account is now on the free plan. Your projects, saved locations and reports are all kept. "
+                "Subscribe any time to pick up where you left off.")
+        cta = "Choose a plan"
+    else:
+        subject = f"{org_name}'s PaisaMap trial ends on {when}"
+        lead = (f"{org_name}'s free trial ends on {when}. Starter then begins automatically at {price} a month, "
+                "charged to the payment method you set up. If you don't want to continue, cancel from "
+                "Billing before then and you won't be charged.")
+        cta = "Open billing"
+    text_body = f"{lead}\n\n{cta}: {billing_url}\n"
+    html_body = (f"<p>{html.escape(lead)}</p>"
+                 f'<p><a href="{html.escape(billing_url, quote=True)}">{html.escape(cta)}</a></p>')
+    try:
+        client.send_email(
+            Source=os.environ["SES_FROM_EMAIL"],
+            Destination={"ToAddresses": [to_email]},
+            Message={"Subject": {"Data": subject, "Charset": "UTF-8"},
+                     "Body": {"Text": {"Data": text_body, "Charset": "UTF-8"},
+                              "Html": {"Data": html_body, "Charset": "UTF-8"}}},
+        )
+        return True
+    except Exception:
+        logger.exception("SES send_email failed for trial notice to %s", to_email)
+        return False

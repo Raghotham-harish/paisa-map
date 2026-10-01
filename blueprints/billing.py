@@ -562,6 +562,9 @@ def get_subscription(user_id):
     ready = _subscriptions.tables_ready()
     if ready:
         _subscriptions.sweep_ended()
+        _subscriptions.trial_sweep(background=True)
+    trial_reason = _subscriptions.trial_unavailable(payer, user_id) if ready else "schema_not_applied"
+    trial_tier = _pricing.TRIAL_CONVERTS_TO
     return jsonify({
         "state": subscriptions_state(),
         "standing": _auth_db.account_standing(user_id, payer) if ready else None,
@@ -572,6 +575,12 @@ def get_subscription(user_id):
                      "list_paise": _pricing.subscription_list_paise(t), "amount_paise": _sub_amount(t),
                      "credits_per_month": _pricing.TIERS[t]["credits_per_month"], "seats": _pricing.TIERS[t]["seats"]}
                     for t in _pricing.TIERS if _pricing.subscription_error(t) is None],
+        # P4: may this person start the free trial for this company (card/mandate now,
+        # first charge after TRIAL_DAYS)? `reason` says why not.
+        "trial": {"available": trial_reason is None, "reason": trial_reason,
+                  "days": _pricing.TRIAL_DAYS, "credits": _pricing.TRIAL_CREDITS,
+                  "tier": trial_tier, "label": _pricing.TIERS[trial_tier]["label"],
+                  "amount_paise": _sub_amount(trial_tier)},
     })
 
 
@@ -583,14 +592,25 @@ def create_subscription(user_id):
         return blocked
     body = request.get_json(silent=True) or {}
     tier, cycle = body.get("tier"), body.get("cycle") or "monthly"
+    trial = body.get("trial") is True
     bad = _pricing.subscription_error(tier, cycle)
     if bad:
         return jsonify({"error": bad}), 400
+    if trial and tier != _pricing.TRIAL_CONVERTS_TO:
+        return jsonify({"error": "trial_tier",
+                        "detail": f"The free trial leads into {_pricing.TIERS[_pricing.TRIAL_CONVERTS_TO]['label']}."}), 400
     payer, err = _payer_for_subscription(user_id, body)
     if err:
         return err
-    if _subscriptions.get_live(payer):
+    live = _subscriptions.get_live(payer)
+    lapsed_trial = (live is not None and live.get("trial_ended_at") is not None
+                    and not (live["paid_count"] or 0))
+    if live and not lapsed_trial:
         return jsonify({"error": "already_subscribed"}), 409
+    if trial:
+        why = _subscriptions.trial_unavailable(payer, user_id)
+        if why:
+            return jsonify({"error": "trial_not_available", "reason": why}), 409
     held = _subscriptions.org_plan(payer)
     if (_pricing.parse_plan(held)[0] == "v2"
             and _pricing.tier_rank(held) >= _pricing.tier_rank(_pricing.plan_id_v2(tier))):
@@ -602,7 +622,17 @@ def create_subscription(user_id):
     client = _client()
     if client is None:
         return _not_configured()
-    return _start_checkout(client, payer, user_id, tier, cycle, buyer)
+    if lapsed_trial:
+        # A trial whose first charge failed still sits "live" at Razorpay (retrying).
+        # Subscribing again replaces it, so the old mandate can't charge as well.
+        try:
+            client.subscription.cancel(live["razorpay_subscription_id"], {"cancel_at_cycle_end": 0})
+        except Exception as e:
+            return jsonify({"error": "gateway_error", "detail": str(e)}), 502
+        _subscriptions.record_state(live["razorpay_subscription_id"], status="cancelled",
+                                    ends_at=_subscriptions._now())
+        _subscriptions.sweep_ended()
+    return _start_checkout(client, payer, user_id, tier, cycle, buyer, trial=trial)
 
 
 def _sub_meta(tier, cycle, buyer):
@@ -610,26 +640,35 @@ def _sub_meta(tier, cycle, buyer):
     return {"tax": _tax_for(_pricing.subscription_list_paise(tier, cycle), buyer), "buyer": buyer}
 
 
-def _start_checkout(client, payer, user_id, tier, cycle, buyer=None):
+def _start_checkout(client, payer, user_id, tier, cycle, buyer=None, trial=False):
     """Create the Razorpay subscription, record it locally (status 'created', grants
-    nothing) and return what Checkout needs."""
+    nothing) and return what Checkout needs. A trial schedules the first charge
+    TRIAL_DAYS out (start_at), so Checkout only authenticates the card/mandate."""
     meta = _sub_meta(tier, cycle, buyer)
     amount = meta["tax"]["total_paise"]
+    ends = _subscriptions.trial_ends_at() if trial else None
+    payload = {
+        "plan_id": None, "total_count": _pricing.SUBSCRIPTION_TOTAL_COUNT,
+        "quantity": 1, "customer_notify": 1,
+        "notes": {"org_id": str(payer), "user_id": str(user_id), "tier": tier, "cycle": cycle},
+    }
+    if ends is not None:
+        payload["start_at"] = int(ends.timestamp())
+        payload["notes"]["trial"] = "1"
     try:
         plan_id = _ensure_razorpay_plan(client, tier, cycle, amount)
-        rp_sub = client.subscription.create({
-            "plan_id": plan_id, "total_count": _pricing.SUBSCRIPTION_TOTAL_COUNT,
-            "quantity": 1, "customer_notify": 1,
-            "notes": {"org_id": str(payer), "user_id": str(user_id), "tier": tier, "cycle": cycle},
-        })
+        payload["plan_id"] = plan_id
+        rp_sub = client.subscription.create(payload)
     except Exception as e:
         return jsonify({"error": "gateway_error", "detail": str(e)}), 502
-    _subscriptions.create_local(payer, user_id, tier, cycle, rp_sub["id"], plan_id, amount, meta=meta)
+    _subscriptions.create_local(payer, user_id, tier, cycle, rp_sub["id"], plan_id, amount, meta=meta,
+                                trial_ends_at=ends)
     return jsonify({
         "razorpay_subscription_id": rp_sub["id"],
         "razorpay_key_id": os.environ.get("RAZORPAY_KEY_ID"),
         "amount_paise": amount,
         "currency": "INR", "tier": tier,
+        "trial_ends_at": ends.isoformat() if ends else None,
     }), 201
 
 
@@ -757,6 +796,18 @@ def verify_subscription(user_id):
         sub_entity = client.subscription.fetch(sid)
     except Exception as e:
         return jsonify({"error": "gateway_error", "detail": str(e)}), 502
+    if not (sub_entity.get("paid_count") or 0):
+        # No cycle has been charged: this payment only AUTHENTICATED the card/mandate
+        # (a trial's token amount, refunded by Razorpay). Never treat it as a charge —
+        # it would grant a paid month for a few rupees. A trial starts here instead.
+        if sub_entity.get("status") == "authenticated":
+            _subscriptions.record_state(sid, status="authenticated")
+            if sub.get("trial_ends_at"):
+                res = _subscriptions.start_trial(sid)
+                if res.get("subscription") and res["subscription"].get("trial_started_at"):
+                    return jsonify({"status": "trial",
+                                    "subscription": _subscriptions.public_view(res["subscription"])}), 200
+        return jsonify({"status": "pending"}), 200
     if payment.get("status") != "captured":
         # Not settled yet; the webhook finishes it when it is.
         return jsonify({"status": "pending"}), 200
@@ -793,9 +844,14 @@ def cancel_subscription(user_id):
     if at_cycle_end:
         res = _subscriptions.record_state(sub["razorpay_subscription_id"], cancel_at_period_end=True)
     else:
-        res = _subscriptions.record_state(sub["razorpay_subscription_id"], status="cancelled",
-                                          ends_at=_subscriptions._now())
+        # A running trial keeps its trial to the end (nothing will be charged); the
+        # trial sweep takes it back to Free then. Anything else unpaid ends now.
+        running_trial = sub.get("trial_started_at") and not sub.get("trial_ended_at")
+        res = _subscriptions.record_state(
+            sub["razorpay_subscription_id"], status="cancelled",
+            ends_at=_subscriptions._aware(sub["trial_ends_at"]) if running_trial else _subscriptions._now())
         _subscriptions.sweep_ended()
+        _subscriptions.trial_sweep(background=True)
     return jsonify({"subscription": _subscriptions.public_view(res.get("subscription"))}), 200
 
 
@@ -828,13 +884,17 @@ def _handle_subscription_event(payload):
             return jsonify({"status": "ignored"}), 200
         _finish_charge(sub, payment, entity, event_ts)
     elif event in _EVENT_STATUS:
-        _subscriptions.record_state(
+        state = _subscriptions.record_state(
             sid, status=_EVENT_STATUS[event], event_ts=event_ts,
             current_start=_subscriptions.ts(entity.get("current_start")),
             current_end=_subscriptions.ts(entity.get("current_end")),
             paid_count=entity.get("paid_count"))
+        row = state.get("subscription") or {}
+        if event == "subscription.authenticated" and row.get("trial_ends_at") and row.get("status") == "authenticated":
+            _subscriptions.start_trial(sid)
     else:
         return jsonify({"status": "ignored"}), 200
     _subscriptions.sweep_ended()
+    _subscriptions.trial_sweep(background=True)
     _subscriptions.dunning_sweep(background=True)
     return jsonify({"status": "ok"}), 200

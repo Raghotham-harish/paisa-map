@@ -20,6 +20,13 @@ granted and taken away. Rules that matter for money:
     is still exactly the subscription's own tier.
   * A halted (failed-renewal) subscription keeps its plan for now — the
     soft-lock/dunning behaviour is P13. This module only records halted_at.
+  * P4 free trial: a Starter subscription whose first charge Razorpay schedules
+    TRIAL_DAYS out. Authenticating the card/mandate (no money moves) grants the
+    'trial' plan and TRIAL_CREDITS that expire when the trial does; the day-8
+    charge then grants Starter through apply_charge like any other charge. If no
+    charge has landed TRIAL_GRACE_HOURS after the scheduled time, the trial plan
+    is taken back to Free (never locked: a first charge failing is not past due).
+    One trial per company and per person, ever.
 """
 
 import logging
@@ -138,7 +145,26 @@ def public_view(sub):
         "cancel_at_period_end": bool(sub["cancel_at_period_end"]),
         "ends_at": _iso(sub["ends_at"]), "paid_count": sub["paid_count"],
         "past_due": sub["status"] == "halted",
+        **trial_view(sub),
     }
+
+
+def trial_view(sub):
+    """Where a trial subscription is: waiting for the card/mandate (pending), running,
+    or lapsed (it ended without a charge). Converted trials are plain subscriptions."""
+    ends = sub.get("trial_ends_at")
+    if not ends:
+        return {"trial": None}
+    paid = (sub["paid_count"] or 0) >= 1
+    if paid:
+        state = "converted"
+    elif sub.get("trial_ended_at"):
+        state = "lapsed"
+    elif sub.get("trial_started_at"):
+        state = "running"
+    else:
+        state = "pending"
+    return {"trial": {"state": state, "ends_at": _iso(ends)}}
 
 
 def _iso(dt):
@@ -175,7 +201,7 @@ def save_plan_id(tier, cycle, amount_paise, razorpay_plan_id):
 
 # ── Create ───────────────────────────────────────────────────────────────────
 def create_local(org_id, user_id, tier, cycle, razorpay_subscription_id, razorpay_plan_id, amount_paise,
-                 meta=None):
+                 meta=None, trial_ends_at=None):
     """Record a subscription the moment Razorpay has issued its id, BEFORE the
     customer authorises anything. A checkout the customer walked away from
     earlier is replaced (status 'abandoned') so it can't block a new attempt."""
@@ -190,6 +216,7 @@ def create_local(org_id, user_id, tier, cycle, razorpay_subscription_id, razorpa
             razorpay_subscription_id=razorpay_subscription_id, razorpay_plan_id=razorpay_plan_id,
             status="created", amount_paise=amount_paise, price_book_version=_pricing.PRICE_BOOK_VERSION,
             meta=meta, paid_count=0, cancel_at_period_end=False, created_at=now, updated_at=now,
+            trial_ends_at=trial_ends_at,
         )).inserted_primary_key[0]
     return get_by_razorpay_id(razorpay_subscription_id) if new_id else None
 
@@ -445,6 +472,138 @@ def invoice_exists(order_id):
         return conn.execute(select(inv.c.id).where(inv.c.order_id == order_id)).scalar() is not None
 
 
+# ── Free trial (P4) ──────────────────────────────────────────────────────────
+def trial_unavailable(org_id, user_id):
+    """None if `user_id` may start a free trial for the paying company `org_id`,
+    else why not: 'has_plan' (the company already has the dashboard) or
+    'trial_used' (this company, or this person in any company, has had a trial or
+    a paid subscription before). Checked when the checkout is created; the grant
+    re-checks the company side under a row lock."""
+    engine, tables = A._require_engine(), A._get_tables()
+    subs = tables["subscriptions"]
+    from sqlalchemy import select, or_
+    with engine.connect() as conn:
+        used = conn.execute(select(subs.c.id).where(
+            or_(subs.c.org_id == org_id, subs.c.created_by_user_id == user_id),
+            or_(subs.c.trial_started_at.is_not(None), subs.c.paid_count >= 1)).limit(1)).scalar()
+        if used is not None:
+            return "trial_used"
+        if _pricing.is_dashboard_tier(_plan_of(conn, org_id)):
+            return "has_plan"
+    return None
+
+
+def _plan_of(conn, org_id):
+    orgs = A._get_tables()["organizations"]
+    from sqlalchemy import select
+    return conn.execute(select(orgs.c.plan).where(orgs.c.id == org_id)).scalar()
+
+
+def trial_ends_at(now=None):
+    """When a trial started now is charged (Razorpay start_at): whole seconds."""
+    return (now or _now()).replace(microsecond=0) + timedelta(days=_pricing.TRIAL_DAYS)
+
+
+def start_trial(razorpay_subscription_id, now=None):
+    """The card/mandate behind a trial subscription is authenticated: grant the
+    trial plan and its credits. Idempotent (trial_started_at is the stamp), and the
+    credit grant runs on every call so a crash between the two heals on the next
+    webhook or /verify. Grants nothing for a subscription that isn't an
+    authenticated, unpaid trial whose end is still ahead, or for a company that
+    already had a trial or already has the dashboard.
+    Returns {"started": bool, "subscription": row} or {"error": ...}."""
+    engine, tables = A._require_engine(), A._get_tables()
+    subs = tables["subscriptions"]
+    from sqlalchemy import select
+    now = now or _now()
+    with engine.begin() as conn:
+        row = conn.execute(select(subs).where(
+            subs.c.razorpay_subscription_id == razorpay_subscription_id).with_for_update()).mappings().first()
+        if row is None:
+            return {"error": "unknown_subscription"}
+        if not row["trial_ends_at"]:
+            return {"error": "not_a_trial"}
+        started = False
+        if not row["trial_started_at"]:
+            if row["status"] != "authenticated" or (row["paid_count"] or 0) >= 1:
+                return {"error": "not_authenticated", "subscription": dict(row)}
+            if _aware(row["trial_ends_at"]) <= now:
+                return {"error": "trial_over", "subscription": dict(row)}
+            other = conn.execute(select(subs.c.id).where(
+                subs.c.org_id == row["org_id"], subs.c.id != row["id"],
+                subs.c.trial_started_at.is_not(None))).scalar()
+            if other is not None or _pricing.is_dashboard_tier(_plan_of(conn, row["org_id"])):
+                log.error("trial subscription %s authenticated but company %s already had a trial or has a "
+                          "plan — no trial granted, needs a human (cancel it at Razorpay)",
+                          razorpay_subscription_id, row["org_id"])
+                return {"error": "trial_not_available", "subscription": dict(row)}
+            conn.execute(subs.update().where(subs.c.id == row["id"]).values(trial_started_at=now, updated_at=now))
+            _grant_plan(conn, row["org_id"], "trial")
+            started = True
+        row = dict(conn.execute(select(subs).where(subs.c.id == row["id"])).mappings().first())
+    if not row["trial_ended_at"]:
+        owner = row["created_by_user_id"] or _org_owner(row["org_id"])
+        if owner is not None:
+            A.grant_plan_credits(owner, row["org_id"], _pricing.TRIAL_CREDITS, source_ref=f"trial:{row['id']}",
+                                 expires_at=_aware(row["trial_ends_at"]), reason="trial_credits",
+                                 ref_type="subscription", ref_id=row["id"])
+    return {"started": started, "subscription": row}
+
+
+def trial_sweep(now=None, background=False):
+    """Time-driven half of the trial, idempotent, every step claimed with a
+    conditional UPDATE so overlapping runs can't double-act:
+      * TRIAL_REMINDER_HOURS before the charge, email the payers once ("your trial
+        ends tomorrow; Starter starts then unless you cancel");
+      * a trial whose first charge has landed is marked ended (converted; the
+        charge already granted Starter);
+      * a trial with no charge TRIAL_GRACE_HOURS after the scheduled time (or a
+        cancelled one, at its end) goes back to Free, with one email unless the
+        customer cancelled it themselves.
+    Returns the notices."""
+    import _assisted_sale
+    engine, tables = A._require_engine(), A._get_tables()
+    subs = tables["subscriptions"]
+    from sqlalchemy import select
+    now = now or _now()
+    grace = timedelta(hours=_pricing.TRIAL_GRACE_HOURS)
+    remind = timedelta(hours=_pricing.TRIAL_REMINDER_HOURS)
+    notices = []
+    with engine.begin() as conn:
+        rows = conn.execute(select(subs).where(
+            subs.c.trial_started_at.is_not(None), subs.c.trial_ended_at.is_(None))).mappings().all()
+        for r in rows:
+            ends = _aware(r["trial_ends_at"])
+            paid = (r["paid_count"] or 0) >= 1
+            ended = r["status"] in ENDED_STATUSES or r["status"] in ("abandoned", "duplicate")
+            if paid:
+                conn.execute(subs.update().where(subs.c.id == r["id"], subs.c.trial_ended_at.is_(None))
+                             .values(trial_ended_at=now, updated_at=now))
+                continue
+            if (ended and now >= ends) or now >= ends + grace:
+                claimed = conn.execute(subs.update().where(
+                    subs.c.id == r["id"], subs.c.trial_ended_at.is_(None))
+                    .values(trial_ended_at=now, updated_at=now)).rowcount
+                if claimed:
+                    _assisted_sale.release_plan(conn, r["org_id"], "trial", now)
+                    if not ended:
+                        notices.append({"kind": "trial_lapsed", "to": _recipients(conn, r["org_id"]),
+                                        "org_name": _org_name(conn, r["org_id"]), "lock_at": ends,
+                                        "amount_paise": r["amount_paise"]})
+                continue
+            if not ended and r["status"] == "authenticated" and r["trial_reminded_at"] is None \
+                    and ends - remind <= now < ends:
+                claimed = conn.execute(subs.update().where(
+                    subs.c.id == r["id"], subs.c.trial_reminded_at.is_(None))
+                    .values(trial_reminded_at=now, updated_at=now)).rowcount
+                if claimed:
+                    notices.append({"kind": "trial_ending", "to": _recipients(conn, r["org_id"]),
+                                    "org_name": _org_name(conn, r["org_id"]), "lock_at": ends,
+                                    "amount_paise": r["amount_paise"]})
+    _deliver(notices, background)
+    return notices
+
+
 # ── Dunning notices (P13) ────────────────────────────────────────────────────
 def _recipients(conn, org_id):
     """Owners and admins of the PAYING company: the people who can fix a payment."""
@@ -471,7 +630,11 @@ def _deliver(notices, background):
             for n in notices:
                 for to in n["to"]:
                     try:
-                        _email.send_dunning_notice(to, n["org_name"], n["kind"], n["lock_at"], _billing_url())
+                        if n["kind"].startswith("trial_"):
+                            _email.send_trial_notice(to, n["org_name"], n["kind"], n["lock_at"],
+                                                     n.get("amount_paise"), _billing_url())
+                        else:
+                            _email.send_dunning_notice(to, n["org_name"], n["kind"], n["lock_at"], _billing_url())
                     except Exception:
                         log.exception("dunning notice (%s) to %s failed", n["kind"], to)
         except Exception:

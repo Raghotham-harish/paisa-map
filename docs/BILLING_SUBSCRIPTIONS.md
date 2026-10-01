@@ -184,9 +184,45 @@ for everyone else — never taking a wallet below zero. `/api/credits` returns
 sales still grant all their months' credits up front with no expiry; v2 top-ups
 (60 days) have no purchase flow yet; annual +5% (annual is invoice-only).
 
+## P4 — the 7-day free trial (built 2026-10-01)
+
+Card/mandate-required (decision #2). A trial is an ordinary **Starter** subscription
+created with Razorpay `start_at` = now + `TRIAL_DAYS` (7), so Checkout only
+*authenticates* the card or UPI mandate — Razorpay takes a token amount and refunds it.
+`POST /subscriptions {"tier":"starter","trial":true}`; `GET /subscriptions` returns
+`trial: {available, reason, days, credits, tier, label, amount_paise}` and each
+subscription view carries `trial: {state: pending|running|lapsed|converted, ends_at}`.
+
+- **Start:** `/subscriptions/verify` (Razorpay reports `authenticated`, `paid_count` 0) or
+  the `subscription.authenticated` webhook → `start_trial`: company plan `v2_trial`
+  (dashboard, all signals, no raised API limit) + `TRIAL_CREDITS` (500) as one lot that
+  expires at the trial's end. Idempotent; the credit grant heals a crash on the next call.
+- **Money guard:** `/verify` never treats a payment as a charge while Razorpay says
+  `paid_count` is 0 — for trials *and* ordinary subscriptions. Before this, the trial's
+  token authentication payment would have been recorded as a paid Starter month.
+- **Day 8:** Razorpay charges; `subscription.charged` → `apply_charge` grants Starter and
+  its 1,000 credits exactly like a renewal.
+- **First charge fails:** `TRIAL_GRACE_HOURS` (12) after the scheduled charge the sweep
+  takes `v2_trial` back to **Free** and emails the payers once. Not past due, never
+  locked. A later Razorpay retry that succeeds grants Starter. Subscribing again cancels
+  the old (still-retrying) mandate at Razorpay first.
+- **Cancel during the trial:** cancelled at Razorpay immediately (nothing will be charged);
+  the company keeps the trial until its end, then Free, no "payment failed" email.
+- **Reminder:** `TRIAL_REMINDER_HOURS` (24) before the charge, one "your trial ends
+  tomorrow" email to owners/admins (needs SES, like dunning). Razorpay's own pre-debit
+  notification is separate (`customer_notify: 1`).
+- **One trial per company and per person, ever** — a company that had a trial or any paid
+  subscription, or a person who started a trial anywhere, gets `trial_used`; a company on
+  a dashboard plan gets `has_plan`.
+- **Schema:** four nullable columns on `subscriptions` (`trial_ends_at`,
+  `trial_started_at`, `trial_ended_at`, `trial_reminded_at`). `apply_subscriptions_tables.py`
+  creates them with the table, or adds them if the table already exists.
+- **Not in P4:** the Free-account limits (3 core signals, no dashboard) are P6/P7
+  enforcement; a trial banner on the dashboard; changing tier during a trial.
+
 ## Not in this round (Gantt order)
 
-P4 trial, P6 paywall,
+P6 paywall,
 P5 seats, P7 signal tiers, a
 reconcile job for a missed `charged` webhook, gap-free invoice numbering under
 concurrent duplicate deliveries.

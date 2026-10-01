@@ -959,6 +959,21 @@ export interface SubscriptionView {
   cancel_at_period_end: boolean;
   ends_at: string | null;
   paid_count: number | null;
+  // P4 free trial: null for an ordinary subscription. pending = waiting for the card/mandate,
+  // running = in the trial, lapsed = ended without the first charge (back on Free),
+  // converted = the first charge went through (now a plain subscription).
+  trial?: { state: "pending" | "running" | "lapsed" | "converted"; ends_at: string | null } | null;
+}
+
+// Whether this person may start the free trial for this company, and what follows it.
+export interface TrialOffer {
+  available: boolean;
+  reason: string | null;
+  days: number;
+  credits: number;
+  tier: string;
+  label: string;
+  amount_paise: number;
 }
 
 export interface SubscriptionOption {
@@ -979,6 +994,8 @@ export interface SubscriptionsResponse {
   assisted: { tier: string; label: string; period_start: string | null; period_end: string | null } | null;
   subscription: SubscriptionView | null;
   options: SubscriptionOption[];
+  // Absent on an older server = no trial.
+  trial?: TrialOffer;
 }
 
 export interface SubscriptionCheckout {
@@ -987,6 +1004,8 @@ export interface SubscriptionCheckout {
   amount_paise: number;
   currency: string;
   tier: string;
+  // Set when this checkout starts a free trial: when the first charge is taken.
+  trial_ends_at?: string | null;
 }
 
 export type OrderKind = "credit_pack" | "plan_upgrade" | "report_purchase";
@@ -1261,14 +1280,15 @@ export const api = {
   // Monthly plan subscriptions live on the PAYING company; owner/admin only.
   getSubscriptions: (orgId?: number | null) =>
     request(`/api/billing/subscriptions${orgId != null ? `?org_id=${orgId}` : ""}`) as Promise<SubscriptionsResponse>,
-  createSubscription: (tier: string, orgId?: number | null, billing?: BuyerDetails) =>
+  createSubscription: (tier: string, orgId?: number | null, billing?: BuyerDetails, trial?: boolean) =>
     request("/api/billing/subscriptions", {
       method: "POST",
-      body: JSON.stringify({ tier, ...(orgId != null ? { org_id: orgId } : {}), ...(billing ? { billing } : {}) }),
+      body: JSON.stringify({ tier, ...(orgId != null ? { org_id: orgId } : {}), ...(billing ? { billing } : {}),
+                             ...(trial ? { trial: true } : {}) }),
     }) as Promise<SubscriptionCheckout>,
   verifySubscription: (params: { razorpay_subscription_id: string; razorpay_payment_id: string; razorpay_signature: string }) =>
     request("/api/billing/subscriptions/verify", { method: "POST", body: JSON.stringify(params) }) as
-      Promise<{ status: "active" | "pending"; subscription?: SubscriptionView }>,
+      Promise<{ status: "active" | "pending" | "trial"; subscription?: SubscriptionView }>,
   cancelSubscription: (orgId?: number | null) =>
     request("/api/billing/subscriptions/cancel", {
       method: "POST", body: JSON.stringify(orgId != null ? { org_id: orgId } : {}),

@@ -88,6 +88,9 @@ PRICE_BOOK_VERSION = "2026-09-rev6"
 
 TRIAL_DAYS = 7
 TRIAL_CREDITS = 500            # total for the trial, not per month
+TRIAL_CONVERTS_TO = "starter"  # the paid tier a trial's day-8 charge buys
+TRIAL_GRACE_HOURS = 12         # after the scheduled charge, wait this long for it to land before dropping to Free
+TRIAL_REMINDER_HOURS = 24      # "your trial ends tomorrow" goes out this long before the charge
 ANNUAL_DISCOUNT = 0.20         # -20% on the monthly price
 ANNUAL_CREDIT_BONUS = 0.05     # +5% credits every month on an annual term
 PLAN_CREDIT_ROLLOVER_DAYS = 31     # plan credits roll one month, then expire
