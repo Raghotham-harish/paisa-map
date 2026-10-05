@@ -57,6 +57,9 @@ until this is settled.
 | `upi_txn_value_per_capita` (district only) | **PhonePe Pulse** GitHub repo (`github.com/PhonePe/pulse`) | **CDLA-Permissive-2.0** | 🟢 yes | Explicitly permits commercial use, no attribution-of-derived-data obligation. Applies ONLY to the GitHub repo data. |
 | ~~`upi_txn_count_nearby`~~ (removed 2026-09-29) | PhonePe Pulse **live website** JSON (`phonepe.com/pulsestatic/…`) — NOT the GitHub repo | phonepe.com site terms: no commercial use, no automated extraction, no combining with other datasets | 🔴 **removed** | Was wrongly filed under the CDLA row above. Removed from code, the public map and `broad_coverage.csv`; the CSV is quarantined outside the repo. Still present in the public repo's git history — founder decision (private repo vs history rewrite). |
 | `radiance_mean` | **NASA VIIRS** black-marble via AppEEARS | US Government work — public domain | 🟢 yes | Free NASA Earthdata account needed to fetch, not to redistribute. |
+| `population`, `pop_per_km2` (raw file only, not yet a signal) | **WorldPop** 2020 1 km unconstrained (`ind_ppp_2020_1km_Aggregated.tif`), summed over DoP PIN polygons → `paisamap-etl/data/raw/worldpop_pincode_population.csv` | **CC BY 4.0** | 🟢 yes, with attribution | Attribute WorldPop and say the values are aggregated to PIN polygons by us. |
+| `retail_poi`, `fb_poi`, `retail_per_km2`, `fb_per_km2` (raw file only, not yet a signal) | **Overture Maps** Places release 2026-09-23.1, counted per DoP PIN polygon → `paisamap-etl/data/raw/overture_poi_density.csv` | **CDLA-Permissive-2.0** (Meta, Microsoft and others) + **Apache-2.0** (Foursquare) + CC0 (AllThePlaces) | 🟢 yes | Contains no OSM, so no ODbL — the clean replacement candidate for `premium_poi_per_km2`. Keep the Apache-2.0 notice with anything redistributed. |
+| `builtup_share` (raw file only, not yet a signal) | **GHSL** GHS-BUILT-S R2023A, epoch 2020, 100 m (EU / JRC), share of each DoP PIN polygon → `paisamap-etl/data/raw/ghsl_builtup_pincode.csv` | **CC BY 4.0** | 🟢 yes, with attribution | Cite: Pesaresi, M., Politis, P. (2023): GHS-BUILT-S R2023A — GHS built-up surface grid, derived from Sentinel2 composite and Landsat, multitemporal (1975-2030). European Commission, JRC. doi:10.2905/9F06F36F-4B11-47EC-ABB0-4F8B7B1D72EA |
 | `premium_poi_per_km2` | **OSM** via Overpass API | **ODbL** (share-alike) | 🔴 **do not sell until resolved** | See the ODbL note above. |
 | `rate_per_sqft` | **PaisaMap's own estimate** — `enrich_single.py` scales a hardcoded per-city prior (`CITY_PRIORS`) by a local ratio; `llm_extract.py` also pulls transaction value/area from documents | our own modelled value | 🟢 likely OK | Not a scraped feed. Residual question: where the `CITY_PRIORS` numbers originally came from (manual research vs. a copied table). Document that provenance; if any prior was lifted from a portal's published "average rate" table, note it. |
 
@@ -76,7 +79,11 @@ until this is settled.
 > India; Reserve Bank of India; Ministry of Statistics and Programme
 > Implementation; Central Board of Direct Taxes; PhonePe Pulse
 > (CDLA-Permissive-2.0); NASA VIIRS (public domain); © OpenStreetMap
-> contributors (ODbL). Derived signals and the Purchasing Power Index are
+> contributors (ODbL); WorldPop (www.worldpop.org, CC BY 4.0); Overture Maps
+> Foundation Places (CDLA-Permissive-2.0 / Apache-2.0); GHSL — Pesaresi &
+> Politis (2023), European Commission JRC, doi:10.2905/9F06F36F-4B11-47EC-ABB0-4F8B7B1D72EA
+> (CC BY 4.0). WorldPop, Overture and GHSL values are aggregated to PIN
+> polygons by PaisaMap. Derived signals and the Purchasing Power Index are
 > PaisaMap's own work.
 
 ---
