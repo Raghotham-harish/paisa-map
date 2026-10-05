@@ -7,7 +7,7 @@ server.py — PaisaMap local server
 Endpoints:
   /                          static → index.html
   /data/...                  static → data/ files (CSV, etc.)
-  /api/reverse?lat=&lng=     Nominatim reverse geocode proxy (server IP, avoids browser rate-limit)
+  /api/reverse?lat=&lng=     reverse geocode via DoP PIN polygons (no outbound request)
   /api/search?q=QUERY        Nominatim search proxy
   /api/enrich                GET {pincode, lat, lng, name, source} — enriches new pincode
   /api/status/<pincode>      enrichment job status
@@ -44,6 +44,7 @@ and would silently wipe any PDF that only ever existed in that destination copy.
 import csv
 import io
 import json
+import math
 import os
 import re
 import secrets
@@ -105,6 +106,9 @@ from _signals_data import (EXPORT_CORE_FIELDS, EXPORT_ALL_COLUMNS, columns_for_p
                             haversine_km as _haversine_km, coerce as _coerce,
                             load_ppi_signals_rows as _load_ppi_signals_rows)
 from pincode_master import validate_pincode
+import pin_locate
+# Build the PIN index at process start so the first map click doesn't pay for it.
+pin_locate.warm()
 
 # Guarded like every other cross-package import here: /api/export is a public
 # endpoint that predates the whole auth stack and must keep working even if
@@ -365,29 +369,31 @@ def serve_assets(fname):
     return send_from_directory(APP / "assets", fname)
 
 
-# ── Nominatim proxies ─────────────────────────────────────────────────────────
+# ── Geocoding ─────────────────────────────────────────────────────────────────
+# /api/reverse is local (DoP PIN polygons). /api/search is still a Nominatim
+# forward-search proxy; that replacement is a separate decision.
 @app.route("/api/reverse")
 def api_reverse():
-    """Proxy Nominatim reverse geocode — server IP avoids browser rate-limit."""
-    lat = request.args.get("lat", "").strip()
-    lng = request.args.get("lng", request.args.get("lon", "")).strip()
-    if not lat or not lng:
+    """lat/lng → PIN code from the DoP polygon index. No outbound request."""
+    lat_s = request.args.get("lat", "").strip()
+    lng_s = request.args.get("lng", request.args.get("lon", "")).strip()
+    if not lat_s or not lng_s:
         return jsonify({"error": "lat and lng required"}), 400
     try:
-        params = urllib.parse.urlencode({
-            "lat": lat, "lon": lng, "zoom": 14,
-            "format": "json", "addressdetails": 1,
-        })
-        url = f"https://nominatim.openstreetmap.org/reverse?{params}"
-        req = urllib.request.Request(
-            url, headers={"User-Agent": "PaisaMap-Server/1.0",
-                          "Accept-Language": "en",
-                          "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            return r.read(), 200, {"Content-Type": "application/json",
-                                   "Access-Control-Allow-Origin": "*"}
-    except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        lat_f, lng_f = float(lat_s), float(lng_s)
+    except ValueError:
+        return jsonify({"error": "lat and lng must be numbers"}), 400
+    if not (math.isfinite(lat_f) and math.isfinite(lng_f)):
+        return jsonify({"error": "lat and lng must be finite"}), 400
+    if not (-90.0 <= lat_f <= 90.0 and -180.0 <= lng_f <= 180.0):
+        return jsonify({"error": "lat/lng out of range"}), 400
+    body = pin_locate.reverse_address(lat_f, lng_f)
+    # Keep the query strings the client sent; index.html only reads address.*.
+    body["lat"] = lat_s
+    body["lon"] = lng_s
+    resp = jsonify(body)
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    return resp
 
 
 @app.route("/api/search")

@@ -11,17 +11,14 @@ ppi_map_data.csv to the app's data directory.
 Called by server.py /api/enrich for "You are here" pin enrichment.
 """
 
-import json
 import math
 import sys
-import time
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
 import pandas as pd
 
 from _filelock import write_lock
+import pin_locate
 from pincode_master import assert_real_pincode_ids, real_pincode_id, state_for_pincode
 import _db
 
@@ -96,23 +93,21 @@ def prior_signals(prior: dict) -> dict:
 
 
 def detect_district(lat: float, lng: float):
-    """Nominatim reverse geocode → (district_name, locality_name). Returns ('','') on failure."""
+    """Point-in-polygon → (district_name, locality_name). Returns ('','') on a miss.
+
+    District and state come from the India Post reference; the locality is the
+    post office name. No network call.
+    """
     try:
-        url = (
-            f"https://nominatim.openstreetmap.org/reverse"
-            f"?lat={lat}&lon={lng}&format=json&addressdetails=1&zoom=10"
-        )
-        req = urllib.request.Request(
-            url, headers={"User-Agent": "PaisaMap-Enrich/1.0", "Accept-Language": "en"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            addr = json.loads(r.read()).get("address", {})
-        district = (addr.get("county") or addr.get("state_district") or
-                    addr.get("district") or "").strip()
-        locality  = (addr.get("city") or addr.get("town") or addr.get("suburb") or district).strip()
-        return district, locality
+        hit = pin_locate.locate(lat, lng)
     except Exception as e:
         print(f"  WARN district lookup failed: {e}", flush=True)
         return "", ""
+    if not hit:
+        return "", ""
+    district = (hit.get("district") or "").strip()
+    locality = (hit.get("office_name") or district).strip()
+    return district, locality
 
 
 def register_in_district_map(pc: str, name: str, lat: float, lng: float, state: str) -> None:
@@ -127,7 +122,6 @@ def register_in_district_map(pc: str, name: str, lat: float, lng: float, state: 
     if pc in df.index:
         return
 
-    time.sleep(1.2)  # Nominatim 1 req/s
     district, locality = detect_district(lat, lng)
     if not district:
         print(f"  WARN could not detect district for {pc} — skipping district map", flush=True)

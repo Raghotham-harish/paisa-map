@@ -7,7 +7,7 @@ fetch scripts and source portals, and whether it looks safe to use in a
 plan). Anything marked ⚠️ or 🔴 needs a real read of the source's terms — and,
 before selling, a lawyer — not this file.
 
-Last reviewed: 2026-09-07. Re-check whenever a new `fetch_*.py` is added.
+Last reviewed: 2026-10-05. Re-check whenever a new `fetch_*.py` is added.
 
 ---
 
@@ -17,7 +17,7 @@ Last reviewed: 2026-09-07. Re-check whenever a new `fetch_*.py` is added.
 |---|---|---|
 | 🟢 Low | Most `data.gov.in` / OGD datasets, PhonePe Pulse, NASA VIIRS, CBDT/MOSPI/ASI government reports | Government Open Data Licence – India (GODL) or an explicit permissive licence; raw facts, not copyrightable compilations. Commercial reuse allowed with attribution. |
 | ⚠️ Medium | RBI publications (Handbook of Statistics, BSR), UDISE+ bulk export, VAHAN/Parivahan | Government data but the portal's own terms restrict or are silent on commercial redistribution; or the acquisition method (scrape) is a separate problem from the licence. |
-| 🔴 High | OpenStreetMap-derived data — `poi_density` (Overpass) and all Nominatim geocoding | **ODbL share-alike.** A database that includes OSM-derived data, sold or made public, may itself have to be ODbL. Nominatim also has a usage policy our server-side proxy likely breaches at scale. |
+| 🔴 High | OpenStreetMap-derived data — `poi_density` (Overpass) and Nominatim **forward** search (`/api/search`, customer-upload geocoding) | **ODbL share-alike.** A database that includes OSM-derived data, sold or made public, may itself have to be ODbL. Nominatim also has a usage policy our server-side search proxy likely breaches at scale. Reverse geocoding (lat/lng → PIN) no longer uses Nominatim; it uses the DoP polygons below. |
 
 **The single biggest issue: OSM / ODbL.** `premium_poi_per_km2` is a feature in
 the ML ensemble and an exported column. If it's a "Derivative Database" of OSM
@@ -40,7 +40,7 @@ until this is settled.
 | NSSO **HCES 2023-24** MPCE (via a GitHub mirror) | `mpce_combined`, the PPI base | Government survey data; the mirror repo has no separate licence | ⚠️ likely OK (government facts) | Verify the mirror isn't adding restrictions; ideally pull from the official MoSPI release. |
 | **Karnataka DES** district/taluk income (`data.gov.in`, AIKosh) | Karnataka income calibration | GODL-India | 🟢 yes, with attribution | Fetched via `api.data.gov.in` with the published sample key. |
 | **India Post** All-India Pincode Directory (`data.gov.in`) | office names per pincode | GODL-India | 🟢 yes, with attribution | |
-| **Dept. of Posts** PIN code boundary dataset (`data.gov.in`, NDSAP) | `boundaries.geojson` | GODL-India / NDSAP | 🟢 yes, with attribution | Committed pre-simplified copy. Attribute "Department of Posts, Government of India". |
+| **Dept. of Posts** PIN code boundary dataset (`data.gov.in`, NDSAP) | `boundaries.geojson`, and reverse geocoding (`/api/reverse`, `pin_locate.py`, `detect_district`, `batch_enrich_hces.reverse_pincode`) | GODL-India / NDSAP | 🟢 yes, with attribution | Committed pre-simplified copy at `paisamap-etl/data/reference/pincode_boundary_master/india_pincode_boundaries_simplified.geojson` (source file on data.gov.in, All-India PIN boundary, simplified for the app). Attribute "Department of Posts, Government of India". District, state, and office name joined from the India Post directory CSVs, not from OSM. A point outside every polygon snaps to the nearest boundary within 1 km or returns no pincode — never a synthetic id. |
 
 ### Signal columns
 
@@ -64,7 +64,7 @@ until this is settled.
 
 | Service | Used for | Terms | Notes |
 |---|---|---|---|
-| **Nominatim** (OSM) — `/api/search`, `/api/reverse` | address search & reverse geocode | OSM data = ODbL; **Nominatim Usage Policy**: max ~1 req/s, no bulk, must allow caching, requires a real `User-Agent` (we send `PaisaMap-Server/1.0`) | 🔴 Our server-side proxy funnels every user's lookups through one IP — at any real traffic this breaches the "no heavy use" clause. Move to a self-hosted Nominatim or a paid geocoder (e.g. a commercial plan) before scaling, and before selling. |
+| **Nominatim** (OSM) — `/api/search`, `etl/_geocode.py` (customer-upload forward search), and `batch_enrich_hces.geocode_district` | address / district-name **forward** search | OSM data = ODbL; **Nominatim Usage Policy**: max ~1 req/s, no bulk, must allow caching, requires a real `User-Agent` (we send `PaisaMap-Server/1.0`) | 🔴 Forward search still funnels lookups through one server IP. `/api/reverse` no longer calls Nominatim (DoP polygons, row above). Replace or self-host the forward geocoder before scaling search; do not send reverse traffic back to the public instance. |
 | **Esri** Light Gray basemap + ArcGIS | map tiles / basemap | Esri ToU — the key is referrer-locked | Basemap display is within normal ToU; don't extract or resell tiles. |
 
 ---
@@ -87,8 +87,12 @@ until this is settled.
    our own estimate, but note any prior copied from a portal's published table.
 2. 🔴 **Resolve the OSM/ODbL question for `premium_poi_per_km2`** — legal advice
    on produced-work vs derivative-database, or drop/replace the column.
-3. 🔴 **Nominatim**: plan a self-hosted or paid geocoder before the API product
-   launches; the current proxy doesn't scale within the usage policy.
+3. 🔴 **Nominatim forward search** (`/api/search`, `_geocode.py`,
+   `batch_enrich_hces.geocode_district`): still the public instance. Reverse
+   geocoding moved to DoP / NDSAP polygons (2026-10-05). Plan a self-hosted or
+   paid geocoder for forward search before that API surface scales. The
+   in-repo rate limit on `/api/search` stays; production nginx's `geo` zone
+   still names `/api/reverse` and should drop it now that reverse is local.
 4. ⚠️ **Read RBI's website terms** for the Handbook / BSR data and get a
    yes/no on commercial redistribution of derived figures.
 5. ⚠️ **Read UDISE+ terms** for bulk-export redistribution.

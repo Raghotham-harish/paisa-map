@@ -3,16 +3,20 @@
 batch_enrich_hces.py — Pre-enrich all 628 HCES districts without Overpass.
 
 Strategy (fast path — ~20 min for 628 districts):
-  1. Geocode each district via Nominatim → lat, lng, pincode
-  2. Skip districts already in ppi_map_data.csv
-  3. Compute PPI using IDW from nearest existing ML pincodes (same as
+  1. Geocode each district via Nominatim → lat, lng, and a postcode when
+     the forward search has one
+  2. If that postcode is missing, reverse the coordinate locally against
+     the DoP PIN polygons (no network call, no sleep)
+  3. Skip districts already in ppi_map_data.csv
+  4. Compute PPI using IDW from nearest existing ML pincodes (same as
      enrich_single.py's interpolation step)
-  4. Apply MPCE adjustment: districts with higher-than-state-median MPCE
+  5. Apply MPCE adjustment: districts with higher-than-state-median MPCE
      get PPI nudged upward (dampened, exponent 0.35)
-  5. Write directly to ppi_ml_refined.csv + ppi_map_data.csv
+  6. Write directly to ppi_ml_refined.csv + ppi_map_data.csv
 
 No Overpass queries → safe to run with many districts.
-Nominatim: 1 req/s, polite User-Agent required.
+Forward search is still public Nominatim: 1 req/s, polite User-Agent required.
+Replacing that forward step is out of scope (see issue #9).
 
 Usage:
   python3 etl/batch_enrich_hces.py                    # all unprocessed districts
@@ -34,6 +38,7 @@ from pathlib import Path
 import pandas as pd
 
 from enrich_single import CITY_PRIORS, _DEFAULT_PRIOR, prior_signals, estimate_via_idw
+import pin_locate
 from pincode_master import assert_real_pincode_ids, real_pincode_id, state_for_pincode
 from _filelock import write_lock
 import _db
@@ -109,26 +114,19 @@ def geocode_district(district: str, state: str):
 
 
 def reverse_pincode(lat: float, lng: float) -> str:
-    """Nominatim reverse geocode → postal code."""
-    params = urllib.parse.urlencode({
-        "lat": lat, "lon": lng, "format": "json",
-        "addressdetails": 1, "zoom": 15,
-    })
-    req = urllib.request.Request(
-        f"https://nominatim.openstreetmap.org/reverse?{params}",
-        headers={"User-Agent": UA, "Accept-Language": "en"}
-    )
+    """DoP polygon reverse → postal code. No network call and no sleep.
+
+    A miss (sea, or farther than the snap tolerance from every polygon)
+    returns ''. Never a synthetic id.
+    """
     try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            addr = json.loads(r.read()).get("address", {})
-        time.sleep(NOMINATIM_DELAY)
-        pc = real_pincode_id(addr.get("postcode", "").replace(" ", ""))
-        if pc:
-            return pc
+        hit = pin_locate.locate(lat, lng)
     except Exception as e:
         print(f"    WARN reverse geocode failed: {e}")
-        time.sleep(NOMINATIM_DELAY)
-    return ""
+        return ""
+    if not hit:
+        return ""
+    return real_pincode_id(hit.get("pincode"))
 
 
 def haversine_series(lat: float, lng: float, lats: pd.Series, lngs: pd.Series) -> pd.Series:
