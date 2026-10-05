@@ -994,6 +994,12 @@ export interface SubscriptionOption {
   amount_paise: number;
   credits_per_month?: number;
   seats?: number | null;
+  // P7: "signals" = a map-data-only plan (no dashboard, no credits); absent on an
+  // older server = "dashboard". `signal_count` = signals it opens beyond the core
+  // three. `upgrade` = the company's live plan can move up to this one now.
+  kind?: "signals" | "dashboard";
+  signal_count?: number;
+  upgrade?: boolean;
 }
 
 export interface SubscriptionsResponse {

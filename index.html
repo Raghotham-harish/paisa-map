@@ -3424,16 +3424,71 @@ document.querySelectorAll("#metricSeg button").forEach(b=>{
 // and free-plan accounts both see "free" — this is a live behavior change from the prior
 // hardcoded userPlan="pro": previously-unlocked Pro rows are now genuinely locked.
 let userPlan = "free"; // "free" | "pro" | "team"
+let signalAccess = null;   // P7, see loadSignalAccess(): {enforced, planLabel, locked:Set, tier:{id:"core"|"lite"|"pro"}}
 function isProPlan(){ return userPlan === "pro" || userPlan === "team"; }
 function renderPlanPill(){
+  // A signal-only plan reads as "free" for the dashboard but has its own name.
+  const sigPlan = !isProPlan() && signalAccess
+    && /^Signals /.test(signalAccess.planLabel) ? signalAccess.planLabel : null;
   const pill = document.getElementById("planPill");
-  if(pill) pill.textContent = isProPlan() ? userPlan.toUpperCase() : "FREE";
+  if(pill) pill.textContent = isProPlan() ? userPlan.toUpperCase() : sigPlan ? sigPlan.replace("Signals ", "").toUpperCase() : "FREE";
   // Was hardcoded "Pro plan" regardless of userPlan — bind it for real, same
   // fix as the header pill above.
   const menuText = document.getElementById("userMenuPlanText");
-  if(menuText) menuText.textContent = isProPlan() ? `${userPlan.charAt(0).toUpperCase()}${userPlan.slice(1)} plan` : "Free plan";
+  if(menuText) menuText.textContent = isProPlan() ? `${userPlan.charAt(0).toUpperCase()}${userPlan.slice(1)} plan` : sigPlan ? `${sigPlan} plan` : "Free plan";
 }
 renderPlanPill();
+
+// P7 signal tiers: which signals THIS visitor may open comes from the server
+// (/api/signals/catalog answers per caller, anonymous = free), so the map and
+// /api/export can't disagree. Until it answers, the old Pro rule applies. With
+// SIGNAL_TIERS off on the server the answer IS the old rule.
+function loadSignalAccess(){
+  return fetch("/api/signals/catalog", { credentials: "include" })
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      if(!data || !data.access) return;
+      signalAccess = {
+        enforced: !!data.access.enforced,
+        planLabel: data.access.plan_label || "Free",
+        locked: new Set(data.signals.filter(s => s.locked).map(s => s.key)),
+        tier: Object.fromEntries(data.signals.map(s => [s.key, s.tier])),
+      };
+      renderPlanPill();
+      refreshGroupLocks();
+    })
+    .catch(()=>{});
+}
+function signalLocked(c){
+  return signalAccess ? signalAccess.locked.has(c.id) : (c.pro && !isProPlan());
+}
+// A category reads as locked only when every signal in it is locked for this visitor.
+function groupLocked(g){
+  return g.cols.length > 0 && g.cols.every(c => signalLocked({...c, pro: g.pro}));
+}
+function refreshGroupLocks(){
+  SIGNAL_GROUPS.forEach(g => {
+    const locked = groupLocked(g);
+    document.querySelectorAll(`[data-sig-group="${g.label}"]`).forEach(el => {
+      el.textContent = g.label + (locked ? " 🔒" : "");
+    });
+    document.querySelectorAll(`[data-cat-group="${g.label}"]`).forEach(btn => {
+      const label = btn.querySelector(":scope > span");
+      if(!label) return;
+      let lock = label.querySelector(".cat-lock");
+      if(locked && !lock){ label.insertAdjacentHTML("beforeend", '<span class="cat-lock">🔒</span>'); lock = null; }
+      if(lock) lock.hidden = !locked;
+    });
+  });
+}
+function signalBadge(c){
+  if(signalAccess && signalAccess.enforced){
+    const t = signalAccess.tier[c.id];
+    return t === "lite" ? '<span class="pro-badge">LITE</span>' : t === "pro" ? '<span class="pro-badge">PRO</span>' : '';
+  }
+  return c.pro ? '<span class="pro-badge">PRO</span>' : '';
+}
+loadSignalAccess();
 
 // ── Header: notifications / account menu / sign-in (Google Identity Services) ──────────
 // The Google ID token is verified server-side at POST /api/auth/google (see blueprints/auth.py)
@@ -3505,6 +3560,7 @@ function persistUser(u){
         userPlan = "free";
         persistUser(null);
       }
+      loadSignalAccess();
     })
     .catch(()=>{ /* offline/local dev without a DB — keep whatever localStorage had */ });
 })();
@@ -3520,6 +3576,7 @@ function handleGoogleCredential(response){
     .then(data => {
       userPlan = data.plan || "free";
       persistUser({ name: data.user.name, email: data.user.email, picture: data.user.picture_url });
+      loadSignalAccess();
       document.getElementById("authPanel").hidden = true;
       document.getElementById("authBtn").setAttribute("aria-expanded","false");
       toast(`Signed in as ${(data.user.name || data.user.email).split(" ")[0]}`, 2500);
@@ -3528,7 +3585,8 @@ function handleGoogleCredential(response){
 }
 
 document.getElementById("signOutBtn").addEventListener("click", ()=>{
-  fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(()=>{});
+  fetch("/api/auth/logout", { method: "POST", credentials: "include" })
+    .catch(()=>{}).then(loadSignalAccess);
   userPlan = "free";
   persistUser(null);
   if(window.google && google.accounts && google.accounts.id) google.accounts.id.disableAutoSelect();
@@ -3769,7 +3827,8 @@ function selectSignalMetric(sigId, label){
   SIGNAL_GROUPS.forEach(g=>{
     const chip = document.createElement("button");
     chip.type = "button"; chip.className = "sig-chip"; chip.setAttribute("aria-pressed","false");
-    chip.textContent = g.label + (g.pro ? " 🔒" : "");
+    chip.dataset.sigGroup = g.label;
+    chip.textContent = g.label + (groupLocked(g) ? " 🔒" : "");
     chip.addEventListener("click", ()=>{
       if(activeCats.has(g.label)) activeCats.delete(g.label); else activeCats.add(g.label);
       chip.setAttribute("aria-pressed", String(activeCats.has(g.label)));
@@ -3795,14 +3854,13 @@ function selectSignalMetric(sigId, label){
       if(activeCats.size && c.group !== "Core" && !activeCats.has(c.group)) return;
       if(!matchesSearch(c)) return;
       shown++;
-      const locked = c.pro && !isProPlan();
+      const locked = signalLocked(c);
       const row = document.createElement("button");
       row.type = "button";
       row.className = "sig-row" + (c.id===metric ? " active" : "") + (locked ? " locked-row" : "");
-      row.innerHTML = `<span class="sig-row-label"><span>${c.label}</span></span>` +
-        (c.pro ? '<span class="pro-badge">PRO</span>' : '');
+      row.innerHTML = `<span class="sig-row-label"><span>${c.label}</span></span>` + signalBadge(c);
       row.addEventListener("click", ()=>{
-        if(locked){ toast("Pro signal — upgrade to unlock", 2200); return; }
+        if(locked){ toast("Not on your plan — upgrade to unlock this signal", 2200); return; }
         selectSignal(c.id, c.label);
       });
       listEl.appendChild(row);
@@ -3953,7 +4011,8 @@ function selectSignalMetric(sigId, label){
     const b = document.createElement("button");
     b.type = "button"; b.className = "catalog-cat"; b.setAttribute("aria-pressed", String(cat==="All"));
     const groupDef = SIGNAL_GROUPS.find(g=>g.label===cat);
-    const locked = groupDef && groupDef.pro;
+    const locked = groupDef && groupLocked(groupDef);
+    if(groupDef) b.dataset.catGroup = cat;
     b.innerHTML = `<i class="ti ${CATEGORY_ICONS[cat]||'ti-tag'}"></i><span>${cat}${locked?'<span class="cat-lock">🔒</span>':''}</span>`;
     b.addEventListener("click", ()=>{
       activeCat = cat;
@@ -4040,7 +4099,7 @@ function selectSignalMetric(sigId, label){
 
     items.forEach(c=>{
       const {have, total} = coverageFor(c.id);
-      const locked = c.pro && !isProPlan();
+      const locked = signalLocked(c);
       const card = document.createElement("div");
       card.className = "catalog-card" + (locked ? " locked" : "");
       const coverageText = total===null ? "All captured localities" : `${have} of ${total} pincodes`;
@@ -4050,17 +4109,17 @@ function selectSignalMetric(sigId, label){
         <div class="catalog-card-body">
           <div class="catalog-card-title">
             <span>${c.label}</span>
-            ${c.pro ? '<span class="pro-badge">PRO</span>' : ''}
+            ${signalBadge(c)}
           </div>
           <div class="catalog-card-meta">${c.group}</div>
           <div class="catalog-card-desc">${coverageText}</div>
           <div class="catalog-card-actions">
             <span class="catalog-card-coverage">${total ? Math.round(have/total*100)+"% coverage" : ""}</span>
-            <button type="button" class="catalog-card-use">${locked ? "🔒 Pro" : "Use on map"}</button>
+            <button type="button" class="catalog-card-use">${locked ? "🔒 Upgrade" : "Use on map"}</button>
           </div>
         </div>`;
       card.querySelector(".catalog-card-use").addEventListener("click", ()=>{
-        if(locked){ toast("Pro signal — upgrade to unlock", 2200); return; }
+        if(locked){ toast("Not on your plan — upgrade to unlock this signal", 2200); return; }
         selectSignalMetric(c.id, c.label);
         overlay.hidden = true;
       });

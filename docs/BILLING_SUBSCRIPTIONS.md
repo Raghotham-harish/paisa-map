@@ -233,9 +233,54 @@ the caller is a member; else their own company).
   `plan_mapping` has moved legacy `pro`/`team` accounts onto company plans — otherwise a
   legacy customer's company would read as Free.
 
+## P7 — signal tiers, ₹200 / ₹500 (built 2026-10-05)
+
+Dark behind **`SIGNAL_TIERS=1`**. With it off nothing changes: free and anonymous see every
+signal not in `PRO_COLUMNS` (today: property rate), any paid plan sees all.
+
+- **Two more tiers** in `_pricing.TIERS`, built from `SIGNAL_TIERS`: `signals_lite`
+  (₹200 + GST = ₹236) and `signals_pro` (₹500 + GST = ₹590). No credits, 1 company, 1 seat,
+  no API, monthly self-serve. They rank **above Free and below Trial** (`TIER_ORDER`), so
+  `is_dashboard_tier` is False for them and the P6 paywall keeps them out of the dashboard.
+  `compat_plan` reads them as `free` (no Pro pill); the plan mapping never assigns them.
+- **One allow-list**, `_signals_data.allowed_signals(plan)`, used by `columns_for_plan`
+  (`/api/export`, API keys), `/api/signals/catalog` (per caller: `locked`, `tier`, `access`)
+  and `/api/auth/me` (`user.signals`). Flag on: free/anonymous = the 3 core only; Lite = its 9
+  (`SIGNAL_TIERS["lite"]`, decision U9 still open); Signals Pro and every dashboard/legacy
+  paid plan = all 15. The map (`index.html`) takes its locks, LITE/PRO badges, category locks
+  and plan pill from the catalog, so it can't disagree with the export.
+- **Kept free on purpose:** the "Nationwide coverage" layer (HCES district spend), the floor
+  under income/spend for pincodes outside the core PPI set; it isn't a signal column.
+- **On sale only while the flag is on** (`_offered`): otherwise ₹200 would buy what the free
+  map shows. `POST /subscriptions` answers `400 not_offered`.
+- **Moving up** (Lite → Signals Pro, or either → Starter/Growth): the one case a company
+  with a live subscription may start another. A company may only have **one live
+  subscription** (partial unique index; a second one going live is marked `duplicate` and
+  granted nothing), so `_start_checkout` creates the new Razorpay subscription, then cancels
+  the old one at Razorpay immediately (it never charges again) and ends it locally with
+  `ends_at` = the end of its paid month. Walking away from that checkout keeps the old plan
+  until then; a paid move-up outranks it at once. No refund or proration for the rest of the
+  replaced month. Only from an `active` (paid-up) signal plan: a failing renewal is fixed
+  first, and dashboard → dashboard changes are still refused.
+- `GET /subscriptions` options carry `kind` (`signals`|`dashboard`), `signal_count` and
+  `upgrade`; the Billing panel shows signal plans in their own "Just the map data" group and,
+  with a live signal plan, only the move-up options.
+- **Trial:** a company that has paid for a signal plan has "paid before", so it gets no free
+  trial (`trial_used`) — see decisions below.
+- Tests: `tests/test_signal_tiers.py` (143 checks, 22/22 hand mutants killed); 21-check
+  Playwright pass (map locks/badges/chips/pill for anonymous, free and Lite; Billing for a
+  Lite subscriber and a fresh company) plus a flag-off pass showing the map unchanged.
+- **Turn on with** `BILLING_SUBSCRIPTIONS=1` (people need to be able to buy it) — turning it
+  on hides property rate from free users and every signal but PPI/income/spend from the
+  anonymous map.
+
+Decisions to challenge (P7): signal buyers get no free trial; Signals Pro = all 15 (the doc's
+"20" predates the OSM removal and the cars/LMV de-duplication); property rate is Signals Pro,
+not Lite; no proration on moving up.
+
 ## Not in this round (Gantt order)
 
 
-P5 seats, P7 signal tiers, a
+P5 seats, a
 reconcile job for a missed `charged` webhook, gap-free invoice numbering under
 concurrent duplicate deliveries.

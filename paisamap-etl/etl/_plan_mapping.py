@@ -29,7 +29,10 @@ entitlements say.
 
 import _pricing
 
-MAPPABLE_TIERS = tuple(t for t in _pricing.TIER_ORDER if t in _pricing.TIERS and t != "trial")
+# Dashboard tiers only: the trial is time-boxed and the signal-only tiers are
+# bought, never assigned by a mapping.
+MAPPABLE_TIERS = tuple(t for t in _pricing.TIER_ORDER if t in _pricing.TIERS and t != "trial"
+                       and not _pricing.is_signal_tier(t))
 ACTION = "plan_mapped"
 ROLLED_BACK = "plan_mapping_rolled_back"
 

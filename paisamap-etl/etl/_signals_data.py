@@ -90,16 +90,46 @@ PRO_COLUMNS = {
 # core identity/PPI fields) is free.
 
 
+SIGNAL_COLUMNS = tuple(c for _, cols in EXPORT_SIGNAL_FILES for c in cols)
+
+
+def signal_tiers_enforced():
+    """P7 switch. Off (the default): the old split — free sees every signal not
+    in PRO_COLUMNS, a paid plan sees all. On (SIGNAL_TIERS=1): free and
+    anonymous see only the 3 core signals, Signals Lite its list, Signals Pro
+    and every dashboard plan all of them (docs/PRICING_MODEL.md §2)."""
+    import os
+    return os.environ.get("SIGNAL_TIERS") == "1"
+
+
+def allowed_signals(plan):
+    """The SIGNAL_COLUMNS `plan` may see (the core PPI/income/spend fields are
+    not signal columns and are never filtered here)."""
+    import _pricing
+    ent = _pricing.entitlements(plan)
+    if not signal_tiers_enforced():
+        return frozenset(c for c in SIGNAL_COLUMNS if ent["pro_columns"] or c not in PRO_COLUMNS)
+    if ent["signals"] == "all":
+        return frozenset(SIGNAL_COLUMNS)
+    return frozenset(canonical_signals(ent["signals"])) & frozenset(SIGNAL_COLUMNS)
+
+
 def columns_for_plan(requested_columns, plan):
     """Filters a column list down to what `plan` may actually see. Core
     identity/PPI fields riding along regardless of plan is decided upstream
     (server.py's existing columns_param opt-in logic) — this is the actual
-    enforcement point: a free or anonymous caller's PRO_COLUMNS entries are
-    stripped no matter what was requested."""
+    enforcement point: a signal column the plan doesn't include is stripped no
+    matter what was requested."""
+    allowed = allowed_signals(plan)
+    return [c for c in requested_columns if c not in SIGNAL_COLUMNS or c in allowed]
+
+
+def signal_tier_of(col):
+    """Which ladder rung first includes a signal: 'core' | 'lite' | 'pro'."""
     import _pricing
-    if _pricing.entitlements(plan)["pro_columns"]:
-        return requested_columns
-    return [c for c in requested_columns if c not in PRO_COLUMNS]
+    if col in _pricing.CORE_SIGNALS:
+        return "core"
+    return "lite" if col in _pricing.SIGNAL_TIERS["lite"]["extra_signals"] else "pro"
 
 # Human-readable labels — copied verbatim from index.html's signal switcher (the
 # map's own JS, not reachable from Python or from the separate workspace/ React

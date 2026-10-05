@@ -16,6 +16,8 @@ from flask import Blueprint, jsonify
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "paisamap-etl" / "etl"))
 import _signals_data  # noqa: E402
 
+from ._session import get_effective_plan  # noqa: E402
+
 signals_bp = Blueprint("signals", __name__, url_prefix="/api/signals")
 
 # Which EXPORT_SIGNAL_FILES bucket a column belongs to, for grouping in the UI.
@@ -46,13 +48,25 @@ def catalog():
         for col in cols:
             groups[col] = _GROUP_BY_FILE.get(fname, "Other")
 
+    # P7: what THIS caller may open (anonymous = free). `pro` keeps its old
+    # meaning for older clients; `tier` is the ladder rung that first includes
+    # the signal and `locked` is the per-caller answer the map should use.
+    import _pricing
+    plan = get_effective_plan()
+    allowed = _signals_data.allowed_signals(plan)
     items = [
         {
             "key": col,
             "label": _signals_data.SIGNAL_LABELS.get(col, col),
             "pro": col in _signals_data.PRO_COLUMNS,
+            "tier": _signals_data.signal_tier_of(col),
+            "locked": col in _signals_data.SIGNAL_COLUMNS and col not in allowed,
             "group": group,
         }
         for col, group in groups.items()
     ]
-    return jsonify({"signals": items})
+    return jsonify({"signals": items, "access": {
+        "enforced": _signals_data.signal_tiers_enforced(),
+        "plan_label": _pricing.tier_label(plan),
+        "allowed": sorted(allowed),
+    }})

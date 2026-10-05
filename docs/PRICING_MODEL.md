@@ -309,7 +309,7 @@ because it's a renewal:
 | P4 | **Free account + Trial** — free login = 3 core signals + save locations, no dashboard; `trial_ends_at`, day-8 auto-convert to Starter, card-fail → drop to Free, day-7 nudge | P2 + Roadmap Phase C |
 | P5 | **Seat enforcement** — count active non-viewer members vs the tier limit | P1, Roadmap **Phase D** |
 | P6 | **Dashboard paywall** — gate every `/workspace/*` route except the map on an active dashboard subscription | P4 |
-| P7 | **Signal tiers** — the ₹200 / ₹500 monthly SKUs; per-plan signal allow-list (3 core / +10 / all 20); enforce it in the map (`signalPalette`/`SIGNAL_DEFS` gating) and in `columns_for_plan` for `/api/export` and the models | P2 |
+| P7 | **Signal tiers** — the ₹200 / ₹500 monthly SKUs; per-plan signal allow-list (3 core / +9 / all 15 after the OSM removal); enforce it in the map (`signalPalette`/`SIGNAL_DEFS` gating) and in `columns_for_plan` for `/api/export` and the models. **Built 2026-10-05, dark behind `SIGNAL_TIERS=1`** — see BILLING_SUBSCRIPTIONS.md P7 | P2 |
 | P8 | **Keyword feature + backfill queue** — the model, "research a new one for 12 credits", the internal queue, the refund path | Roadmap Phase F/G |
 | P9 | **Multi-currency** — real-time FX at checkout, per-currency invoicing, export-of-service handling | P2 |
 | P10 | **Annual billing** — the −20% SKU, +5% monthly grant on an annual term | P2, P3 |

@@ -15,6 +15,7 @@ const ERRORS: Record<string, string> = {
   no_subscription: "There's no subscription to cancel — refresh the page.",
   not_configured: "Payments aren't set up on this server.",
   trial_not_available: "This company, or your account, has already had a free trial — pick a plan instead.",
+  not_offered: "That plan isn't on sale yet.",
 };
 
 export function fmtDate(iso: string | null | undefined): string {
@@ -80,7 +81,8 @@ export function SubscriptionPanel({
     }
   };
 
-  const checkout = async (key: string, label: string, start: () => Promise<SubscriptionCheckout>) => {
+  const checkout = async (key: string, label: string, start: () => Promise<SubscriptionCheckout>,
+                          signalsOnly = false) => {
     setBusy(key);
     setError(null);
     setNote(null);
@@ -95,7 +97,9 @@ export function SubscriptionPanel({
           try {
             const r = await api.verifySubscription(resp);
             setNote(r.status === "active"
-              ? `Done — you're on ${label}. Your monthly credits are in your balance.`
+              ? signalsOnly
+                ? `Done — you're on ${label}. The extra signals are open on the map now.`
+                : `Done — you're on ${label}. Your monthly credits are in your balance.`
               : "Payment received — we're waiting for the bank to confirm it. Your plan switches on in a few minutes.");
           } catch {
             setError("Your payment went through but we couldn't confirm it yet. Refresh in a minute — you won't be charged twice.");
@@ -134,7 +138,52 @@ export function SubscriptionPanel({
     }
   };
 
-  const showOptions = !live && !data.assisted && data.state.enabled && data.options.length > 0;
+  // With a live signal-only plan the company can still move UP (P7): only those options show.
+  const shown = live ? data.options.filter((o) => o.upgrade) : data.options;
+  const showOptions = !data.assisted && data.state.enabled && shown.length > 0;
+  const signalOptions = shown.filter((o) => o.kind === "signals");
+  const dashboardOptions = shown.filter((o) => o.kind !== "signals");
+
+  const subscribe = (opt: (typeof shown)[number]) => {
+    if (live && sub && opt.upgrade && !window.confirm(
+      `Move up to ${opt.label}? Your ${sub.label} plan stops renewing now — you keep it until ${fmtDate(sub.current_end)}, `
+      + `and ${opt.label} starts as soon as its first payment goes through. There's no refund for the rest of this month.`)) {
+      return;
+    }
+    checkout(opt.tier, opt.label, () => api.createSubscription(opt.tier, orgId, buyer), opt.kind === "signals");
+  };
+
+  const optionCard = (opt: (typeof shown)[number]) => (
+    <div key={opt.tier} className="card" data-testid={`plan-option-${opt.tier}`}>
+      <p style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>{opt.label}</p>
+      <p style={{ margin: "0 0 2px", fontSize: 20, fontWeight: 700 }}>
+        {formatListPrice(opt.list_paise, gstCharged)}<span style={{ fontSize: 13, fontWeight: 400 }}>/mo</span>
+      </p>
+      {gstCharged && (
+        <p style={{ margin: 0, fontSize: 12, color: "var(--ink-soft)" }}>
+          ₹{(opt.amount_paise / 100).toLocaleString("en-IN")} charged monthly, incl. GST
+        </p>
+      )}
+      <ul style={{ margin: "12px 0 14px", paddingLeft: 18, fontSize: 13 }}>
+        {opt.kind === "signals" ? (
+          <>
+            <li>PPI, income and spend, plus {opt.signal_count} more signals on the map</li>
+            <li>Save locations · no dashboard, no credits</li>
+          </>
+        ) : (
+          <>
+            {opt.credits_per_month != null && (
+              <li>{opt.credits_per_month.toLocaleString("en-IN")} credits every month</li>
+            )}
+            {opt.seats != null && <li>Up to {opt.seats} people</li>}
+          </>
+        )}
+      </ul>
+      <button className="btn" disabled={busy !== null} onClick={() => subscribe(opt)}>
+        {busy === opt.tier ? "Opening…" : `${opt.upgrade ? "Move up to" : "Subscribe to"} ${opt.label}`}
+      </button>
+    </div>
+  );
 
   return (
     <div style={{ marginBottom: 28 }} data-testid="subscription-panel">
@@ -227,7 +276,7 @@ export function SubscriptionPanel({
         </p>
       )}
 
-      {showOptions && offer && (
+      {showOptions && !live && offer && (
         <div className="card" style={{ borderColor: "var(--rupee)", marginBottom: 14 }} data-testid="trial-offer">
           <p style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 700 }}>Try the full dashboard free for {offer.days} days</p>
           <p style={{ margin: "0 0 12px", fontSize: 13 }}>
@@ -242,31 +291,24 @@ export function SubscriptionPanel({
 
       {showOptions && (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
-            {data.options.map((opt) => (
-              <div key={opt.tier} className="card" data-testid={`plan-option-${opt.tier}`}>
-                <p style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>{opt.label}</p>
-                <p style={{ margin: "0 0 2px", fontSize: 20, fontWeight: 700 }}>
-                  {formatListPrice(opt.list_paise, gstCharged)}<span style={{ fontSize: 13, fontWeight: 400 }}>/mo</span>
-                </p>
-                {gstCharged && (
-                  <p style={{ margin: 0, fontSize: 12, color: "var(--ink-soft)" }}>
-                    ₹{(opt.amount_paise / 100).toLocaleString("en-IN")} charged monthly, incl. GST
-                  </p>
-                )}
-                <ul style={{ margin: "12px 0 14px", paddingLeft: 18, fontSize: 13 }}>
-                  {opt.credits_per_month != null && (
-                    <li>{opt.credits_per_month.toLocaleString("en-IN")} credits every month</li>
-                  )}
-                  {opt.seats != null && <li>Up to {opt.seats} people</li>}
-                </ul>
-                <button className="btn" disabled={busy !== null}
-                        onClick={() => checkout(opt.tier, opt.label, () => api.createSubscription(opt.tier, orgId, buyer))}>
-                  {busy === opt.tier ? "Opening…" : `Subscribe to ${opt.label}`}
-                </button>
+          {dashboardOptions.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+              {dashboardOptions.map(optionCard)}
+            </div>
+          )}
+          {signalOptions.length > 0 && (
+            <>
+              <p style={{ margin: "20px 0 8px", fontSize: 14, fontWeight: 700 }} data-testid="signal-plans">
+                Just the map data
+              </p>
+              <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--ink-soft)" }}>
+                More signals on the map, without the dashboard. Any dashboard plan includes every signal.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+                {signalOptions.map(optionCard)}
               </div>
-            ))}
-          </div>
+            </>
+          )}
           <p style={{ fontSize: 12, color: "var(--ink-soft)", margin: "10px 0 0" }}>
             Paid monthly by UPI Autopay, card or e-mandate. Cancel any time — you keep the plan until the end of the
             month you've paid for. Unused plan credits carry over for one extra month. Need Scale, Pro or annual
