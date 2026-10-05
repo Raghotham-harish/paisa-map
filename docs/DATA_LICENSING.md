@@ -60,6 +60,7 @@ until this is settled.
 | `population`, `pop_per_km2` (raw file only, not yet a signal) | **WorldPop** 2020 1 km unconstrained (`ind_ppp_2020_1km_Aggregated.tif`), summed over DoP PIN polygons → `paisamap-etl/data/raw/worldpop_pincode_population.csv` | **CC BY 4.0** | 🟢 yes, with attribution | Attribute WorldPop and say the values are aggregated to PIN polygons by us. |
 | `retail_poi`, `fb_poi`, `retail_per_km2`, `fb_per_km2` (raw file only, not yet a signal) | **Overture Maps** Places release 2026-09-23.1, counted per DoP PIN polygon → `paisamap-etl/data/raw/overture_poi_density.csv` | **CDLA-Permissive-2.0** (Meta, Microsoft and others) + **Apache-2.0** (Foursquare) + CC0 (AllThePlaces) | 🟢 yes | Contains no OSM, so no ODbL — the clean replacement candidate for `premium_poi_per_km2`. Keep the Apache-2.0 notice with anything redistributed. |
 | `builtup_share` (raw file only, not yet a signal) | **GHSL** GHS-BUILT-S R2023A, epoch 2020, 100 m (EU / JRC), share of each DoP PIN polygon → `paisamap-etl/data/raw/ghsl_builtup_pincode.csv` | **CC BY 4.0** | 🟢 yes, with attribution | Cite: Pesaresi, M., Politis, P. (2023): GHS-BUILT-S R2023A — GHS built-up surface grid, derived from Sentinel2 composite and Landsat, multitemporal (1975-2030). European Commission, JRC. doi:10.2905/9F06F36F-4B11-47EC-ABB0-4F8B7B1D72EA |
+| `hospital`, `clinic`, `subcentre`, `other_facility`, `facility_total` + `*_per_km2` (raw file only, not yet a signal) | **NIN Health Facilities with Geo Code** (NIHFW / MoHFW, National Health Portal), data.gov.in; counted per DoP PIN polygon → `paisamap-etl/data/raw/nhp_health_facilities_pincode.csv`. Our copy came via the GitHub mirror `ramSeraph/indian_facilities` | **GODL-India** | 🟢 yes, with attribution | Attribute NIHFW / MoHFW and data.gov.in under GODL. Freshness uncertain (portal updated 2026-08-11, content historically ~2018); biased towards public facilities; no pharmacies. Re-fetch from the official data.gov.in resource before selling, so the provenance doesn't rest on a third-party mirror. |
 | `premium_poi_per_km2` | **OSM** via Overpass API | **ODbL** (share-alike) | 🔴 **do not sell until resolved** | See the ODbL note above. |
 | `rate_per_sqft` | **PaisaMap's own estimate** — `enrich_single.py` scales a hardcoded per-city prior (`CITY_PRIORS`) by a local ratio; `llm_extract.py` also pulls transaction value/area from documents | our own modelled value | 🟢 likely OK | Not a scraped feed. Residual question: where the `CITY_PRIORS` numbers originally came from (manual research vs. a copied table). Document that provenance; if any prior was lifted from a portal's published "average rate" table, note it. |
 
@@ -82,8 +83,9 @@ until this is settled.
 > contributors (ODbL); WorldPop (www.worldpop.org, CC BY 4.0); Overture Maps
 > Foundation Places (CDLA-Permissive-2.0 / Apache-2.0); GHSL — Pesaresi &
 > Politis (2023), European Commission JRC, doi:10.2905/9F06F36F-4B11-47EC-ABB0-4F8B7B1D72EA
-> (CC BY 4.0). WorldPop, Overture and GHSL values are aggregated to PIN
-> polygons by PaisaMap. Derived signals and the Purchasing Power Index are
+> (CC BY 4.0); NIHFW / Ministry of Health and Family Welfare, NIN Health
+> Facilities (data.gov.in, GODL-India). WorldPop, Overture, GHSL and health-
+> facility values are aggregated to PIN polygons by PaisaMap. Derived signals and the Purchasing Power Index are
 > PaisaMap's own work.
 
 ---
