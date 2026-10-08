@@ -76,7 +76,7 @@ PUBLIC = {
     "/api/reports/shared/<token>", "/api/organizations/invites/<token>",
     "/api/organizations/invites/<token>/decline",
 }
-NEVER_CALLED = {"/api/enrich", "/api/reverse", "/api/search"}  # subprocess / Nominatim
+NEVER_CALLED = {"/api/enrich", "/api/search"}  # subprocess / Nominatim forward search
 
 client = app.test_client()
 unprotected = []

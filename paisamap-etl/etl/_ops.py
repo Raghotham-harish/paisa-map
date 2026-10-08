@@ -88,8 +88,9 @@ _API_KEY_PRO_MULTIPLIER = float(os.environ.get("RATELIMIT_APIKEY_PRO_MULTIPLIER"
 # request costs 1 token; it refills continuously. Generous by design — these
 # guard against scraping and runaway loops, not against normal interactive use.
 _LIMITS = {
-    # Nominatim-proxying endpoints: OSM's usage policy is ~1 req/s per app, and
-    # every call here goes out under our single server IP — the tightest group.
+    # /api/search still proxies Nominatim: OSM's usage policy is ~1 req/s per
+    # app, and every call goes out under our single server IP — the tightest
+    # group. /api/reverse is not in this group anymore (local PIN polygons).
     # Cap deliberately kept LOW (not just the refill rate) — a full token
     # bucket lets a burst run at effectively unlimited speed until it's spent,
     # and Nominatim itself starts returning its own 429s well before a burst
@@ -108,9 +109,13 @@ _LIMITS = {
                 float(os.environ.get("RATELIMIT_DEFAULT_RPS", "4"))),
 }
 
+# /api/reverse used to share this group because it proxied Nominatim. It is
+# now a local point-in-polygon lookup, so it falls through to "default".
+# /api/search is still the public Nominatim forward proxy and stays tight.
+# Production nginx has its own `geo` zone that still names /api/reverse;
+# that file lives on the box, not in this repo.
 _GROUP_BY_PREFIX = (
     ("/api/search",       "geo"),
-    ("/api/reverse",      "geo"),
     ("/api/export",       "data"),
     ("/api/enrich_stats", "data"),
 )
