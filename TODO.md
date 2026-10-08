@@ -18,9 +18,11 @@ Order agreed: #8 → #5 → #3 → #4 → #2 → #6 → #9 → #7, then retrain 
 - [ ] #2 state from the India Post master · #3 no synthetic D-pincodes (252 rows quarantined) · #4 reject non-pincodes · #6 `cars_per_1000` ≡ `lmv_per_1000`
 - [x] Found in review: `deploy.sh`'s merge step would have re-added all 252 D rows from the server backup, and the refit would then abort. Fixed + tested (0c01248).
 - [x] Decided 2026-09-29: #2 ships for enrichment (priors, same-state neighbours); the refit keeps its old city/state grouping (`_REFIT_GROUP_PREFIX` in ml_refinement.py) until the retrain. Correcting it now moved PPI a lot (median 1pt, 2.5% of pincodes ≥10pt, max 160pt, e.g. Jalandhar 144001 189 → 65) and tied the Indiranagar gate, so the weekly refit would revert every Sunday.
-- [ ] At the retrain: switch the refit grouping to `state_for_pincode` and backtest (part of #7).
+- [x] F1 (2026-10-08, owner accepted the shift): the refit now takes state from the India Post master for grouping and for `vehicle_growth_4yr` (14 missing state names added); `_REFIT_GROUP_PREFIX` removed. Local refit: 10/10 gates PASS; 222 pincodes (1.45%) move >10pt, one-time (e.g. Ballygunge 700019 200 → 40, Agartala 799001 160 → 43). Regression test: tests/test_refit_state.py.
+- [ ] F2: make the refit's ±10pt stability check a hard gate (currently WARN only), with an explicit accept-drift path; restore from a snapshot on FAIL (not git checkout) and skip the DB write.
+- [ ] Ballygunge 700019 flips between the 40 and 200 clamps on small input changes, independent of F1 — investigate.
 - [ ] Note for the deploy: removing the 252 D rows (#3) shifts the next Sunday refit on its own — 1.2% of pincodes ≥10pt, max 117pt (Kanpur 208012), all 10 gates pass. Verified this is solely the D-row removal (main's code on the cleaned data gives identical output).
-- [ ] After it deploys (owner runs, prod write): delete the 252 D rows from the Postgres `pincodes` table. Harmless meanwhile — the only bulk reader already filters them.
+- [x] After it deploys (owner runs, prod write; done 2026-10-01): delete the 252 D rows from the Postgres `pincodes` table. Harmless meanwhile — the only bulk reader already filters them.
 
 **Data rebuild (do together with the PPI retrain)**
 - [ ] ~280 original hand-built core rows hold another place's coordinates + priors under the wrong PIN (e.g. 560034 row = Whitefield data 14 km off; 400068 = Powai 16 km off; Borivali / Kandivali / Malad W PINs missing entirely). Rebuild from India Post PIN → polygon, then refit.
