@@ -29,7 +29,7 @@ import time
 from typing import Iterator
 
 from shapely import STRtree, make_valid
-from shapely.geometry import Point, shape
+from shapely.geometry import Point, mapping, shape
 from shapely.ops import nearest_points
 
 from pincode_master import REFERENCE_CSV, ROOT, real_pincode_id
@@ -50,6 +50,8 @@ _lock = threading.Lock()
 _ready = False
 _geoms: list = []
 _pincodes: list[str] = []
+# pincode → index into _geoms (first polygon loaded for that PIN)
+_by_pin: dict[str, int] = {}
 _tree: STRtree | None = None
 # pincode → (district, state_name, state_code)
 _admin: dict[str, tuple[str, str, str]] = {}
@@ -133,6 +135,9 @@ def _load() -> None:
         raise RuntimeError(f"no PIN polygons loaded from {GEOJSON}")
     _geoms[:] = geoms
     _pincodes[:] = pins
+    _by_pin.clear()
+    for i, pc in enumerate(pins):
+        _by_pin.setdefault(pc, i)
     _tree = STRtree(geoms)
     elapsed = time.perf_counter() - t0
     print(f"[pin_locate] loaded {len(geoms)} DoP PIN polygons in {elapsed:.2f}s", flush=True)
@@ -221,6 +226,29 @@ def reverse_address(lat: float, lng: float) -> dict:
         "country_code": "in",
     }
     return body
+
+
+def boundary(pincode: str) -> dict | None:
+    """This PIN's own DoP polygon as GeoJSON, plus a point inside it and its
+    office name. None when the PIN has no polygon — never a neighbour's shape,
+    so a PIN missing from the DoP set keeps its circle on the map."""
+    warm()
+    pc = real_pincode_id(pincode)
+    index = _by_pin.get(pc) if pc else None
+    if index is None:
+        return None
+    geom = _geoms[index]
+    rp = geom.representative_point()
+    district, state_name, _ = _admin.get(pc, ("", "", ""))
+    return {
+        "pincode": pc,
+        "office_name": _office.get(pc, ""),
+        "district": district,
+        "state_name": state_name,
+        "lat": round(float(rp.y), 6),
+        "lng": round(float(rp.x), 6),
+        "geometry": mapping(geom),
+    }
 
 
 def iter_reference_points() -> Iterator[tuple[str, float, float]]:

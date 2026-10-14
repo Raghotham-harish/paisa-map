@@ -8,6 +8,7 @@ Endpoints:
   /                          static → index.html
   /data/...                  static → data/ files (CSV, etc.)
   /api/reverse?lat=&lng=     reverse geocode via DoP PIN polygons (no outbound request)
+  /api/boundary?pincode=     that PIN's own DoP polygon + a point inside it (404 if none)
   /api/search?q=QUERY        Nominatim search proxy
   /api/enrich                GET {pincode, lat, lng, name, source} — enriches new pincode
   /api/status/<pincode>      enrichment job status
@@ -394,6 +395,20 @@ def api_reverse():
     resp = jsonify(body)
     resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp
+
+
+@app.route("/api/boundary")
+def api_boundary():
+    """pincode → its own DoP polygon (GODL-India), a point inside it and the
+    office name. 404 with geometry null when that PIN has no polygon. Local,
+    no outbound request — replaces the browser's direct OSM boundary lookups."""
+    _, reason, pc = validate_pincode(request.args.get("pincode"))
+    if reason in ("empty", "invalid_format"):
+        return jsonify({"error": "valid 6-digit pincode required"}), 400
+    hit = pin_locate.boundary(pc)
+    if not hit:
+        return jsonify({"pincode": pc, "geometry": None}), 404
+    return jsonify({**hit, "source": "India Post PIN boundaries (GODL-India)"})
 
 
 @app.route("/api/search")
