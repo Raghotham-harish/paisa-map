@@ -121,6 +121,7 @@ git add \
     paisamap-etl/data/output/ml_diagnostics.json \
     paisamap-etl/data/output/refit_baseline.csv \
     paisamap-etl/data/output/refit_last_run.json \
+    paisamap-etl/data/output/refit_history.jsonl \
     paisamap-etl/data/output/batch_enrich_log.csv \
     paisamap-etl/data/raw/pincode_coords.csv \
     paisamap-etl/data/raw/pincode_names.csv \
