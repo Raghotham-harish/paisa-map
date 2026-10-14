@@ -77,6 +77,7 @@ check(r["status"] == "PASS" and r["compared"] == 1, "a NaN score is dropped, not
 # ── write_run_record ─────────────────────────────────────────────────────────
 tmp = Path(tempfile.mkdtemp())
 ml.RUN_RECORD_PATH = tmp / "refit_last_run.json"
+ml.HISTORY_PATH = tmp / "refit_history.jsonl"
 r = ml.stability_check(new, base, live)
 names = pd.Series({"700019": "Ballygunge", "560038": float("nan")})
 rec = ml.write_run_record("rejected", ["PASS  x", "FAIL  PPI stability: 1"], r, new, base, names, None)
@@ -91,6 +92,13 @@ check(rec["stability"]["new_since_baseline"] == 1 and rec["stability"]["new_sinc
 check(rec["validation_gates"][1].startswith("FAIL"), "gate lines kept")
 rec = ml.write_run_record("accepted", [], r, new, base, None, "F1 approved")
 check(rec["accepted_drift"] == "F1 approved", "waiver reason recorded")
+hist = [json.loads(l) for l in ml.HISTORY_PATH.read_text().splitlines()]
+check(len(hist) == 2, "every run appends one history line (rejected AND accepted)")
+check([h["status"] for h in hist] == ["rejected", "accepted"], "history keeps the rejected week")
+check(hist[0]["pincodes_over_limit"] == 1 and hist[0]["gates"][1].startswith("FAIL"), "history has gates + swing count")
+check(hist[0]["top_movers"][0] == {"pincode": "700019", "name": "Ballygunge", "old": 40.0, "new": 50.5},
+      "history has top movers")
+check(hist[1]["accepted_drift"] == "F1 approved", "history records the waiver")
 
 # ── args ─────────────────────────────────────────────────────────────────────
 check(ml._parse_args([]).accept_drift is None, "no waiver by default")

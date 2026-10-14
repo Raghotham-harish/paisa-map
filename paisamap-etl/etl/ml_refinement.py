@@ -699,6 +699,10 @@ PPI_SWING_LIMIT = 10
 EXIT_REJECTED   = 3
 BASELINE_PATH   = OUT / "refit_baseline.csv"
 RUN_RECORD_PATH = OUT / "refit_last_run.json"
+# One compact line per run, appended and committed by cron: refit_last_run.json
+# overwrites itself, so without this a rejected week leaves no trace once the
+# next run lands.
+HISTORY_PATH    = OUT / "refit_history.jsonl"
 
 
 def _read_ppi(path: Path, col: str = "ppi_ml") -> pd.Series | None:
@@ -782,6 +786,15 @@ def write_run_record(status: str, gate_results: list, stab: dict, new_ppi: pd.Se
         },
     }
     RUN_RECORD_PATH.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+    history = {
+        "run_at_utc": record["run_at_utc"], "status": status, "accepted_drift": accept_drift,
+        "gates": gate_results,
+        "pincodes_over_limit": record["stability"]["pincodes_over_limit"],
+        "max_drift": record["stability"]["max_drift"],
+        "top_movers": [{k: t[k] for k in ("pincode", "name", "old", "new")} for t in top[:10]],
+    }
+    with open(HISTORY_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps(history, ensure_ascii=False) + "\n")
     return record
 
 
