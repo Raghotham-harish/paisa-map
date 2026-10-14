@@ -5,6 +5,43 @@
 > long-form history; several sections below predate it. Items ticked on 2026-09-21 were
 > confirmed live from memory notes of the verified deploys, not re-tested today.
 
+## 2026-10-14 — D3 approved; std-floor fix in PR #11
+
+- [x] D3 = yes. Group-std floor (patch 01) committed ce86a5f, PR #11 open (not merged)
+- [ ] Merge PR #11 (auto-deploys), THEN create `/home/ubuntu/refit_accept_drift` before Sun 18 Oct cron
+- [ ] Check 18 Oct refit log: 10/10 gates, ~4k one-time shift, 700019 ≈ 97
+- [ ] Retrain backtest (peer-review "defaults gap" brief, saved in .local-patches/RETRAIN_BRIEF_2026-10-14.md) — needs owner answers: target, 74 blanks, catalog PR timing
+- [ ] Patches 02–05 → one PR each (commits work again)
+
+## 2026-10-13 — wallet billing live; five fixes ready as local patches
+
+**Done (live, verified)**
+- [x] Razorpay Subscriptions + UPI Autopay: already enabled on the new account; website approved
+- [x] Webhook: `subscription.*` events added to `payment.captured` (11 events, same URL + secret)
+- [x] Subscription tables applied on prod (5 tables); hourly sweep cron `/etc/cron.d/paisamap-subscription-sweep` (log `/home/ubuntu/logs/subscription_sweep.log`)
+- [x] Legacy plan mapping: the one legacy paid company → Pro (override); `BILLING_SCOPE=wallet` on prod — balance unchanged, a forecast debited exactly 8 credits
+- [x] 11 Oct refit accepted under the one-time waiver: 10/10 gates, 222 pins >10pt, `refit_baseline.csv` committed
+
+**Ready, not committed** (`.local-patches/`, git-excluded; one PR each, see its README)
+- [ ] 01 Ballygunge: floor the HCES group std in `estimate_income` (needs owner decision D3 — see below)
+- [ ] 02 Beta tag next to the logo for a user's first 90 days (`/api/auth/me` → `user.beta`)
+- [ ] 03 `refit_history.jsonl`: one line per refit run, rejected ones included
+- [ ] 04 `batch_enrich_hces`: place districts via the India Post directory before Nominatim; give up after 3 geocode failures; log fully-scored districts once as `covered`
+- [ ] 05 `cron_enrich.sh`: commit message states new pins + batch ok/fail; STALE warning when enrichment_log is unchanged 7d or batch has 0 successes in 7d
+
+**Open — owner**
+- [ ] D3 (by Sat 17 Oct): accept the Ballygunge fix's one-time shift (3,997 pins >10pt; PPI spread p10–p90 85–117 → 96–105)? Yes = waiver file before Sun 18 Oct; no = the 18 Oct refit is likely rejected (safe, map keeps 11 Oct scores)
+- [ ] Commit + push patches 01–05
+- [ ] Confirm the first hourly sweep ran (tail the sweep log)
+- [ ] SES: sandbox lifted?
+- [ ] Overdue: Signals Lite list (U9), P7 calls (D1), nginx security headers (U17)
+
+**Open — build**
+- [ ] PR #10 review: forward search still on Nominatim (scope?), 14 failing districts before/after, 74 PPI pins with no DoP polygon must return blank, `index.html` still calls nominatim + overpass
+- [ ] 3,832 India Post pincodes are not scored at all (e.g. all 67 in South 24 Parganas); the daily loop only adds pincodes users visit — needs a proactive fill job (post-launch)
+- [ ] Beta tag follow-up: a "Send feedback" link beside it
+- [ ] Then: P5 seats, public pricing page, #9, #7, subscriptions test-key dry run → switch-on
+
 ## Signal quality & data integrity — backlog (GitHub issues #2–#9, updated 2026-09-29)
 
 Order agreed: #8 → #5 → #3 → #4 → #2 → #6 → #9 → #7, then retrain PPI without prior values + backtest.
@@ -20,7 +57,7 @@ Order agreed: #8 → #5 → #3 → #4 → #2 → #6 → #9 → #7, then retrain 
 - [x] Decided 2026-09-29: #2 ships for enrichment (priors, same-state neighbours); the refit keeps its old city/state grouping (`_REFIT_GROUP_PREFIX` in ml_refinement.py) until the retrain. Correcting it now moved PPI a lot (median 1pt, 2.5% of pincodes ≥10pt, max 160pt, e.g. Jalandhar 144001 189 → 65) and tied the Indiranagar gate, so the weekly refit would revert every Sunday.
 - [x] F1 (2026-10-08, owner accepted the shift): the refit now takes state from the India Post master for grouping and for `vehicle_growth_4yr` (14 missing state names added); `_REFIT_GROUP_PREFIX` removed. Local refit: 10/10 gates PASS; 222 pincodes (1.45%) move >10pt, one-time (e.g. Ballygunge 700019 200 → 40, Agartala 799001 160 → 43). Regression test: tests/test_refit_state.py.
 - [x] F2 (2026-10-09): the refit's ±10pt stability check is a hard gate, measured against `refit_baseline.csv` (last accepted refit; pincodes added since are listed, not counted). Any failed gate writes nothing (CSV, DB, baseline) and exits 3; every run commits `refit_last_run.json`. Owner waiver for a deliberate shift: a one-shot `/home/ubuntu/refit_accept_drift` file (stability gate only). Cron step 5 is `refit_weekly.sh`. Test: tests/test_refit_hard_gate.py.
-- [ ] Ballygunge 700019 flips between the 40 and 200 clamps on small input changes, independent of F1 — investigate.
+- [ ] Ballygunge 700019 flips between the 40 and 200 clamps on small input changes, independent of F1. **Cause found 2026-10-13:** `estimate_income` divides by each HCES group's z std; 350/503 groups have std < 0.01 (Kolkata 0.0043), so a 0.04 gap becomes z ≈ −10. Fix = patch 01 (0.001 input noise: 1,761 pins >10pt before, 0 after); waits on D3.
 - [ ] Note for the deploy: removing the 252 D rows (#3) shifts the next Sunday refit on its own — 1.2% of pincodes ≥10pt, max 117pt (Kanpur 208012), all 10 gates pass. Verified this is solely the D-row removal (main's code on the cleaned data gives identical output).
 - [x] After it deploys (owner runs, prod write; done 2026-10-01): delete the 252 D rows from the Postgres `pincodes` table. Harmless meanwhile — the only bulk reader already filters them.
 
@@ -32,7 +69,7 @@ Order agreed: #8 → #5 → #3 → #4 → #2 → #6 → #9 → #7, then retrain 
 **Refit gates**
 - [ ] Indiranagar (560038) > Electronics City (560100) passes by 1pt on main — fragile.
 - [ ] Gurgaon gate uses 122022, which is not an India Post PIN; the honest pair 122002 (DLF) > 122001 fails 53 vs 131. Owner decision.
-- [ ] Stability gate (±10pt) only warns; make very large jumps (>50pt, e.g. Ballygunge 40 → 200) block the refit.
+- [x] Stability gate (±10pt) only warns — superseded by F2 (hard gate, live 2026-10-09).
 
 **Next build items**
 - [ ] #9 — geocoder: Nominatim everywhere; batch log shows 818 geocode failures vs 607 successes. Needs a paid-geocoder budget decision.
