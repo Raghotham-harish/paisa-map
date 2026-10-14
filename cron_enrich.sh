@@ -136,15 +136,37 @@ git add \
     paisamap-etl/data/reference/pincode_district_map.csv \
     2>/dev/null || true
 
+# ── What this run actually did, so the commit message can't overstate it ─────
+# (13 Oct audit: a month of "daily enrich" commits added 0 pincodes; the only
+# change was 14 geocode_fail rows a day.)
+BATCH_LOG_CSV="paisamap-etl/data/output/batch_enrich_log.csv"
+batch_count() { grep "^${DATE}" "$BATCH_LOG_CSV" 2>/dev/null | grep -c ",$1," || true; }
+BATCH_OK=$(batch_count ok); BATCH_FAIL=$(batch_count geocode_fail)
+STALE_NOTE=""
+# Alert: no user-visit enrichment for 7+ days (the loop's only input), or batch
+# failures with no success for 7 days. Logged and put in the commit message —
+# there is no email alert until SES leaves the sandbox.
+LOG_AGE_DAYS=$(( ( $(date +%s) - $(git log -1 --format=%ct -- data/output/enrichment_log.csv 2>/dev/null || date +%s) ) / 86400 ))
+if [ "$LOG_AGE_DAYS" -ge 7 ]; then
+    STALE_NOTE="${STALE_NOTE}, STALE: enrichment_log unchanged ${LOG_AGE_DAYS}d"
+fi
+WEEK_AGO=$(date -d "7 days ago" +%Y-%m-%d 2>/dev/null || date -v-7d +%Y-%m-%d)
+if [ "$BATCH_FAIL" -gt 0 ] && ! awk -F, -v d="$WEEK_AGO" 'NR>1 && $1>=d && $10=="ok"{f=1} END{exit !f}' "$BATCH_LOG_CSV" 2>/dev/null; then
+    STALE_NOTE="${STALE_NOTE}, STALE: 0 batch successes in 7d"
+fi
+[ -n "$STALE_NOTE" ] && echo "  WARN${STALE_NOTE#,}"
+
 if git diff --staged --quiet; then
     echo "  No new data — nothing to commit."
 else
     TOTAL=$(tail -n +2 data/output/ppi_map_data.csv 2>/dev/null | wc -l | tr -d ' ')
+    PREV_TOTAL=$(git show HEAD:data/output/ppi_map_data.csv 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
+    NEW_PINS=$(( TOTAL - ${PREV_TOTAL:-$TOTAL} ))
     REFIT_SUFFIX=""
     if [ "$(date +%u)" = "7" ] && git diff --staged --name-only | grep -q "paisamap-etl/data/output/ppi_ml_refined.csv"; then
         REFIT_SUFFIX=" + weekly full refit"
     fi
-    git commit -m "cron: daily enrich ${DATE} — ${TOTAL} pincodes total${REFIT_SUFFIX} [skip ci]" \
+    git commit -m "cron: daily enrich ${DATE} — ${NEW_PINS} new pins (${TOTAL} total), batch ${BATCH_OK} ok / ${BATCH_FAIL} geocode_fail${REFIT_SUFFIX}${STALE_NOTE} [skip ci]" \
         --author "PaisaMap Cron <noreply@paisamaps.com>" --quiet
     echo "  Committed. Total pincodes: $TOTAL"
 
