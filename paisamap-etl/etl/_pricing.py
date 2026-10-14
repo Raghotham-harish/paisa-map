@@ -147,6 +147,11 @@ TIER_ORDER = ["free", "signals_lite", "signals_pro", "trial", "starter", "growth
 # The signal-only ladder (no dashboard, no credits, month-to-month, no annual).
 # A dashboard tier supersedes these — every signal is included.
 CORE_SIGNALS = ("ppi_ml", "est_monthly_income_hh", "est_monthly_spend_hh")
+# Signals everyone sees even with SIGNAL_TIERS=1, because they aren't worth
+# charging for. rate_per_sqft is ~95% city/state priors (143 distinct values
+# across ~15k pincodes) — labelled "est., city-level" and kept free until the
+# retrain gives it real pincode-level data (founder decision, 2026-10-15).
+FREE_SIGNALS = ("rate_per_sqft",)
 SIGNAL_TIERS = {
     "lite": {
         "label": "Signals Lite", "price_paise": 20_000,

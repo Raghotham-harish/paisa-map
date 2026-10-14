@@ -96,7 +96,7 @@ SIGNAL_COLUMNS = tuple(c for _, cols in EXPORT_SIGNAL_FILES for c in cols)
 def signal_tiers_enforced():
     """P7 switch. Off (the default): the old split — free sees every signal not
     in PRO_COLUMNS, a paid plan sees all. On (SIGNAL_TIERS=1): free and
-    anonymous see only the 3 core signals, Signals Lite its list, Signals Pro
+    anonymous see only the 3 core signals (+ FREE_SIGNALS), Signals Lite its list, Signals Pro
     and every dashboard plan all of them (docs/PRICING_MODEL.md §2)."""
     import os
     return os.environ.get("SIGNAL_TIERS") == "1"
@@ -111,7 +111,7 @@ def allowed_signals(plan):
         return frozenset(c for c in SIGNAL_COLUMNS if ent["pro_columns"] or c not in PRO_COLUMNS)
     if ent["signals"] == "all":
         return frozenset(SIGNAL_COLUMNS)
-    return frozenset(canonical_signals(ent["signals"])) & frozenset(SIGNAL_COLUMNS)
+    return (frozenset(canonical_signals(ent["signals"])) | frozenset(_pricing.FREE_SIGNALS)) & frozenset(SIGNAL_COLUMNS)
 
 
 def columns_for_plan(requested_columns, plan):
@@ -125,10 +125,12 @@ def columns_for_plan(requested_columns, plan):
 
 
 def signal_tier_of(col):
-    """Which ladder rung first includes a signal: 'core' | 'lite' | 'pro'."""
+    """Which ladder rung first includes a signal: 'core' | 'free' | 'lite' | 'pro'."""
     import _pricing
     if col in _pricing.CORE_SIGNALS:
         return "core"
+    if col in _pricing.FREE_SIGNALS:
+        return "free"
     return "lite" if col in _pricing.SIGNAL_TIERS["lite"]["extra_signals"] else "pro"
 
 # Human-readable labels — copied verbatim from index.html's signal switcher (the
@@ -139,7 +141,7 @@ SIGNAL_LABELS = {
     "ppi_ml": "Purchasing Power Index (PPI)",
     "est_monthly_income_hh": "Avg income",
     "est_monthly_spend_hh": "Avg spend",
-    "rate_per_sqft": "Property rate /sqft",
+    "rate_per_sqft": "Property rate /sqft (est., city-level)",
     "bank_branches_per_lakh": "Bank branches /lakh",
     "deposits_per_capita": "Deposits per capita",
     "upi_txn_value_per_capita": "UPI txn value /capita",
