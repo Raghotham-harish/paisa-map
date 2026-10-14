@@ -67,8 +67,8 @@ Notes:
   `nsdp_per_capita`, `radiance_mean`, `lmv_per_1000`, `car_2w_ratio`, `luxury_share`,
   `filers_per_capita` — the banking / spend-power / commercial-density /
   affluence signals a site scout actually reads. **Signals Pro** adds the
-  remaining 10 (branch-type splits, filers, factories, cropping intensity,
-  schools, LMV, EV share, etc.).
+  rest: `factories_per_lakh`, `cropping_intensity_pct`, `schools_per_lakh`, `ev_share`
+  (and any signal added later). Property rate is free for everyone.
 - A free account is a **permanent** state — the top-of-funnel for nurture and the
   save-locations retention hook.
 - The trial needs **no card** (changed 2026-10-01): on day 8 a company that hasn't chosen a
