@@ -122,7 +122,7 @@ check(_plan_mapping.propose_tier("pro") == "growth" and _plan_mapping.propose_ti
 # ═════════════════════════════════════════════════════════════════════════════
 # 2. _signals_data allow-list
 # ═════════════════════════════════════════════════════════════════════════════
-check(LITE_SIGNALS < ALL and len(LITE_SIGNALS) == 9, "Lite's 9 signals are all real, served signals")
+check(LITE_SIGNALS < ALL and len(LITE_SIGNALS) == 10, "Lite's 10 signals are all real, served signals")
 check("rate_per_sqft" in ALL and "cars_per_1000" not in ALL, "signal columns = the export's (no duplicate alias)")
 flag(False)
 check(SD.allowed_signals("free") == ALL - SD.PRO_COLUMNS == {"rate_per_sqft"}, "flag off: free sees the non-Pro signal, as before")
@@ -304,7 +304,7 @@ check(FakeRP.sub_creates == 0, "...without contacting Razorpay")
 flag(True)
 opts = options(buy_u)
 check(opts["signals_lite"]["kind"] == "signals" and opts["growth"]["kind"] == "dashboard", "flag on: offered, with kind")
-check(opts["signals_lite"]["signal_count"] == 9 and opts["signals_pro"]["signal_count"] == len(ALL) - 1, "signal counts (beyond the free property rate)")
+check(opts["signals_lite"]["signal_count"] == 10 and opts["signals_pro"]["signal_count"] == len(ALL) - 1, "signal counts (beyond the free property rate)")
 check(not any(o["upgrade"] for o in opts.values()), "no live plan: nothing is an 'upgrade'")
 
 # Buy Signals Lite and have it charged.
