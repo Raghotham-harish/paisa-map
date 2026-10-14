@@ -145,6 +145,7 @@ export default function App() {
           </button>
           <a className="brand" href="/">
             <img src="/assets/logo-horizontal-v2.svg" alt="PaisaMaps" height="22" />
+            {user.beta?.active && <span className="beta-tag" title="PaisaMaps is in beta. Tell us what works and what doesn't.">Beta</span>}
           </a>
           <div className="avatar avatar-fallback mobile-bar-avatar" aria-hidden="true">{initial}</div>
         </header>
@@ -155,6 +156,7 @@ export default function App() {
           </button>
           <a className="brand" href="/">
             <img src="/assets/logo-horizontal-v2.svg" alt="PaisaMaps" height="24" />
+            {user.beta?.active && <span className="beta-tag" title="PaisaMaps is in beta. Tell us what works and what doesn't.">Beta</span>}
           </a>
           <nav>
             {NAV_SECTIONS.map((section) => (

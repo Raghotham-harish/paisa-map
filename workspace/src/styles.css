@@ -40,6 +40,13 @@ body{
   display:block; margin-bottom:28px; text-decoration:none; line-height:0;
 }
 .sidenav .brand img{ display:block; }
+.brand{ display:inline-flex; align-items:center; gap:8px; }
+.sidenav .brand{ display:flex; }
+.beta-tag{
+  font:600 10px/1 var(--sans); letter-spacing:.06em; text-transform:uppercase;
+  color:var(--rupee-deep); background:var(--paper-3); border:1px solid var(--border);
+  padding:3px 6px; border-radius:999px;
+}
 .sidenav nav{ display:flex; flex-direction:column; }
 .sidenav-section{ display:flex; flex-direction:column; gap:2px; margin-top:16px; }
 .sidenav-section:first-child{ margin-top:0; }

@@ -86,6 +86,11 @@
   .brand-logo{
     display:block;height:36px;width:auto;
   }
+  .beta-tag{
+    font:600 9px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;
+    color:var(--rupee-deep);background:var(--paper-3,#EDEEE9);border:1px solid var(--border,#C7CCC2);
+    padding:3px 6px;border-radius:999px;margin-right:auto;
+  }
   .brand-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px}
   .brand-actions{display:flex;align-items:center;gap:5px}
   .plan-pill{align-self:center}
@@ -934,6 +939,7 @@
     <div class="eyebrow"><span>Purchasing-power atlas</span><span>v3.7 · Live</span></div>
     <div class="brand-row">
       <img class="brand-logo" src="assets/logo-horizontal-v2.svg" alt="PaisaMaps" height="36">
+      <span class="beta-tag" id="betaTag" hidden title="PaisaMaps is in beta. Tell us what works and what doesn't.">Beta</span>
       <div class="brand-actions">
         <span class="pro-badge plan-pill" id="planPill" title="Current plan">PRO</span>
 
@@ -3537,6 +3543,8 @@ function renderAuthUI(){
     authBtn.hidden = false;
     userBtn.hidden = true;
   }
+  const betaTag = document.getElementById("betaTag");
+  if(betaTag) betaTag.hidden = !(currentUser && currentUser.beta);
   renderPlanPill();
 }
 function persistUser(u){
@@ -3555,7 +3563,7 @@ function persistUser(u){
     .then(data => {
       if(data && data.user){
         userPlan = data.plan || "free";
-        persistUser({ name: data.user.name, email: data.user.email, picture: data.user.picture_url });
+        persistUser({ name: data.user.name, email: data.user.email, picture: data.user.picture_url, beta: !!(data.user.beta && data.user.beta.active) });
       } else {
         userPlan = "free";
         persistUser(null);
@@ -3575,7 +3583,7 @@ function handleGoogleCredential(response){
     .then(r => { if(!r.ok) throw new Error("auth failed"); return r.json(); })
     .then(data => {
       userPlan = data.plan || "free";
-      persistUser({ name: data.user.name, email: data.user.email, picture: data.user.picture_url });
+      persistUser({ name: data.user.name, email: data.user.email, picture: data.user.picture_url, beta: !!(data.user.beta && data.user.beta.active) });
       loadSignalAccess();
       document.getElementById("authPanel").hidden = true;
       document.getElementById("authBtn").setAttribute("aria-expanded","false");

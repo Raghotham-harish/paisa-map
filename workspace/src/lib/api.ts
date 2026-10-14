@@ -59,6 +59,8 @@ export interface User {
   account?: AccountStanding | null;
   // P6 dashboard paywall for the selected company. paywall=false = everything open.
   dashboard?: DashboardAccess | null;
+  // Beta tag next to the logo for the first 90 days after joining.
+  beta?: { active: boolean; until: string | null } | null;
 }
 
 export interface DashboardAccess {
