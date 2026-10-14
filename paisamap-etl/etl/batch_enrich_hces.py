@@ -53,6 +53,89 @@ UA = "PaisaMap-BatchEnrich/1.0 (paisamaps.com)"
 # Min seconds between Nominatim requests (rate limit = 1/s)
 NOMINATIM_DELAY = 1.1
 
+# ── India Post district resolution (before Nominatim) ─────────────────────────
+# HCES spells some districts in ways Nominatim never matches; these 14 failed
+# every day from 7 Aug to 13 Oct (1,056 geocode_fail rows). HCES name -> India
+# Post directory district (pincode_district_state_india.csv). Anything else goes
+# through postal_to_hces_district_crosswalk.csv, then Nominatim.
+DOP_DISTRICT_ALIASES = {
+    "NICOBARS": "Nicobar",
+    "DAKSHIN BASTAR DANTEWADA": "Dantewada",
+    "NORTHTWENTYFOURPARGANAS": "North 24 Parganas",
+    "SOUTH TWENTY FOUR PARGANAS": "South 24 Parganas",
+    "PURBAMEDINIPUR": "East Midnapore",
+    "KOCHBIHAR": "Cooch Behar",
+    "UTTARDINAJPUR": "North Dinajpur",
+    "DOHAD": "Dahod",
+    "PASHCHIMI SINGHBHUM": "West Singhbhum",
+    "PURBI SINGHBHUM": "East Singhbhum",
+    "KABEERDHAM": "Kawardha",
+    "LAHUL & SPITI": "Lahul & Spiti",
+    "SHRAWASTI": "Shrawasti",
+}
+# After this many geocode_fail rows a district is given up on: skipped silently
+# and listed once in the run summary instead of failing (and logging) daily.
+MAX_GEOCODE_FAILS = 3
+DOP_DISTRICTS = ROOT / "data" / "reference" / "pincode_district_state_india.csv"
+DOP_CROSSWALK = ROOT / "data" / "reference" / "postal_to_hces_district_crosswalk.csv"
+BOUNDARIES    = ROOT.parent / "data" / "boundaries.geojson"
+_dop_cache: dict = {}
+
+
+def _ring_centroid(ring):
+    """Area centroid of a closed lon/lat ring (shoelace); vertex mean if degenerate."""
+    a = cx = cy = 0.0
+    for (x0, y0), (x1, y1) in zip(ring, ring[1:]):
+        cross = x0 * y1 - x1 * y0
+        a += cross
+        cx += (x0 + x1) * cross
+        cy += (y0 + y1) * cross
+    if abs(a) < 1e-12:
+        return sum(p[0] for p in ring) / len(ring), sum(p[1] for p in ring) / len(ring)
+    return cx / (3 * a), cy / (3 * a)
+
+
+def _dop_tables():
+    if not _dop_cache:
+        _dop_cache["dist"] = pd.read_csv(DOP_DISTRICTS, dtype=str)
+        _dop_cache["xwalk"] = (pd.read_csv(DOP_CROSSWALK, dtype=str)
+                               if DOP_CROSSWALK.exists() else pd.DataFrame())
+        centroids = {}
+        if BOUNDARIES.exists():
+            for f in json.load(open(BOUNDARIES))["features"]:
+                g, pc = f.get("geometry") or {}, (f.get("properties") or {}).get("pincode")
+                polys = ([g["coordinates"]] if g.get("type") == "Polygon"
+                         else g.get("coordinates", []) if g.get("type") == "MultiPolygon" else [])
+                rings = [p[0] for p in polys if p and len(p[0]) >= 4]
+                if pc and rings:
+                    lng, lat = _ring_centroid(max(rings, key=len))
+                    centroids[str(pc)] = (lat, lng)
+        _dop_cache["centroids"] = centroids
+    return _dop_cache
+
+
+def dop_district_point(district: str, state: str, done_pincodes: set):
+    """Resolve an HCES district through the India Post directory instead of a
+    geocoder: pick its lowest-numbered pincode that is not scored yet and has a
+    boundary polygon, at that polygon's centroid. None if the district can't be
+    matched or every pincode in it is already scored."""
+    t = _dop_tables()
+    postal = DOP_DISTRICT_ALIASES.get(str(district).upper())
+    if postal is None and not t["xwalk"].empty:
+        m = t["xwalk"][(t["xwalk"]["hces_district"].str.upper() == str(district).upper())
+                       & (t["xwalk"]["state"].str.upper() == str(state).upper())]
+        if len(m):
+            postal = m.iloc[0]["postal_district"]
+    if postal is None:
+        return None
+    pcs = sorted(set(t["dist"].loc[t["dist"]["district"] == postal, "pincode"]))
+    for pc in pcs:
+        if pc not in done_pincodes and pc in t["centroids"]:
+            lat, lng = t["centroids"][pc]
+            return {"lat": lat, "lng": lng, "pincode": pc,
+                    "display": f"{postal} (India Post directory)"}
+    return None
+
 
 def geocode_district(district: str, state: str):
     """
@@ -250,15 +333,20 @@ def load_already_done() -> set:
 
     # Also check batch log for districts that were skipped/failed previously
     done_districts = set()
+    fails: dict = {}
     if BATCH_LOG.exists():
         with open(BATCH_LOG, newline="") as f:
             for row in csv.DictReader(f):
-                if row.get("status") == "ok":
+                if row.get("status") in ("ok", "covered"):
                     done_districts.add((row["state"], row["district"]))
                     if row.get("pincode"):
                         done_pincodes.add(row["pincode"])
+                elif row.get("status") == "geocode_fail":
+                    k = (row["state"], row["district"])
+                    fails[k] = fails.get(k, 0) + 1
+    given_up = {k for k, n in fails.items() if n >= MAX_GEOCODE_FAILS} - done_districts
 
-    return done_pincodes, done_districts
+    return done_pincodes, done_districts, given_up
 
 
 def append_batch_log(row: dict):
@@ -348,7 +436,7 @@ def main():
     # State median MPCE for adjustment factors
     state_medians = hces.groupby("state")["mpce_combined"].median().to_dict()
 
-    done_pincodes, done_districts = load_already_done()
+    done_pincodes, done_districts, given_up = load_already_done()
     print(f"  Already in ML output: {len(done_pincodes)} pincodes")
 
     # Filter
@@ -359,6 +447,15 @@ def main():
     districts = districts[~districts.apply(
         lambda r: (r["state"], r["district"]) in done_districts, axis=1
     )]
+    # Districts that failed MAX_GEOCODE_FAILS times get one more try only if the
+    # India Post directory can place them; otherwise they are listed once here.
+    gave_up = [(r.state, r.district) in given_up
+               and dop_district_point(r.district, r.state, done_pincodes) is None
+               for r in districts.itertuples()]
+    if any(gave_up):
+        names = ", ".join(sorted(str(r.district) for r, g in zip(districts.itertuples(), gave_up) if g))
+        print(f"  Given up on {sum(gave_up)} district(s) after {MAX_GEOCODE_FAILS} failed geocodes: {names}")
+    districts = districts[[not g for g in gave_up]]
 
     if args.limit:
         districts = districts.head(args.limit)
@@ -387,8 +484,8 @@ def main():
             skipped += 1
             continue
 
-        # 1. Geocode
-        geo = geocode_district(district, state)
+        # 1. Place it: India Post directory first, Nominatim only as a fallback
+        geo = dop_district_point(district, state, done_pincodes) or geocode_district(district, state)
         if not geo:
             print(f"  SKIP — geocode failed")
             append_batch_log({"timestamp": datetime.now(timezone.utc).isoformat(),
@@ -426,6 +523,14 @@ def main():
         # 4. Skip if pincode already in ML output
         if pincode in done_pincodes:
             print(f"  SKIP — pincode {pincode} already enriched")
+            if not args.dry_run:
+                # Logged once as covered so the district stops being re-geocoded daily.
+                append_batch_log({"timestamp": datetime.now(timezone.utc).isoformat(),
+                                  "district": district, "state": state, "pincode": pincode,
+                                  "lat": round(lat, 5), "lng": round(lng, 5), "ppi": "",
+                                  "mpce_combined": mpce, "mpce_adj_factor": "",
+                                  "status": "covered",
+                                  "note": "district's pincode already scored"})
             skipped += 1
             continue
 
