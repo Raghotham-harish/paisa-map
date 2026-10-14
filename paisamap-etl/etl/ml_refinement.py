@@ -630,6 +630,15 @@ def estimate_income(z_ensemble: np.ndarray, pincodes: list,
     # pooling / insurance-style credibility theory): small groups lean on
     # the global scale, large groups keep more of their own local signal.
     CREDIBILITY_K = 50
+    # Re-standardising may shrink a group's spread but must never AMPLIFY it past
+    # the global scale (z_ensemble has std 1). Found 2026-10-13: 350 of 503 HCES
+    # groups have a z_ensemble std below 0.01 because their pincodes share
+    # district-level inputs — Kolkata (n=80) had std 0.0043, so Ballygunge sitting
+    # 0.04 below its group mean became z_group ≈ -10 and hit the PPI floor of 40;
+    # the next refit's tiny input shift put it 0.04 above and it hit the ceiling of
+    # 200. Flooring the divisor at the global std keeps the re-centring on the HCES
+    # anchor but stops noise-sized differences from being blown up to the clamps.
+    GROUP_STD_FLOOR = 1.0
     z_adj = z_ensemble.copy()
     for grp, idxs in city_groups.items():
         if len(idxs) < 2:
@@ -637,7 +646,7 @@ def estimate_income(z_ensemble: np.ndarray, pincodes: list,
         city_z = z_ensemble[idxs]
         # Map group mean z → ln(anchor_spend)
         z_mean = city_z.mean()
-        z_std  = city_z.std() or 1.0
+        z_std  = max(city_z.std(), GROUP_STD_FLOOR)
         alpha  = len(idxs) / (len(idxs) + CREDIBILITY_K)
         for i in idxs:
             z_group = (z_ensemble[i] - z_mean) / z_std   # re-standardise within group
