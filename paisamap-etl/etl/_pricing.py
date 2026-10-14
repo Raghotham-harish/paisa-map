@@ -139,10 +139,13 @@ TIERS = {
         "export_api": "full", "self_serve": False,
     },
 }
-TIER_ORDER = ["free", "trial", "starter", "growth", "scale", "pro", "enterprise"]
+# The two signal-only tiers (P7) rank above Free and below Trial: more than the
+# free map, less than any plan with the dashboard (is_dashboard_tier is "trial
+# or higher"). Their TIERS rows are built from SIGNAL_TIERS just below.
+TIER_ORDER = ["free", "signals_lite", "signals_pro", "trial", "starter", "growth", "scale", "pro", "enterprise"]
 
 # The signal-only ladder (no dashboard, no credits, month-to-month, no annual).
-# A dashboard tier supersedes these — all 20 signals are included.
+# A dashboard tier supersedes these — every signal is included.
 CORE_SIGNALS = ("ppi_ml", "est_monthly_income_hh", "est_monthly_spend_hh")
 SIGNAL_TIERS = {
     "lite": {
@@ -157,6 +160,22 @@ SIGNAL_TIERS = {
     },
     "pro": {"label": "Signals Pro", "price_paise": 50_000, "extra_signals": "all"},
 }
+# Sold through the same subscription machinery as the dashboard tiers, so each is
+# also a TIERS row ('signals_lite' / 'signals_pro'): no credits, one company, one
+# person, no API, self-serve monthly.
+SIGNAL_TIER_IDS = {"lite": "signals_lite", "pro": "signals_pro"}
+for _key, _tier in SIGNAL_TIER_IDS.items():
+    TIERS[_tier] = {
+        "label": SIGNAL_TIERS[_key]["label"], "price_paise": SIGNAL_TIERS[_key]["price_paise"],
+        "annual_monthly_paise": None, "credits_per_month": 0, "companies": 1,
+        "extra_company_paise": None, "seats": 1, "extra_seat_paise": None,
+        "keywords_per_project": 0, "export_api": None, "self_serve": True,
+    }
+
+
+def is_signal_tier(tier: str) -> bool:
+    """A bare tier name ('signals_lite'), not a stored plan id."""
+    return tier in SIGNAL_TIER_IDS.values()
 
 # Metered actions beyond the three already in CREDIT_COSTS above.
 KEYWORD_RESEARCH_CREDITS = 12
@@ -280,14 +299,22 @@ def is_dashboard_tier(plan_id: str) -> bool:
 #   v2 dashboard tiers     -> the Pro columns (a dashboard tier includes all 20
 #                             signals); the raised API limit only where the
 #                             tier's price-book row includes export_api
+#   v2 signal-only tiers   -> their signal list (P7); Signals Pro = every signal
 #   free / unknown         -> neither (fail closed)
+# `signals` is what the plan may see beyond CORE_SIGNALS once SIGNAL_TIERS=1:
+# "all", or a tuple of signal ids (empty = the 3 core only). _signals_data
+# applies it; with the flag off the old free/Pro split still holds.
 def entitlements(plan_id) -> dict:
     kind, name = parse_plan(plan_id)
     if kind == "legacy":
-        return {"pro_columns": True, "api_elevated": True}
+        return {"pro_columns": True, "api_elevated": True, "signals": "all"}
+    if kind == "v2" and is_signal_tier(name):
+        key = next(k for k, t in SIGNAL_TIER_IDS.items() if t == name)
+        extra = SIGNAL_TIERS[key]["extra_signals"]
+        return {"pro_columns": extra == "all", "api_elevated": False, "signals": extra}
     if kind == "v2":
-        return {"pro_columns": True, "api_elevated": TIERS[name]["export_api"] is not None}
-    return {"pro_columns": False, "api_elevated": False}
+        return {"pro_columns": True, "api_elevated": TIERS[name]["export_api"] is not None, "signals": "all"}
+    return {"pro_columns": False, "api_elevated": False, "signals": ()}
 
 
 def plan_strength(plan_id) -> tuple:
@@ -317,6 +344,8 @@ def compat_plan(plan_id) -> str:
     kind, name = parse_plan(plan_id)
     if kind == "legacy":
         return name
+    if kind == "v2" and is_signal_tier(name):
+        return "free"       # no dashboard, no Pro pill; the map reads its signal list instead
     if kind == "v2":
         return "team" if tier_rank(plan_id) >= TIER_ORDER.index("scale") else "pro"
     return "free"

@@ -1,0 +1,205 @@
+{
+  "run_at_utc": "2026-10-11T02:09:20Z",
+  "status": "accepted",
+  "accepted_drift": "F1 state fix approved 2026-10-08",
+  "validation_gates": [
+    "PASS  Golf Links > Saket: PPI(110003)=200 vs PPI(110017)=172",
+    "PASS  Saket > Narela: PPI(110017)=172 vs PPI(110040)=104",
+    "PASS  Golf Links > Dwarka: PPI(110003)=200 vs PPI(110075)=92",
+    "PASS  Golf Course Rd > Gurgaon City: PPI(122022)=186 vs PPI(122002)=54",
+    "PASS  Nariman Point > Dahisar: PPI(400021)=198 vs PPI(400068)=40",
+    "PASS  Malabar Hill > Malad East: PPI(400006)=190 vs PPI(400097)=40",
+    "PASS  Juhu > Vashi: PPI(400049)=186 vs PPI(400703)=109",
+    "PASS  Indiranagar > Electronics City: PPI(560038)=114 vs PPI(560100)=113",
+    "PASS  Indiranagar > Yelahanka: PPI(560038)=114 vs PPI(560064)=71",
+    "PASS  Koramangala > Hebbal (H.A. Farm): PPI(560034)=200 vs PPI(560024)=113",
+    "ACCEPTED  PPI stability: 222 pincodes drifted >10pt (max 160.0pt) — waived: F1 state fix approved 2026-10-08"
+  ],
+  "stability": {
+    "limit": 10,
+    "compared_against": "ppi_ml_refined.csv (no baseline yet)",
+    "compared": 15331,
+    "pincodes_over_limit": 222,
+    "max_drift": 160.0,
+    "max_drift_pincode": "700019",
+    "top_swings": [
+      {
+        "pincode": "700019",
+        "name": "Ballygunge",
+        "old": 200.0,
+        "new": 40.0,
+        "abs_delta": 160.0
+      },
+      {
+        "pincode": "799001",
+        "name": "Agartala",
+        "old": 160.0,
+        "new": 43.0,
+        "abs_delta": 117.0
+      },
+      {
+        "pincode": "231310",
+        "name": "Mirzapur, Uttar Pradesh · 231310",
+        "old": 105.0,
+        "new": 200.0,
+        "abs_delta": 95.0
+      },
+      {
+        "pincode": "135103",
+        "name": "Yamunanagar, Haryana",
+        "old": 105.0,
+        "new": 40.0,
+        "abs_delta": 65.0
+      },
+      {
+        "pincode": "788728",
+        "name": "Isabeel",
+        "old": 77.0,
+        "new": 119.0,
+        "abs_delta": 42.0
+      },
+      {
+        "pincode": "804423",
+        "name": "Nagla Kinger",
+        "old": 120.0,
+        "new": 81.0,
+        "abs_delta": 39.0
+      },
+      {
+        "pincode": "804435",
+        "name": "Main",
+        "old": 118.0,
+        "new": 79.0,
+        "abs_delta": 39.0
+      },
+      {
+        "pincode": "805131",
+        "name": "Wazirganj",
+        "old": 120.0,
+        "new": 81.0,
+        "abs_delta": 39.0
+      },
+      {
+        "pincode": "804428",
+        "name": "Usari",
+        "old": 119.0,
+        "new": 80.0,
+        "abs_delta": 39.0
+      },
+      {
+        "pincode": "804403",
+        "name": "Belaganj",
+        "old": 121.0,
+        "new": 83.0,
+        "abs_delta": 38.0
+      },
+      {
+        "pincode": "805128",
+        "name": "Tarwan",
+        "old": 120.0,
+        "new": 82.0,
+        "abs_delta": 38.0
+      },
+      {
+        "pincode": "804402",
+        "name": "Baidrabad",
+        "old": 122.0,
+        "new": 84.0,
+        "abs_delta": 38.0
+      },
+      {
+        "pincode": "804421",
+        "name": "Kurtha",
+        "old": 118.0,
+        "new": 80.0,
+        "abs_delta": 38.0
+      },
+      {
+        "pincode": "804404",
+        "name": "Chakand",
+        "old": 119.0,
+        "new": 81.0,
+        "abs_delta": 38.0
+      },
+      {
+        "pincode": "804419",
+        "name": "Karpi",
+        "old": 118.0,
+        "new": 80.0,
+        "abs_delta": 38.0
+      },
+      {
+        "pincode": "680014",
+        "name": "Puthur-Thrissur",
+        "old": 130.0,
+        "new": 166.0,
+        "abs_delta": 36.0
+      },
+      {
+        "pincode": "734315",
+        "name": "Munsong",
+        "old": 102.0,
+        "new": 138.0,
+        "abs_delta": 36.0
+      },
+      {
+        "pincode": "110034",
+        "name": "Pitampura",
+        "old": 91.0,
+        "new": 56.0,
+        "abs_delta": 35.0
+      },
+      {
+        "pincode": "507305",
+        "name": "Tanikella",
+        "old": 99.0,
+        "new": 133.0,
+        "abs_delta": 34.0
+      },
+      {
+        "pincode": "416603",
+        "name": "Kasal",
+        "old": 132.0,
+        "new": 166.0,
+        "abs_delta": 34.0
+      },
+      {
+        "pincode": "313702",
+        "name": "Jhadol (P)",
+        "old": 161.0,
+        "new": 130.0,
+        "abs_delta": 31.0
+      },
+      {
+        "pincode": "452001",
+        "name": "Indore G.P.O.",
+        "old": 110.0,
+        "new": 141.0,
+        "abs_delta": 31.0
+      },
+      {
+        "pincode": "508233",
+        "name": "Munagala",
+        "old": 111.0,
+        "new": 80.0,
+        "abs_delta": 31.0
+      },
+      {
+        "pincode": "686564",
+        "name": "Ayarkunnam",
+        "old": 131.0,
+        "new": 160.0,
+        "abs_delta": 29.0
+      },
+      {
+        "pincode": "508238",
+        "name": "Gudibanda",
+        "old": 109.0,
+        "new": 80.0,
+        "abs_delta": 29.0
+      }
+    ],
+    "new_since_baseline": 0,
+    "new_since_baseline_sample": []
+  }
+}

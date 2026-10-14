@@ -36,6 +36,7 @@ import _invoice_pdf  # noqa: E402
 import _subscriptions  # noqa: E402
 import _assisted_sale  # noqa: E402
 import _trial  # noqa: E402
+import _signals_data  # noqa: E402
 
 from ._session import require_login, _auth_db  # noqa: E402
 
@@ -554,6 +555,23 @@ def _ensure_razorpay_plan(client, tier, cycle, amount):
     return _subscriptions.save_plan_id(tier, cycle, amount, rp_plan["id"])
 
 
+def _offered(tier):
+    """A tier a customer may subscribe to: self-serve, and a signal-only plan only
+    while the signal tiers are switched on — with SIGNAL_TIERS off it would buy
+    exactly what the free map already shows."""
+    if _pricing.subscription_error(tier) is not None:
+        return False
+    return not _pricing.is_signal_tier(tier) or _signals_data.signal_tiers_enforced()
+
+
+def _is_upgrade(live, tier):
+    """P7: moving up from a live, paid-up signal-only plan (Lite -> Pro, or either
+    -> a dashboard plan). Not while a renewal is failing: that is fixed first."""
+    return bool(live and _pricing.is_signal_tier(live["tier"]) and live["status"] == "active"
+                and _pricing.tier_rank(_pricing.plan_id_v2(tier))
+                > _pricing.tier_rank(_pricing.plan_id_v2(live["tier"])))
+
+
 @billing_bp.route("/subscriptions", methods=["GET"])
 @require_login
 def get_subscription(user_id):
@@ -565,16 +583,22 @@ def get_subscription(user_id):
         _subscriptions.sweep_ended()
         _trial.sweep(background=True)
     trial_reason = _trial.unavailable(payer, user_id) if ready else "schema_not_applied"
+    live = _subscriptions.get_live(payer) if ready else None
     return jsonify({
         "state": subscriptions_state(),
         "standing": _auth_db.account_standing(user_id, payer) if ready else None,
         # A plan PaisaMap set up directly (invoice/NEFT): shown as "managed by PaisaMap until ...".
         "assisted": _assisted_sale.public_view(_assisted_sale.active_for_org(payer)) if ready else None,
         "subscription": _subscriptions.public_view(_subscriptions.get_latest(payer)) if ready else None,
+        # `kind` splits the signal-only plans (P7) from the dashboard ones; with a
+        # live subscription, `upgrade` marks the plans it can move up to now.
         "options": [{"tier": t, "label": _pricing.TIERS[t]["label"],
                      "list_paise": _pricing.subscription_list_paise(t), "amount_paise": _sub_amount(t),
-                     "credits_per_month": _pricing.TIERS[t]["credits_per_month"], "seats": _pricing.TIERS[t]["seats"]}
-                    for t in _pricing.TIERS if _pricing.subscription_error(t) is None],
+                     "credits_per_month": _pricing.TIERS[t]["credits_per_month"], "seats": _pricing.TIERS[t]["seats"],
+                     "kind": "signals" if _pricing.is_signal_tier(t) else "dashboard",
+                     "signal_count": len(_signals_data.allowed_signals(_pricing.plan_id_v2(t))),
+                     "upgrade": _is_upgrade(live, t)}
+                    for t in _pricing.TIERS if _offered(t)],
         # P4: may this person start the no-card free trial for this company, and the
         # company's trial if it has had one ({state: running|ended, ends_at, ...}).
         "trial": {"available": trial_reason is None, "reason": trial_reason,
@@ -614,10 +638,13 @@ def create_subscription(user_id):
     bad = _pricing.subscription_error(tier, cycle)
     if bad:
         return jsonify({"error": bad}), 400
+    if not _offered(tier):
+        return jsonify({"error": "not_offered"}), 400
     payer, err = _payer_for_subscription(user_id, body)
     if err:
         return err
-    if _subscriptions.get_live(payer):
+    live = _subscriptions.get_live(payer)
+    if live and not _is_upgrade(live, tier):
         return jsonify({"error": "already_subscribed"}), 409
     held = _subscriptions.org_plan(payer)
     if (_pricing.parse_plan(held)[0] == "v2"
@@ -630,7 +657,8 @@ def create_subscription(user_id):
     client = _client()
     if client is None:
         return _not_configured()
-    return _start_checkout(client, payer, user_id, tier, cycle, buyer)
+    return _start_checkout(client, payer, user_id, tier, cycle, buyer,
+                           replaces=live if live and _is_upgrade(live, tier) else None)
 
 
 def _sub_meta(tier, cycle, buyer):
@@ -638,20 +666,33 @@ def _sub_meta(tier, cycle, buyer):
     return {"tax": _tax_for(_pricing.subscription_list_paise(tier, cycle), buyer), "buyer": buyer}
 
 
-def _start_checkout(client, payer, user_id, tier, cycle, buyer=None):
+def _start_checkout(client, payer, user_id, tier, cycle, buyer=None, replaces=None):
     """Create the Razorpay subscription, record it locally (status 'created', grants
-    nothing) and return what Checkout needs."""
+    nothing) and return what Checkout needs.
+
+    `replaces` (P7 upgrade from a signal-only plan): a company has at most one live
+    subscription, so the old one is cancelled at Razorpay once the new one exists —
+    it never charges again — but keeps its plan to the end of the month already
+    paid for, exactly like a normal cancel. Walking away from this checkout costs
+    nothing already paid for; a paid upgrade simply outranks the old plan."""
     meta = _sub_meta(tier, cycle, buyer)
     amount = meta["tax"]["total_paise"]
+    notes = {"org_id": str(payer), "user_id": str(user_id), "tier": tier, "cycle": cycle}
+    if replaces:
+        notes["replaces"] = replaces["razorpay_subscription_id"]
     try:
         plan_id = _ensure_razorpay_plan(client, tier, cycle, amount)
         rp_sub = client.subscription.create({
             "plan_id": plan_id, "total_count": _pricing.SUBSCRIPTION_TOTAL_COUNT,
-            "quantity": 1, "customer_notify": 1,
-            "notes": {"org_id": str(payer), "user_id": str(user_id), "tier": tier, "cycle": cycle},
+            "quantity": 1, "customer_notify": 1, "notes": notes,
         })
+        if replaces:
+            client.subscription.cancel(replaces["razorpay_subscription_id"], {"cancel_at_cycle_end": 0})
     except Exception as e:
         return jsonify({"error": "gateway_error", "detail": str(e)}), 502
+    if replaces:
+        _subscriptions.record_state(replaces["razorpay_subscription_id"], status="cancelled",
+                                    ends_at=replaces["current_end"] or _subscriptions._now())
     _subscriptions.create_local(payer, user_id, tier, cycle, rp_sub["id"], plan_id, amount, meta=meta)
     return jsonify({
         "razorpay_subscription_id": rp_sub["id"],

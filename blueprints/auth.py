@@ -16,6 +16,19 @@ auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 SIGNUP_BONUS_CREDITS = 50  # placeholder — Phase 3 owns the real credit economy/pricing
 
+# New accounts see a "Beta" tag next to the logo for this long after joining, so
+# early rough edges read as beta and invite feedback. Purely cosmetic.
+BETA_DAYS = 90
+
+
+def _beta(user_id):
+    from datetime import datetime, timedelta, timezone
+    joined = _auth_db.get_user_created_at(user_id)
+    if joined is None:
+        return {"active": False, "until": None}
+    until = joined + timedelta(days=BETA_DAYS)
+    return {"active": datetime.now(timezone.utc) < until, "until": until.isoformat()}
+
 
 def _user_payload(user_id, org_id=None):
     user = _auth_db.get_user(user_id)
@@ -23,6 +36,7 @@ def _user_payload(user_id, org_id=None):
         return None
     view = _auth_db.get_credit_view(user_id, org_id=org_id)
     import _pricing
+    import _signals_data
     plan = _auth_db.get_effective_plan_for_user(user_id)
     return {
         "id": user["id"],
@@ -47,6 +61,12 @@ def _user_payload(user_id, org_id=None):
         # P6 dashboard paywall for the selected company: {allowed, paywall, plan}.
         # paywall=False (the default, DASHBOARD_PAYWALL unset) means everything is open.
         "dashboard": _auth_db.dashboard_access(user_id, org_id),
+        # P7: the signal columns this plan may see (beyond PPI/income/spend) and
+        # whether the signal tiers are switched on (SIGNAL_TIERS=1).
+        "signals": {"enforced": _signals_data.signal_tiers_enforced(),
+                    "allowed": sorted(_signals_data.allowed_signals(plan))},
+        # {active, until}: show the Beta tag for BETA_DAYS after the account was created.
+        "beta": _beta(user_id),
     }
 
 

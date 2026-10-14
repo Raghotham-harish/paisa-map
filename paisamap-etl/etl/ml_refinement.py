@@ -33,6 +33,12 @@ Validation:
 Outputs:
   data/output/ppi_ml_refined.csv   — ML-refined PPI (can replace ppi_pincode.csv)
   data/output/ml_diagnostics.json  — feature importances, anomaly flags, CV scores
+  data/output/refit_baseline.csv   — this run's scores; the next run's drift reference
+  data/output/refit_last_run.json  — accepted/rejected, gates, top swings (written every run)
+
+Any failed gate (10 ordering gates + ±10pt stability) writes none of the above
+except refit_last_run.json, and exits 3. `--accept-drift "REASON"` waives the
+stability gate for one owner-approved run.
 """
 
 from __future__ import annotations
@@ -51,7 +57,7 @@ from sklearn.metrics import mean_squared_error
 
 import _db
 from _filelock import write_lock
-from pincode_master import assert_real_pincode_ids
+from pincode_master import assert_real_pincode_ids, state_for_pincode
 
 ROOT = Path(__file__).resolve().parents[1]
 RAW  = ROOT / "data" / "raw"
@@ -217,6 +223,11 @@ def load_features() -> pd.DataFrame:
             "Kerala": "KL", "Odisha": "OD", "Assam": "AS", "Bihar": "BR",
             "Jharkhand": "JH", "Madhya Pradesh": "MP", "Chhattisgarh": "CG",
             "Uttarakhand": "UK", "Himachal Pradesh": "HP", "Jammu and Kashmir": "JK",
+            "Andaman and Nicobar Islands": "AN", "Arunachal Pradesh": "AR",
+            "Chandigarh": "CH", "Dadra and Nagar Haveli": "DN", "Daman and Diu": "DD",
+            "Goa": "GA", "Lakshadweep": "LD", "Manipur": "MN", "Meghalaya": "ML",
+            "Mizoram": "MZ", "Nagaland": "NL", "Puducherry": "PY", "Sikkim": "SK",
+            "Tripura": "TR",
         }
         vst["state_code"] = vst["state_name"].map(_STATE_NAME_TO_CODE)
         vst_map = vst.dropna(subset=["state_code"]).set_index("state_code")["growth_4yr_pct"]
@@ -224,8 +235,10 @@ def load_features() -> pd.DataFrame:
         all_pincodes = set()
         for s in frames.values():
             all_pincodes.update(s.index)
+        # A state-level feature, so the real state (pincode master) — not
+        # PINCODE_STATE, whose metro grouping puts Gurgaon with Delhi.
         growth_series = pd.Series(
-            {pc: vst_map.get(PINCODE_STATE.get(pc) or _REFIT_GROUP_PREFIX.get(str(pc)[:2]))
+            {pc: vst_map.get(state_for_pincode(pc, log_fallback=False))
              for pc in all_pincodes},
             name="vehicle_growth_4yr"
         )
@@ -253,41 +266,12 @@ def winsorize(s: pd.Series, lo=0.02, hi=0.98) -> pd.Series:
     return s.clip(s.quantile(lo), s.quantile(hi))
 
 
-# HELD UNTIL THE PPI RETRAIN (decided 2026-09-29). This is the refit's own
-# old prefix → group table, kept on purpose. It is wrong for ~6% of pincodes
-# (12x Gurgaon/Faridabad grouped with Delhi, Goa with Maharashtra,
-# Uttarakhand with UP, the 79x Northeast unmapped), but correcting it moves
-# the fitted PPI (median 1pt, 2.5% of pincodes >=10pt, up to 160pt) and ties
-# the Indiranagar > E-City gate, so the weekly refit would revert every week.
-# Enrichment (priors, same-state neighbours) already uses
-# pincode_master.state_for_pincode. Switch this to state_for_pincode as part
-# of the retrain + backtest (issue #7), not before. See TODO.md.
-_REFIT_GROUP_PREFIX: dict = {
-    "11": "DL", "12": "DL", "13": "HP", "14": "PB", "15": "PB",
-    "16": "CH", "17": "HP", "18": "JK", "19": "JK",
-    "20": "UP", "21": "UP", "22": "UP", "24": "UP",
-    "25": "UP", "26": "UP", "27": "UP", "28": "UP",
-    "30": "RJ", "31": "RJ", "32": "RJ", "33": "RJ", "34": "RJ",
-    "36": "GJ", "37": "GJ", "38": "GJ", "39": "GJ",
-    "40": "MH", "41": "MH", "42": "MH", "43": "MH", "44": "MH",
-    "45": "MP", "46": "MP", "47": "MP", "48": "MP", "49": "CG",
-    "50": "TS", "51": "AP", "52": "AP", "53": "AP",
-    "56": "KA", "57": "KA", "58": "KA", "59": "KA",
-    "60": "TN", "61": "TN", "62": "TN", "63": "TN", "64": "TN",
-    "67": "KL", "68": "KL", "69": "KL",
-    "70": "WB", "71": "WB", "72": "WB", "73": "WB", "74": "WB",
-    "75": "OD", "76": "OD", "77": "OD",
-    "78": "AS",
-    "80": "BR", "81": "BR", "82": "JH", "83": "JH",
-    "84": "BR", "85": "BR",
-}
-
-
 def _state(pc: str) -> str:
     """Refit group for within-city feature normalisation: PINCODE_STATE (an
-    intentional metro grouping — Gurgaon kept with Delhi NCR), then the held
-    legacy prefix table above. Not a state assignment."""
-    return PINCODE_STATE.get(pc, _REFIT_GROUP_PREFIX.get(str(pc)[:2], "XX"))
+    intentional metro grouping — Gurgaon kept with Delhi NCR), then the real
+    state from the pincode master. Used only where no HCES district group
+    exists (see _group()); state-level features use state_for_pincode."""
+    return PINCODE_STATE.get(pc) or state_for_pincode(pc, log_fallback=False)
 
 
 def load_district_groups() -> dict[str, str]:
@@ -646,6 +630,15 @@ def estimate_income(z_ensemble: np.ndarray, pincodes: list,
     # pooling / insurance-style credibility theory): small groups lean on
     # the global scale, large groups keep more of their own local signal.
     CREDIBILITY_K = 50
+    # Re-standardising may shrink a group's spread but must never AMPLIFY it past
+    # the global scale (z_ensemble has std 1). Found 2026-10-13: 350 of 503 HCES
+    # groups have a z_ensemble std below 0.01 because their pincodes share
+    # district-level inputs — Kolkata (n=80) had std 0.0043, so Ballygunge sitting
+    # 0.04 below its group mean became z_group ≈ -10 and hit the PPI floor of 40;
+    # the next refit's tiny input shift put it 0.04 above and it hit the ceiling of
+    # 200. Flooring the divisor at the global std keeps the re-centring on the HCES
+    # anchor but stops noise-sized differences from being blown up to the clamps.
+    GROUP_STD_FLOOR = 1.0
     z_adj = z_ensemble.copy()
     for grp, idxs in city_groups.items():
         if len(idxs) < 2:
@@ -653,7 +646,7 @@ def estimate_income(z_ensemble: np.ndarray, pincodes: list,
         city_z = z_ensemble[idxs]
         # Map group mean z → ln(anchor_spend)
         z_mean = city_z.mean()
-        z_std  = city_z.std() or 1.0
+        z_std  = max(city_z.std(), GROUP_STD_FLOOR)
         alpha  = len(idxs) / (len(idxs) + CREDIBILITY_K)
         for i in idxs:
             z_group = (z_ensemble[i] - z_mean) / z_std   # re-standardise within group
@@ -693,16 +686,135 @@ def estimate_income(z_ensemble: np.ndarray, pincodes: list,
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
-def main():
+# ── Stability gate + run record (F2, refit peer review 2026-10-06) ───────────
+# The ±10pt check used to print WARN, which cron never acted on, and compared
+# against the live ppi_ml_refined.csv — whose rows the daily enrich appends via
+# IDW/priors, so a new pincode's first real score counted as a "swing". It is
+# now a hard FAIL measured against refit_baseline.csv (the scores of the last
+# ACCEPTED refit only). A deliberate shift goes through --accept-drift, which
+# waives the stability gate and nothing else. Any FAIL writes nothing (no CSV,
+# no DB) and exits EXIT_REJECTED; every run, accepted or not, leaves
+# refit_last_run.json, which cron commits so a rejection isn't lost.
+PPI_SWING_LIMIT = 10
+EXIT_REJECTED   = 3
+BASELINE_PATH   = OUT / "refit_baseline.csv"
+RUN_RECORD_PATH = OUT / "refit_last_run.json"
+# One compact line per run, appended and committed by cron: refit_last_run.json
+# overwrites itself, so without this a rejected week leaves no trace once the
+# next run lands.
+HISTORY_PATH    = OUT / "refit_history.jsonl"
+
+
+def _read_ppi(path: Path, col: str = "ppi_ml") -> pd.Series | None:
+    if not path.exists():
+        return None
+    df = pd.read_csv(path, dtype={"pincode": str}).set_index("pincode")
+    return df[col] if col in df.columns else None
+
+
+def stability_check(new_ppi: pd.Series, baseline: pd.Series | None,
+                    prev_live: pd.Series | None, limit: float = PPI_SWING_LIMIT) -> dict:
+    """Compare this run's scores with the last accepted refit. Pincodes the
+    baseline doesn't have (appended by the daily enrich since then) are not
+    swings: their previous value was an estimate, not a model score — they are
+    listed in `new_pincodes` instead. With no baseline yet (first run after F2),
+    falls back to the live file, which is what the old WARN compared against."""
+    if baseline is not None:
+        ref, source = baseline, "refit_baseline.csv"
+    elif prev_live is not None:
+        ref, source = prev_live, "ppi_ml_refined.csv (no baseline yet)"
+    else:
+        return {"status": "SKIP", "source": None, "compared": 0, "swings": pd.Series(dtype=float),
+                "new_pincodes": [], "max_drift": None, "max_drift_pincode": None}
+    common = new_ppi.index.intersection(ref.index)
+    delta = (new_ppi.loc[common] - ref.loc[common]).abs().dropna()
+    swings = delta[delta > limit].sort_values(ascending=False)
+    new_pcs = sorted(new_ppi.index.difference(ref.index)) if baseline is not None else []
+    return {"status": "PASS" if swings.empty else "FAIL", "source": source,
+            "compared": int(len(delta)), "swings": swings, "new_pincodes": new_pcs,
+            "max_drift": float(delta.max()) if len(delta) else 0.0,
+            "max_drift_pincode": str(delta.idxmax()) if len(delta) else None}
+
+
+def stability_gate_line(stab: dict, accept_drift: str | None,
+                        limit: float = PPI_SWING_LIMIT) -> str:
+    """The gate line for a compared run: PASS, FAIL, or — only when the owner
+    passed --accept-drift — ACCEPTED (a waived breach is never shown as PASS)."""
+    if stab["status"] == "PASS":
+        return (f"PASS  PPI stability: all {stab['compared']} pincodes within ±{limit}pt "
+                f"(max {stab['max_drift']:.1f}pt @ {stab['max_drift_pincode']})")
+    n = len(stab["swings"])
+    if accept_drift:
+        return (f"ACCEPTED  PPI stability: {n} pincodes drifted >{limit}pt "
+                f"(max {stab['max_drift']:.1f}pt) — waived: {accept_drift}")
+    return (f"FAIL  PPI stability: {n} pincodes drifted >{limit}pt "
+            f"(max {stab['max_drift']:.1f}pt @ {stab['max_drift_pincode']})")
+
+
+def failed_gates(gate_results: list) -> list:
+    """Any FAIL line rejects the refit — ordering gates and stability alike."""
+    return [r for r in gate_results if r.startswith("FAIL")]
+
+
+def write_run_record(status: str, gate_results: list, stab: dict, new_ppi: pd.Series,
+                     ref_ppi: pd.Series | None, names: pd.Series | None,
+                     accept_drift: str | None, limit: float = PPI_SWING_LIMIT) -> dict:
+    from datetime import datetime, timezone
+
+    def _name(pc):
+        if names is not None and pc in names.index and isinstance(names.loc[pc], str):
+            return names.loc[pc]
+        return ""
+
+    top = [{"pincode": pc, "name": _name(pc),
+            "old": float(ref_ppi.loc[pc]) if ref_ppi is not None else None,
+            "new": float(new_ppi.loc[pc]), "abs_delta": round(float(d), 1)}
+           for pc, d in stab["swings"].head(25).items()]
+    record = {
+        "run_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "status": status,
+        "accepted_drift": accept_drift,
+        "validation_gates": gate_results,
+        "stability": {
+            "limit": limit, "compared_against": stab["source"], "compared": stab["compared"],
+            "pincodes_over_limit": int(len(stab["swings"])),
+            "max_drift": None if stab["max_drift"] is None else round(stab["max_drift"], 1),
+            "max_drift_pincode": stab["max_drift_pincode"],
+            "top_swings": top,
+            "new_since_baseline": len(stab["new_pincodes"]),
+            "new_since_baseline_sample": stab["new_pincodes"][:50],
+        },
+    }
+    RUN_RECORD_PATH.write_text(json.dumps(record, indent=2, ensure_ascii=False))
+    history = {
+        "run_at_utc": record["run_at_utc"], "status": status, "accepted_drift": accept_drift,
+        "gates": gate_results,
+        "pincodes_over_limit": record["stability"]["pincodes_over_limit"],
+        "max_drift": record["stability"]["max_drift"],
+        "top_movers": [{k: t[k] for k in ("pincode", "name", "old", "new")} for t in top[:10]],
+    }
+    with open(HISTORY_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps(history, ensure_ascii=False) + "\n")
+    return record
+
+
+def _parse_args(argv=None):
+    import argparse
+    p = argparse.ArgumentParser(description="Weekly full PPI refit.")
+    p.add_argument("--accept-drift", metavar="REASON", default=None,
+                   help="Owner-approved: waive the ±10pt stability gate for this run only "
+                        "(the 10 ordering gates still apply). REASON is recorded.")
+    return p.parse_args(argv)
+
+
+def main(argv=None):
+    args = _parse_args(argv)
     OUT.mkdir(parents=True, exist_ok=True)
 
-    # Snapshot existing PPI BEFORE this run so we can check for drift
-    prev_ppi = None
-    prev_ml_path = OUT / "ppi_ml_refined.csv"
-    if prev_ml_path.exists():
-        _prev = pd.read_csv(prev_ml_path, dtype={"pincode": str}).set_index("pincode")
-        if "ppi_ml" in _prev.columns:
-            prev_ppi = _prev["ppi_ml"]
+    # Snapshot existing PPI BEFORE this run so we can check for drift: the last
+    # accepted refit's scores, plus the live file as the pre-baseline fallback.
+    baseline_ppi = _read_ppi(BASELINE_PATH)
+    prev_ppi = _read_ppi(OUT / "ppi_ml_refined.csv")
 
     print("Loading proxy features…")
     raw = load_features()
@@ -884,27 +996,37 @@ def main():
         print(f"  {r}")
         gate_results.append(r)
 
-    # ── PPI stability gate: no swing > 10pt vs previous run ──────────────────
-    PPI_SWING_LIMIT = 10
-    if prev_ppi is not None:
-        common_pcs = income_df.index.intersection(prev_ppi.index)
-        delta = (income_df.loc[common_pcs, "ppi_ml"] - prev_ppi.loc[common_pcs]).abs()
-        swings = delta[delta > PPI_SWING_LIMIT].sort_values(ascending=False)
-        print(f"\nPPI stability gate (threshold ±{PPI_SWING_LIMIT}pt):")
-        if swings.empty:
-            print(f"  PASS  All {len(common_pcs)} pincodes within ±{PPI_SWING_LIMIT}pt  "
-                  f"(max swing: {delta.max():.1f}pt @ {delta.idxmax()})")
-            gate_results.append(f"PASS  PPI stability: max drift {delta.max():.1f}pt (limit {PPI_SWING_LIMIT})")
-        else:
-            print(f"  WARN  {len(swings)} pincodes swung > {PPI_SWING_LIMIT}pt:")
-            for pc, d in swings.head(10).items():
-                name = income_df.loc[pc, "name"] if "name" in income_df.columns else pc
-                old  = int(prev_ppi.loc[pc])
-                new  = int(income_df.loc[pc, "ppi_ml"])
-                print(f"    {pc} {name:<25} {old:>3} → {new:>3}  (Δ{d:+.0f})")
-            gate_results.append(f"WARN  PPI stability: {len(swings)} pincodes drifted >{PPI_SWING_LIMIT}pt")
+    # ── PPI stability gate: no swing > 10pt vs the last accepted refit ───────
+    new_ppi = income_df["ppi_ml"]
+    names = income_df["name"] if "name" in income_df.columns else None
+    stab = stability_check(new_ppi, baseline_ppi, prev_ppi)
+    ref_ppi = baseline_ppi if baseline_ppi is not None else prev_ppi
+    print(f"\nPPI stability gate (threshold ±{PPI_SWING_LIMIT}pt, vs {stab['source']}):")
+    if stab["status"] == "SKIP":
+        print("  skipped (no previous run to compare)")
     else:
-        print("\nPPI stability gate: skipped (no previous run to compare)")
+        if stab["new_pincodes"]:
+            print(f"  {len(stab['new_pincodes'])} pincodes first scored by the model this run "
+                  f"(not in the baseline) — not counted as swings")
+        r = stability_gate_line(stab, args.accept_drift)
+        print(f"  {r}")
+        for pc, d in stab["swings"].head(10).items():
+            name = names.loc[pc] if names is not None and isinstance(names.loc[pc], str) else pc
+            print(f"    {pc} {name:<25} {ref_ppi.loc[pc]:>5.0f} → {new_ppi.loc[pc]:>5.0f}  (Δ{d:.0f})")
+        gate_results.append(r)
+
+    # ── Decide before writing anything ────────────────────────────────────────
+    # A rejected refit used to write the CSVs + DB and leave cron to `git
+    # checkout` the CSVs back — the DB kept the rejected scores (and the CSV
+    # revert also dropped the rows steps 2/3 had appended that night).
+    failed = failed_gates(gate_results)
+    if failed:
+        write_run_record("rejected", gate_results, stab, new_ppi, ref_ppi, names, args.accept_drift)
+        print(f"\nREFIT REJECTED — {len(failed)} gate(s) failed; nothing written "
+              f"(CSV, DB and baseline unchanged). Record: {RUN_RECORD_PATH}")
+        for r in failed:
+            print(f"  {r}")
+        raise SystemExit(EXIT_REJECTED)
 
     # ── Write outputs ─────────────────────────────────────────────────────────
     cols_out = ["name","lat","lng","ppi_ml","ppi_original",
@@ -1017,6 +1139,12 @@ def main():
     }
     (OUT / "ml_diagnostics.json").write_text(
         json.dumps(diagnostics, indent=2, ensure_ascii=False))
+
+    # The next refit measures drift against exactly what this one scored —
+    # not rows a live visit added during the run, nor the daily enrich's later
+    # IDW appends.
+    new_ppi.rename("ppi_ml").rename_axis("pincode").sort_index().to_csv(BASELINE_PATH)
+    write_run_record("accepted", gate_results, stab, new_ppi, ref_ppi, names, args.accept_drift)
 
     print(f"\nWrote:")
     print(f"  {OUT/'ppi_ml_refined.csv'}")

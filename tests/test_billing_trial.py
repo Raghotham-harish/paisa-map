@@ -108,7 +108,8 @@ def mine(notices, org_name):
 # ═════════════════════════════════════════════════════════════════════════════
 check(_pricing.TRIAL_DAYS == 7 and _pricing.TRIAL_CREDITS == 500, "trial = 7 days, 500 credits (decision #9)")
 check(_pricing.is_dashboard_tier(_pricing.plan_id_v2("trial")), "the trial plan includes the dashboard")
-check(_pricing.entitlements(_pricing.plan_id_v2("trial")) == {"pro_columns": True, "api_elevated": False},
+check(_pricing.entitlements(_pricing.plan_id_v2("trial")) == {"pro_columns": True, "api_elevated": False,
+                                                              "signals": "all"},
       "trial: all signals, no raised API limit")
 check(S.tables_ready() is True, "the trials table is part of the subscription tables")
 

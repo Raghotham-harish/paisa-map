@@ -851,6 +851,19 @@ def get_user(user_id):
     return dict(row) if row else None
 
 
+def get_user_created_at(user_id):
+    """When the account was created (tz-aware UTC), or None. Kept out of get_user
+    so the dict its many callers pass around stays JSON-safe."""
+    engine = _require_engine()
+    users = _get_tables()["users"]
+    from sqlalchemy import select
+    with engine.connect() as conn:
+        ts = conn.execute(select(users.c.created_at).where(users.c.id == user_id)).scalar()
+    if ts is not None and ts.tzinfo is None:   # SQLite hands back naive datetimes
+        ts = ts.replace(tzinfo=timezone.utc)
+    return ts
+
+
 # ── Credits ──────────────────────────────────────────────────────────────────
 def _primary_org_id(conn, user_id):
     """users.org_id — the caller's default company (set at signup / C3

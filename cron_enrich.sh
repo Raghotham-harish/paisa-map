@@ -22,9 +22,10 @@
 #      2026-08-07: 3+ weeks with no full refit meant 53% of pincodes had
 #      never been through the real model. Weekly keeps each recalibration
 #      small enough to review instead of letting drift pile up for weeks.
-#      Reverts its own output (doesn't commit) if any of the 10 core
-#      validation gates FAIL — a stale-but-correct PPI beats an unreviewed
-#      regression going live unattended.
+#      Writes nothing (CSV or DB) if any of the 10 ordering gates or the
+#      ±10pt stability gate FAILs — a stale-but-correct PPI beats an
+#      unreviewed regression going live unattended. See refit_weekly.sh for
+#      the owner's one-shot drift waiver.
 #   6. Mirror the output CSVs to nginx's static root so the live map picks up
 #      today's enrichment right away, not just at the next full deploy
 #   7. Commit and push all touched data files directly — nothing else pushes
@@ -86,22 +87,7 @@ echo "[4/7] Backfilling boundary polygons (up to 60 new today)..."
 if [ "$(date +%u)" = "7" ]; then
     echo ""
     echo "[5/7] Sunday — running full ML ensemble refit..."
-    REFIT_LOG="$LOG_DIR/full_refit_${DATE}.log"
-    if (cd "$ETL" && "$PYTHON" etl/ml_refinement.py) > "$REFIT_LOG" 2>&1; then
-        if grep -q "^  FAIL" "$REFIT_LOG"; then
-            echo "  Validation gate FAILED — see $REFIT_LOG"
-            echo "  Reverting refit output, keeping last known-good PPI live."
-            git checkout -- \
-                data/output/ppi_map_data.csv \
-                paisamap-etl/data/output/ppi_map_data.csv \
-                paisamap-etl/data/output/ppi_ml_refined.csv \
-                paisamap-etl/data/output/ml_diagnostics.json 2>/dev/null || true
-        else
-            echo "  Full refit OK — see $REFIT_LOG for gate/swing summary."
-        fi
-    else
-        echo "  ml_refinement.py exited non-zero — see $REFIT_LOG, skipping this week's refit"
-    fi
+    bash "$REPO/refit_weekly.sh"   # bash, not ./: never depend on the exec bit surviving a checkout
 else
     echo ""
     echo "[5/7] Not Sunday — skipping weekly full refit."
@@ -133,6 +119,9 @@ git add \
     paisamap-etl/data/output/ppi_ml_refined.csv \
     paisamap-etl/data/output/ppi_map_data.csv \
     paisamap-etl/data/output/ml_diagnostics.json \
+    paisamap-etl/data/output/refit_baseline.csv \
+    paisamap-etl/data/output/refit_last_run.json \
+    paisamap-etl/data/output/refit_history.jsonl \
     paisamap-etl/data/output/batch_enrich_log.csv \
     paisamap-etl/data/raw/pincode_coords.csv \
     paisamap-etl/data/raw/pincode_names.csv \
@@ -147,15 +136,37 @@ git add \
     paisamap-etl/data/reference/pincode_district_map.csv \
     2>/dev/null || true
 
+# ── What this run actually did, so the commit message can't overstate it ─────
+# (13 Oct audit: a month of "daily enrich" commits added 0 pincodes; the only
+# change was 14 geocode_fail rows a day.)
+BATCH_LOG_CSV="paisamap-etl/data/output/batch_enrich_log.csv"
+batch_count() { grep "^${DATE}" "$BATCH_LOG_CSV" 2>/dev/null | grep -c ",$1," || true; }
+BATCH_OK=$(batch_count ok); BATCH_FAIL=$(batch_count geocode_fail)
+STALE_NOTE=""
+# Alert: no user-visit enrichment for 7+ days (the loop's only input), or batch
+# failures with no success for 7 days. Logged and put in the commit message —
+# there is no email alert until SES leaves the sandbox.
+LOG_AGE_DAYS=$(( ( $(date +%s) - $(git log -1 --format=%ct -- data/output/enrichment_log.csv 2>/dev/null || date +%s) ) / 86400 ))
+if [ "$LOG_AGE_DAYS" -ge 7 ]; then
+    STALE_NOTE="${STALE_NOTE}, STALE: enrichment_log unchanged ${LOG_AGE_DAYS}d"
+fi
+WEEK_AGO=$(date -d "7 days ago" +%Y-%m-%d 2>/dev/null || date -v-7d +%Y-%m-%d)
+if [ "$BATCH_FAIL" -gt 0 ] && ! awk -F, -v d="$WEEK_AGO" 'NR>1 && $1>=d && $10=="ok"{f=1} END{exit !f}' "$BATCH_LOG_CSV" 2>/dev/null; then
+    STALE_NOTE="${STALE_NOTE}, STALE: 0 batch successes in 7d"
+fi
+[ -n "$STALE_NOTE" ] && echo "  WARN${STALE_NOTE#,}"
+
 if git diff --staged --quiet; then
     echo "  No new data — nothing to commit."
 else
     TOTAL=$(tail -n +2 data/output/ppi_map_data.csv 2>/dev/null | wc -l | tr -d ' ')
+    PREV_TOTAL=$(git show HEAD:data/output/ppi_map_data.csv 2>/dev/null | tail -n +2 | wc -l | tr -d ' ')
+    NEW_PINS=$(( TOTAL - ${PREV_TOTAL:-$TOTAL} ))
     REFIT_SUFFIX=""
     if [ "$(date +%u)" = "7" ] && git diff --staged --name-only | grep -q "paisamap-etl/data/output/ppi_ml_refined.csv"; then
         REFIT_SUFFIX=" + weekly full refit"
     fi
-    git commit -m "cron: daily enrich ${DATE} — ${TOTAL} pincodes total${REFIT_SUFFIX} [skip ci]" \
+    git commit -m "cron: daily enrich ${DATE} — ${NEW_PINS} new pins (${TOTAL} total), batch ${BATCH_OK} ok / ${BATCH_FAIL} geocode_fail${REFIT_SUFFIX}${STALE_NOTE} [skip ci]" \
         --author "PaisaMap Cron <noreply@paisamaps.com>" --quiet
     echo "  Committed. Total pincodes: $TOTAL"
 
