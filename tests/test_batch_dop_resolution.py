@@ -37,8 +37,9 @@ geo2 = B.dop_district_point("NICOBARS", "ANDAMAN &NICOBAR", {geo["pincode"]})
 check(geo2 is None or geo2["pincode"] != geo["pincode"], "an already-scored PIN is never picked")
 
 all_nicobar = set(B._dop_tables()["dist"].query("district == 'Nicobar'")["pincode"])
-check(B.dop_district_point("NICOBARS", "ANDAMAN &NICOBAR", all_nicobar) is None,
-      "a fully scored district returns None (no nearest-polygon guess)")
+full = B.dop_district_point("NICOBARS", "ANDAMAN &NICOBAR", all_nicobar)
+check(full is not None and full["pincode"] in all_nicobar,
+      "a fully scored district returns one of ITS scored PINs (logged 'covered', not a daily Nominatim fail)")
 
 for hces, postal in [("KOCHBIHAR", "Cooch Behar"), ("NORTHTWENTYFOURPARGANAS", "North 24 Parganas"),
                      ("DOHAD", "Dahod"), ("KABEERDHAM", "Kawardha")]:
@@ -46,8 +47,18 @@ for hces, postal in [("KOCHBIHAR", "Cooch Behar"), ("NORTHTWENTYFOURPARGANAS", "
     pcs = set(B._dop_tables()["dist"].query("district == @postal")["pincode"])
     check(g is not None and g["pincode"] in pcs, f"{hces} -> a {postal} PIN")
 
-check(B.dop_district_point("KANSHIRAM NAGAR", "UTTAR PRADESH", set()) is None,
+check(B.dop_district_point("NOWHERE DISTRICT", "UTTAR PRADESH", set()) is None,
       "an unmatched district returns None (falls through to Nominatim)")
+
+# Kanshiram Nagar (= Kasganj): the directory files it under Etah, so it is pinned
+# to Kasganj H.O. rather than the lowest Etah PIN (which may be in Etah proper).
+etah = set(B._dop_tables()["dist"].query("district == 'Etah'")["pincode"])
+ks = B.dop_district_point("KANSHIRAM NAGAR", "UTTAR PRADESH", set())
+check(ks is not None and ks["pincode"] == "207123", f"KANSHIRAM NAGAR -> Kasganj 207123 (got {ks})")
+check(min(etah) != "207123", "(the plain Etah alias would have picked a different PIN)")
+check(27.5 <= ks["lat"] <= 28.1 and 78.4 <= ks["lng"] <= 79.0, "placed at Kasganj")
+ks2 = B.dop_district_point("KANSHIRAM NAGAR", "UTTAR PRADESH", {"207123"})
+check(ks2 is not None and ks2["pincode"] == "207123", "already scored -> still Kasganj, so the run logs 'covered'")
 
 # ── give up after MAX_GEOCODE_FAILS ──────────────────────────────────────────
 tmp = Path(tempfile.mkdtemp())
@@ -57,12 +68,12 @@ with open(B.BATCH_LOG, "w", newline="") as f:
     w = csv.DictWriter(f, fieldnames=B.BATCH_LOG_FIELDS)
     w.writeheader()
     for _ in range(B.MAX_GEOCODE_FAILS):
-        w.writerow({"district": "KANSHIRAM NAGAR", "state": "UTTAR PRADESH", "status": "geocode_fail"})
+        w.writerow({"district": "NOWHERE DISTRICT", "state": "UTTAR PRADESH", "status": "geocode_fail"})
     for _ in range(B.MAX_GEOCODE_FAILS - 1):
         w.writerow({"district": "DOHAD", "state": "GUJARAT", "status": "geocode_fail"})
     w.writerow({"district": "ROHTAK", "state": "HARYANA", "pincode": "124001", "status": "covered"})
 _, done, given_up = B.load_already_done()
-check(("UTTAR PRADESH", "KANSHIRAM NAGAR") in given_up, "3 failures -> given up")
+check(("UTTAR PRADESH", "NOWHERE DISTRICT") in given_up, "3 failures -> given up")
 check(("GUJARAT", "DOHAD") not in given_up, "2 failures -> still retried")
 check(("HARYANA", "ROHTAK") in done, "a 'covered' district counts as done (no daily re-geocode)")
 

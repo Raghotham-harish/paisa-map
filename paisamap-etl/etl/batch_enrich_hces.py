@@ -72,6 +72,17 @@ DOP_DISTRICT_ALIASES = {
     "KABEERDHAM": "Kawardha",
     "LAHUL & SPITI": "Lahul & Spiti",
     "SHRAWASTI": "Shrawasti",
+    # Kasganj district (renamed Kanshiram Nagar 2008-12, back to Kasganj in 2012)
+    # was carved out of Etah; the India Post directory still files all of its
+    # pincodes under Etah. Mapping to "Etah" alone would pick the lowest Etah
+    # PIN, i.e. possibly a town in Etah proper — so it is pinned to Kasganj's
+    # own head office instead (DOP_DISTRICT_PINCODES).
+    "KANSHIRAM NAGAR": "Etah",
+}
+# Districts the directory doesn't list separately: the candidate pincodes to use
+# instead of every pincode in the aliased directory district.
+DOP_DISTRICT_PINCODES = {
+    "KANSHIRAM NAGAR": ("207123",),   # Kasganj H.O.
 }
 # After this many geocode_fail rows a district is given up on: skipped silently
 # and listed once in the run summary instead of failing (and logging) daily.
@@ -117,8 +128,10 @@ def _dop_tables():
 def dop_district_point(district: str, state: str, done_pincodes: set):
     """Resolve an HCES district through the India Post directory instead of a
     geocoder: pick its lowest-numbered pincode that is not scored yet and has a
-    boundary polygon, at that polygon's centroid. None if the district can't be
-    matched or every pincode in it is already scored."""
+    boundary polygon, at that polygon's centroid. If every such pincode is
+    already scored, return the first scored one, so the caller logs the district
+    once as 'covered' instead of falling through to Nominatim and failing daily.
+    None only if the district can't be matched or has no pincode with a polygon."""
     t = _dop_tables()
     postal = DOP_DISTRICT_ALIASES.get(str(district).upper())
     if postal is None and not t["xwalk"].empty:
@@ -128,13 +141,15 @@ def dop_district_point(district: str, state: str, done_pincodes: set):
             postal = m.iloc[0]["postal_district"]
     if postal is None:
         return None
-    pcs = sorted(set(t["dist"].loc[t["dist"]["district"] == postal, "pincode"]))
-    for pc in pcs:
-        if pc not in done_pincodes and pc in t["centroids"]:
-            lat, lng = t["centroids"][pc]
-            return {"lat": lat, "lng": lng, "pincode": pc,
-                    "display": f"{postal} (India Post directory)"}
-    return None
+    pcs = sorted(DOP_DISTRICT_PINCODES.get(str(district).upper())
+                 or set(t["dist"].loc[t["dist"]["district"] == postal, "pincode"]))
+    placed = [pc for pc in pcs if pc in t["centroids"]]
+    if not placed:
+        return None
+    pc = next((pc for pc in placed if pc not in done_pincodes), placed[0])
+    lat, lng = t["centroids"][pc]
+    return {"lat": lat, "lng": lng, "pincode": pc,
+            "display": f"{postal} (India Post directory)"}
 
 
 def geocode_district(district: str, state: str):
