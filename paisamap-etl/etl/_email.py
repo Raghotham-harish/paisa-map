@@ -239,3 +239,29 @@ def send_trial_notice(to_email, org_name, kind, ends_at, amount_paise, billing_u
     except Exception:
         logger.exception("SES send_email failed for trial notice to %s", to_email)
         return False
+
+
+def send_lead_notice(lead):
+    """A 'Talk to us' enquiry from the business site, to LEADS_TO_EMAIL (default
+    ragho@paisamaps.com) with Reply-To set to the enquirer. Plain text only; every
+    field is user input. Returns True if SES accepted it."""
+    client = _client()
+    to = os.environ.get("LEADS_TO_EMAIL", "ragho@paisamaps.com")
+    if client is None:
+        logger.warning("SES not configured — lead %s not emailed", lead.get("id"))
+        return False
+    lines = [f"{k}: {lead.get(k) or '—'}" for k in
+             ("name", "email", "company", "role", "interest", "cities", "message", "page", "id", "received_at")]
+    subject = f"PaisaMaps enquiry: {lead.get('company') or lead.get('name')} ({lead.get('interest') or 'general'})"
+    try:
+        client.send_email(
+            Source=os.environ["SES_FROM_EMAIL"],
+            Destination={"ToAddresses": [to]},
+            ReplyToAddresses=[lead["email"]],
+            Message={"Subject": {"Data": subject[:150], "Charset": "UTF-8"},
+                     "Body": {"Text": {"Data": "\n".join(lines), "Charset": "UTF-8"}}},
+        )
+        return True
+    except Exception:
+        logger.exception("SES send_email failed for lead %s", lead.get("id"))
+        return False

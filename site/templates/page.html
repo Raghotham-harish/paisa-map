@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% from "sections.html" import render %}
+{% block main %}
+{% for s in page.sections %}{{ render(s, site, page, loop.index) }}{% endfor %}
+{% endblock %}

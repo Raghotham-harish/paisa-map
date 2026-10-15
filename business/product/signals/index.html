@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Signals &amp; data: what PaisaMaps measures and where it comes from</title>
+<meta name="description" content="The PaisaMaps signal palette: purchasing power, income, spend and 15 signals across banking, tax, infrastructure, vehicles and property, each with its source and geographic level.">
+<link rel="canonical" href="https://paisamaps.com/business/product/signals/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="PaisaMaps">
+<meta property="og:title" content="Signals &amp; data: what PaisaMaps measures and where it comes from">
+<meta property="og:description" content="The PaisaMaps signal palette: purchasing power, income, spend and 15 signals across banking, tax, infrastructure, vehicles and property, each with its source and geographic level.">
+<meta property="og:url" content="https://paisamaps.com/business/product/signals/">
+<meta property="og:image" content="https://paisamaps.com/business/assets/img/map-catalog-1600.webp">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#115000">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Anybody:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="/business/assets/site.css?v=1792036843">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "Organization", "logo": "https://paisamaps.com/assets/logo-box-v2.png", "name": "PaisaMaps", "url": "https://paisamaps.com/business/"}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "acceptedAnswer": {"@type": "Answer", "text": "No. They are modelled estimates built from public data. They are good for comparing areas, not for judging a single household."}, "name": "Are these real incomes?"}, {"@type": "Question", "acceptedAnswer": {"@type": "Answer", "text": "The model is refitted weekly. Each source updates on its own schedule; some publish yearly."}, "name": "How often does it change?"}, {"@type": "Question", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Upload your store list with revenue in the workspace. It stays in your account, encrypted, and is used to score your stores and calibrate your forecast."}, "name": "Can I add my own data?"}, {"@type": "Question", "acceptedAnswer": {"@type": "Answer", "text": "The three core metrics and the property-rate estimate are free. Signals Lite adds ten signals for \u20b9200 a month, and Signals Pro or any dashboard plan includes all of them."}, "name": "Which signals come with which plan?"}]}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-head">
+  <div class="wrap head-row">
+    <a class="brand" href="/business/"><img src="/assets/logo-box-v2.svg" alt="" width="28" height="28">PaisaMaps <small>for business</small></a>
+    <nav aria-label="Main">
+      <ul class="nav">
+        <li>
+          <button type="button" data-mega="mega-1" aria-expanded="false">Product <span aria-hidden="true">▾</span></button>
+          <div class="mega" id="mega-1">
+<h4>Platform</h4>
+<a href="/business/product/"><b>Platform overview</b><span>Map, signals, workspace and API in one tour</span></a><a href="/business/product/map/"><b>Live map</b><span>Spending power for every pincode, six ways to see it</span></a><a href="/business/product/dashboard/"><b>Workspace</b><span>Projects, store data, compare, reports</span></a><h4>Data &amp; tools</h4>
+<a href="/business/product/signals/"><b>Signals &amp; data</b><span>What we capture, from where, how often</span></a><a href="/business/product/forecast/"><b>Expansion forecast</b><span>From a budget to ranked sites and revenue ranges</span></a><a href="/business/product/api/"><b>Data API &amp; exports</b><span>CSV, Excel, JSON and API keys</span></a>          </div>
+        </li>
+        <li>
+          <button type="button" data-mega="mega-2" aria-expanded="false">Solutions <span aria-hidden="true">▾</span></button>
+          <div class="mega" id="mega-2">
+<h4>By industry</h4>
+<a href="/business/solutions/retail-fnb/"><b>Retail &amp; F&amp;B</b><span>Where to open the next store</span></a><a href="/business/solutions/real-estate-hospitality/"><b>Real estate &amp; hotels</b><span>Catchment demand for projects and properties</span></a><a href="/business/solutions/lending-fintech/"><b>Lenders, NBFC &amp; fintech</b><span>Area-level affordability and market size</span></a><a href="/business/solutions/any-business/"><b>Any business</b><span>D2C, franchises, services, SMEs</span></a><a href="/business/solutions/agencies-consultants/"><b>Agencies &amp; consultants</b><span>Strategy firms working for many clients</span></a><h4>By use case</h4>
+<a href="/business/use-cases/site-selection/"><b>Site selection</b><span>Rank candidate pincodes</span></a><a href="/business/use-cases/market-sizing/"><b>Market sizing</b><span>Households × spend for any area</span></a><a href="/business/use-cases/catchment-analysis/"><b>Catchment analysis</b><span>Who lives around a site</span></a><a href="/business/use-cases/credit-affordability/"><b>Credit &amp; affordability</b><span>An area input for lending</span></a><a href="/business/use-cases/territory-planning/"><b>Territory planning</b><span>Balance sales territories</span></a><a href="/business/use-cases/portfolio-benchmarking/"><b>Portfolio benchmarking</b><span>Score the stores you already have</span></a>          </div>
+        </li>
+        <li>
+<a href="/business/pricing/">Pricing</a>        </li>
+        <li>
+          <button type="button" data-mega="mega-4" aria-expanded="false">Resources <span aria-hidden="true">▾</span></button>
+          <div class="mega" id="mega-4">
+<h4>Learn</h4>
+<a href="/business/how-it-works/"><b>How it works</b><span>Before and after you sign in</span></a><a href="/business/why-paisamaps/"><b>Why PaisaMaps</b><span>What&#39;s different, honestly compared</span></a><h4>Help</h4>
+<a href="/business/faq/"><b>FAQ</b><span>Product, data, pricing, security</span></a><a href="/business/support/"><b>Help &amp; support</b><span>Get an answer from a person</span></a>          </div>
+        </li>
+      </ul>
+    </nav>
+    <div class="head-cta">
+      <a class="btn btn-ghost" href="/">Open the map</a>
+      <a class="btn btn-primary" href="/business/contact/">Talk to us</a>
+    </div>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="drawer" aria-label="Menu">☰</button>
+  </div>
+</header>
+<div class="drawer" id="drawer">
+<details><summary>Product</summary>
+<a href="/business/product/">Platform overview<span>Map, signals, workspace and API in one tour</span></a><a href="/business/product/map/">Live map<span>Spending power for every pincode, six ways to see it</span></a><a href="/business/product/dashboard/">Workspace<span>Projects, store data, compare, reports</span></a><a href="/business/product/signals/">Signals &amp; data<span>What we capture, from where, how often</span></a><a href="/business/product/forecast/">Expansion forecast<span>From a budget to ranked sites and revenue ranges</span></a><a href="/business/product/api/">Data API &amp; exports<span>CSV, Excel, JSON and API keys</span></a>  </details>
+<details><summary>Solutions</summary>
+<a href="/business/solutions/retail-fnb/">Retail &amp; F&amp;B<span>Where to open the next store</span></a><a href="/business/solutions/real-estate-hospitality/">Real estate &amp; hotels<span>Catchment demand for projects and properties</span></a><a href="/business/solutions/lending-fintech/">Lenders, NBFC &amp; fintech<span>Area-level affordability and market size</span></a><a href="/business/solutions/any-business/">Any business<span>D2C, franchises, services, SMEs</span></a><a href="/business/solutions/agencies-consultants/">Agencies &amp; consultants<span>Strategy firms working for many clients</span></a><a href="/business/use-cases/site-selection/">Site selection<span>Rank candidate pincodes</span></a><a href="/business/use-cases/market-sizing/">Market sizing<span>Households × spend for any area</span></a><a href="/business/use-cases/catchment-analysis/">Catchment analysis<span>Who lives around a site</span></a><a href="/business/use-cases/credit-affordability/">Credit &amp; affordability<span>An area input for lending</span></a><a href="/business/use-cases/territory-planning/">Territory planning<span>Balance sales territories</span></a><a href="/business/use-cases/portfolio-benchmarking/">Portfolio benchmarking<span>Score the stores you already have</span></a>  </details>
+<a href="/business/pricing/">Pricing</a><details><summary>Resources</summary>
+<a href="/business/how-it-works/">How it works<span>Before and after you sign in</span></a><a href="/business/why-paisamaps/">Why PaisaMaps<span>What&#39;s different, honestly compared</span></a><a href="/business/faq/">FAQ<span>Product, data, pricing, security</span></a><a href="/business/support/">Help &amp; support<span>Get an answer from a person</span></a>  </details>
+  <div class="btn-row"><a class="btn btn-ghost" href="/">Open the map</a><a class="btn btn-primary" href="/business/contact/">Talk to us</a></div>
+</div>
+
+<main id="main">
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+<nav class="crumbs" aria-label="Breadcrumb"><a href="/business/">Business</a> / <a href="/business/product/">Product</a> / <span>Signals &amp; data</span></nav><p class="kicker">Signal capturing</p>      <h1>A palette of <span class="accent">18 signals</span>, each one traceable.</h1>
+      <p class="lede">We collect public data on banking, tax, vehicles, satellite night-lights, digital payments and more, join it to each pincode, and combine it into purchasing power, income and spend.</p>
+      <div class="btn-row"><a class="btn btn-primary" href="/business/contact/">Talk to us</a><a class="btn btn-ghost" href="/">Open the free map</a></div>
+    </div>
+    <div>
+<figure class="frame" style="margin:0"><img src="/business/assets/img/map-catalog-800.webp"
+     srcset="/business/assets/img/map-catalog-800.webp 800w, /business/assets/img/map-catalog-1600.webp 1600w"
+     sizes="(min-width: 960px) 50vw, 100vw" width="1600" height="1000" alt="The signals catalog with coverage for each signal"
+fetchpriority="high">
+<div class="chip-float br"><b>15,331</b>pincodes with the core metrics</div></figure>    </div>
+  </div>
+</section>
+
+<section id="signals">
+  <div class="wrap">
+    <div style="margin-bottom:20px"><p class="kicker">The palette</p><h2>Every signal, its source and its level</h2><p class="lede">The level tells you how fine-grained a signal is. Pincode-level signals vary street to street; state-level ones set the wider context.</p></div>
+    <div class="sig-legend"><span class="tier core">Core</span> on the free map <span class="tier lite">Lite</span> ₹200 signal plan and up <span class="tier pro">Pro</span> ₹500 signal plan, every dashboard plan</div>
+    <div class="sig-groups">
+      <article class="sig-group">
+        <div class="sig-ramp" aria-hidden="true"><i style="background:#D73027"></i><i style="background:#FC8D59"></i><i style="background:#FEE08B"></i><i style="background:#D9EF8B"></i><i style="background:#91CF60"></i><i style="background:#1A9850"></i></div>
+        <header><h3>Purchasing power</h3><span>3 signals</span></header>
+        <ul class="sig-list">
+<li><b>Purchasing Power Index</b><span class="tier core">Core</span>
+            <p>One number for an area&#39;s spending power, 100 = the regional average.</p><small><em>Pincode · modelled</em>Built from every signal below</small></li><li><b>Household income / month</b><span class="tier core">Core</span>
+            <p>Estimated monthly income of a typical household in the pincode.</p><small><em>Pincode · modelled</em>NSSO HCES, calibrated with state and district data</small></li><li><b>Household spend / month</b><span class="tier core">Core</span>
+            <p>Estimated monthly consumption spend of a typical household.</p><small><em>Pincode · modelled</em>NSSO HCES household spending survey</small></li>        </ul>
+      </article>
+      <article class="sig-group">
+        <div class="sig-ramp" aria-hidden="true"><i style="background:#B2182B"></i><i style="background:#EF8A62"></i><i style="background:#FDDBC7"></i><i style="background:#D1E5F0"></i><i style="background:#67A9CF"></i><i style="background:#2166AC"></i></div>
+        <header><h3>Banking &amp; UPI</h3><span>3 signals</span></header>
+        <ul class="sig-list">
+<li><b>Bank branches / lakh people</b><span class="tier lite">Lite</span>
+            <p>How well served an area is by formal banking.</p><small><em>District</em>RBI branch statistics</small></li><li><b>Bank deposits per person</b><span class="tier lite">Lite</span>
+            <p>Savings held in banks, a proxy for accumulated wealth.</p><small><em>District</em>RBI BSR deposits</small></li><li><b>UPI value per person</b><span class="tier lite">Lite</span>
+            <p>How much people pay digitally, a live signal of everyday spending.</p><small><em>District</em>PhonePe Pulse</small></li>        </ul>
+      </article>
+      <article class="sig-group">
+        <div class="sig-ramp" aria-hidden="true"><i style="background:#B35806"></i><i style="background:#F1A340"></i><i style="background:#FEE0B6"></i><i style="background:#D8DAEB"></i><i style="background:#998EC3"></i><i style="background:#542788"></i></div>
+        <header><h3>Tax &amp; economy</h3><span>5 signals</span></header>
+        <ul class="sig-list">
+<li><b>Income-tax filers per person</b><span class="tier pro">Pro</span>
+            <p>Share of people filing returns, a direct marker of formal income.</p><small><em>State</em>CBDT annual report</small></li><li><b>MSMEs / lakh people</b><span class="tier lite">Lite</span>
+            <p>Density of small businesses, a read on local enterprise.</p><small><em>District</em>MSME Udyam registrations</small></li><li><b>Factories / lakh people</b><span class="tier pro">Pro</span>
+            <p>Industrial employment base.</p><small><em>State</em>ASI factory counts</small></li><li><b>State output per person</b><span class="tier lite">Lite</span>
+            <p>Net state domestic product per head, the wider economy around the area.</p><small><em>State</em>State NSDP statistics</small></li><li><b>Cropping intensity</b><span class="tier pro">Pro</span>
+            <p>How intensively farmland is used, useful for rural markets.</p><small><em>State</em>MoSPI statistical year book</small></li>        </ul>
+      </article>
+      <article class="sig-group">
+        <div class="sig-ramp" aria-hidden="true"><i style="background:#D73027"></i><i style="background:#FC8D59"></i><i style="background:#FEE090"></i><i style="background:#E0F3F8"></i><i style="background:#91BFDB"></i><i style="background:#4575B4"></i></div>
+        <header><h3>Infrastructure</h3><span>2 signals</span></header>
+        <ul class="sig-list">
+<li><b>Night-light brightness</b><span class="tier lite">Lite</span>
+            <p>Satellite-measured light at night, a strong proxy for economic activity.</p><small><em>Pincode</em>NASA VIIRS</small></li><li><b>Schools / lakh people</b><span class="tier pro">Pro</span>
+            <p>Social infrastructure and family density.</p><small><em>District</em>UDISE+</small></li>        </ul>
+      </article>
+      <article class="sig-group">
+        <div class="sig-ramp" aria-hidden="true"><i style="background:#00695C"></i><i style="background:#4DB6AC"></i><i style="background:#B2DFDB"></i><i style="background:#F5C6CB"></i><i style="background:#E57373"></i><i style="background:#C62828"></i></div>
+        <header><h3>Vehicles</h3><span>4 signals</span></header>
+        <ul class="sig-list">
+<li><b>Cars / 1,000 people</b><span class="tier lite">Lite</span>
+            <p>Car ownership, one of the clearest affluence signals.</p><small><em>District</em>VAHAN registrations</small></li><li><b>Car to two-wheeler ratio</b><span class="tier lite">Lite</span>
+            <p>How far an area has moved up from two-wheelers.</p><small><em>District</em>VAHAN registrations</small></li><li><b>Luxury vehicle share</b><span class="tier lite">Lite</span>
+            <p>Share of premium vehicles among registrations.</p><small><em>District</em>VAHAN registrations</small></li><li><b>EV share</b><span class="tier pro">Pro</span>
+            <p>Early-adopter and premium-buyer signal.</p><small><em>District</em>VAHAN registrations</small></li>        </ul>
+      </article>
+      <article class="sig-group">
+        <div class="sig-ramp" aria-hidden="true"><i style="background:#C51B7D"></i><i style="background:#E9A3C9"></i><i style="background:#FDE0EF"></i><i style="background:#E6F5D0"></i><i style="background:#A1D76A"></i><i style="background:#4D9221"></i></div>
+        <header><h3>Property</h3><span>1 signal</span></header>
+        <ul class="sig-list">
+<li><b>Property rate / sq ft</b><span class="tier pro">Pro</span>
+            <p>Indicative price of property. A city-level estimate, not transaction data.</p><small><em>City-level estimate</em>PaisaMaps estimate</small></li>        </ul>
+      </article>
+    </div>
+<p class="note" style="margin-top:18px">Signals measured at district or state level are the same for every pincode inside that area. The purchasing-power model combines them with pincode-level ones; it doesn&#39;t pretend they are pincode measurements.</p>    
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="" style="margin-bottom:28px"><p class="kicker">How a score is built</p><h2>From public data to a pincode score</h2></div>
+    <div class="steps" style="--n:4">
+<div class="step"><h3>Collect</h3><p>Pull each source in its published form, keep its licence terms, and record when it was fetched.</p></div><div class="step"><h3>Join</h3><p>Attach each value to pincodes using India Post&#39;s PIN boundaries and directory.</p></div><div class="step"><h3>Model</h3><p>Combine the signals into purchasing power, then estimate income and spend, calibrated to the national household survey.</p></div><div class="step"><h3>Check</h3><p>A weekly refit must pass fixed sanity gates (for example, known affluent areas must outrank their neighbours) before anything changes.</p></div>    </div>
+    
+  </div>
+</section>
+
+<section style="padding-block:40px">
+  <div class="wrap center"><p class="kicker">Sources</p><h2 style="font-size:clamp(1.3rem,3vw,1.8rem)">Where the signals come from</h2></div>
+  <div class="marquee" aria-label="Where the signals come from"><div class="marquee-track">
+<span class="pill" ><i>Survey</i>NSSO HCES household spending</span><span class="pill" ><i>Banking</i>RBI branches &amp; deposits</span><span class="pill" ><i>Tax</i>CBDT income-tax filers</span><span class="pill" ><i>Satellite</i>NASA VIIRS night-lights</span><span class="pill" ><i>Payments</i>PhonePe Pulse UPI value</span><span class="pill" ><i>Vehicles</i>VAHAN registrations: cars, EVs, luxury</span><span class="pill" ><i>Business</i>MSME Udyam registrations</span><span class="pill" ><i>Industry</i>ASI factory counts</span><span class="pill" ><i>Education</i>UDISE+ schools</span><span class="pill" ><i>Economy</i>State NSDP per capita</span><span class="pill" ><i>Boundaries</i>India Post PIN polygons</span><span class="pill" ><i>Income</i>Karnataka DES district income</span><span class="pill" aria-hidden="true"><i>Survey</i>NSSO HCES household spending</span><span class="pill" aria-hidden="true"><i>Banking</i>RBI branches &amp; deposits</span><span class="pill" aria-hidden="true"><i>Tax</i>CBDT income-tax filers</span><span class="pill" aria-hidden="true"><i>Satellite</i>NASA VIIRS night-lights</span><span class="pill" aria-hidden="true"><i>Payments</i>PhonePe Pulse UPI value</span><span class="pill" aria-hidden="true"><i>Vehicles</i>VAHAN registrations: cars, EVs, luxury</span><span class="pill" aria-hidden="true"><i>Business</i>MSME Udyam registrations</span><span class="pill" aria-hidden="true"><i>Industry</i>ASI factory counts</span><span class="pill" aria-hidden="true"><i>Education</i>UDISE+ schools</span><span class="pill" aria-hidden="true"><i>Economy</i>State NSDP per capita</span><span class="pill" aria-hidden="true"><i>Boundaries</i>India Post PIN polygons</span><span class="pill" aria-hidden="true"><i>Income</i>Karnataka DES district income</span>  </div></div>
+<div class="wrap" style="margin-top:18px"><p class="note" style="margin-inline:auto">We don&#39;t sell OpenStreetMap-derived data, and we don&#39;t claim real-time, transaction-level or footfall data.</p></div></section>
+
+<section>
+  <div class="wrap">
+    <div style="margin-bottom:20px"><p class="kicker">On the map</p><h2>Colour ramps for the core metrics</h2><p class="lede">Every signal group also has its own ramp, shown on the cards above.</p></div>
+    <div class="ramps">
+<div class="ramp"><b>Purchasing power</b><div class="ramp-bar" aria-hidden="true"><i style="background:#D73027"></i><i style="background:#FC8D59"></i><i style="background:#FEE08B"></i><i style="background:#D9EF8B"></i><i style="background:#91CF60"></i><i style="background:#1A9850"></i></div><div class="ramp-ends"><span>below the region</span><span>above the region</span></div></div><div class="ramp"><b>Household income</b><div class="ramp-bar" aria-hidden="true"><i style="background:#762A83"></i><i style="background:#AF8DC3"></i><i style="background:#E7D4E8"></i><i style="background:#D9F0D3"></i><i style="background:#7FBF7B"></i><i style="background:#1B7837"></i></div><div class="ramp-ends"><span>lower</span><span>higher</span></div></div><div class="ramp"><b>Household spend</b><div class="ramp-bar" aria-hidden="true"><i style="background:#8C510A"></i><i style="background:#D8B365"></i><i style="background:#F6E8C3"></i><i style="background:#C7EAE5"></i><i style="background:#5AB4AC"></i><i style="background:#01665E"></i></div><div class="ramp-ends"><span>lower</span><span>higher</span></div></div><div class="ramp"><b>Project suitability</b><div class="ramp-bar" aria-hidden="true"><i style="background:#D53E4F"></i><i style="background:#FC8D59"></i><i style="background:#FEE08B"></i><i style="background:#E6F598"></i><i style="background:#99D594"></i><i style="background:#3288BD"></i></div><div class="ramp-ends"><span>poor fit</span><span>strong fit</span></div></div>    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="center" style="margin-bottom:20px"><p class="kicker">FAQ</p><h2>About the data</h2></div>
+    <div class="faq"><details><summary>Are these real incomes?</summary><p>No. They are modelled estimates built from public data. They are good for comparing areas, not for judging a single household.</p></details><details><summary>How often does it change?</summary><p>The model is refitted weekly. Each source updates on its own schedule; some publish yearly.</p></details><details><summary>Can I add my own data?</summary><p>Yes. Upload your store list with revenue in the workspace. It stays in your account, encrypted, and is used to score your stores and calibrate your forecast.</p></details><details><summary>Which signals come with which plan?</summary><p>The three core metrics and the property-rate estimate are free. Signals Lite adds ten signals for ₹200 a month, and Signals Pro or any dashboard plan includes all of them.</p></details></div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap"><div class="cta-band">
+    <h2>See your own market on the map</h2><p class="lede" style="margin-inline:auto">Tell us the cities and the decision you&#39;re making. We&#39;ll walk through it with you on the real data in about 20 minutes.</p><div class="btn-row"><a class="btn btn-primary" href="/business/contact/">Talk to us</a><a class="btn btn-ghost" href="/">Open the free map</a></div>
+  </div></div>
+</section>
+
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a class="brand" href="/business/"><img src="/assets/logo-box-v2.svg" alt="" width="28" height="28">PaisaMaps</a>
+        <p style="margin-top:12px;max-width:34ch">Spending power for every Indian pincode, on a map and in a workspace built for expansion decisions.</p>
+      </div>
+      <div><h4>Product</h4><ul><li><a href="/business/product/">Platform overview</a></li><li><a href="/business/product/map/">Live map</a></li><li><a href="/business/product/dashboard/">Workspace</a></li><li><a href="/business/product/signals/">Signals &amp; data</a></li><li><a href="/business/pricing/">Pricing</a></li></ul></div>
+      <div><h4>Solutions</h4><ul><li><a href="/business/solutions/retail-fnb/">Retail &amp; F&amp;B</a></li><li><a href="/business/solutions/real-estate-hospitality/">Real estate &amp; hotels</a></li><li><a href="/business/solutions/lending-fintech/">Lenders &amp; fintech</a></li><li><a href="/business/solutions/any-business/">Any business</a></li><li><a href="/business/solutions/agencies-consultants/">Agencies &amp; consultants</a></li></ul></div>
+      <div><h4>Use cases</h4><ul><li><a href="/business/use-cases/site-selection/">Site selection</a></li><li><a href="/business/use-cases/market-sizing/">Market sizing</a></li><li><a href="/business/use-cases/catchment-analysis/">Catchment analysis</a></li><li><a href="/business/use-cases/territory-planning/">Territory planning</a></li></ul></div>
+      <div><h4>Company</h4><ul><li><a href="/business/contact/">Talk to us</a></li><li><a href="/business/support/">Help &amp; support</a></li><li><a href="/business/faq/">FAQ</a></li><li><a href="/">Open the map</a></li></ul></div>
+    </div>
+    <div class="foot-legal">
+      <span>© 2026 PaisaMaps <small>by <a href="https://cooterlabs.com" rel="noopener">cooterlabs.com</a></small> · Scores are modelled estimates from public data, not measured household incomes.</span>
+      <span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/refund">Refunds</a> · <a href="/contact">Contact</a></span>
+    </div>
+  </div>
+</footer>
+<script src="/business/assets/site.js?v=1792036843" defer></script>
+</body>
+</html>

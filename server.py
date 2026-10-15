@@ -336,6 +336,79 @@ def _parse_enrich_output(stdout):
 def root():
     return send_file(APP / "index.html")
 
+# ── Business site enquiries ("Talk to us") ────────────────────────────────
+_LEAD_INTERESTS = {"retail-fnb", "real-estate-hospitality", "lending-fintech", "any-business",
+                   "agencies-consultants", "api", "partnership", "other"}
+_lead_hits: dict = {}
+_LEAD_MAX_PER_HOUR = 5
+
+
+@app.route("/api/leads", methods=["POST"])
+def api_leads():
+    """Public: a business-site enquiry. Emailed to LEADS_TO_EMAIL via SES and
+    appended to LEADS_FILE (outside every served directory), so it survives an
+    email failure. Hidden 'website' field is a honeypot."""
+    import json as _json
+    import re as _re
+    import secrets as _secrets
+    import time
+    from datetime import datetime as _dt, timezone as _tz
+    body = request.get_json(silent=True) if request.is_json else request.form.to_dict()
+    body = body or {}
+    as_form = not request.is_json
+
+    def reply(payload, code):
+        if as_form:
+            from flask import redirect
+            return redirect("/business/contact/?sent=" + ("1" if code < 300 else "0"), code=303)
+        return jsonify(payload), code
+
+    if (body.get("website") or "").strip():          # bots fill every field
+        return reply({"status": "ok"}, 200)
+    ip = request.headers.get("X-Real-IP") or request.remote_addr or "?"
+    now = time.time()
+    hits = [t for t in _lead_hits.get(ip, []) if now - t < 3600]
+    if len(hits) >= _LEAD_MAX_PER_HOUR:
+        return reply({"error": "rate_limited", "message": "Too many messages from here. Please email ragho@paisamaps.com."}, 429)
+    clean = lambda k, n: " ".join(str(body.get(k) or "").split())[:n]
+    lead = {"name": clean("name", 100), "email": clean("email", 160).lower(), "company": clean("company", 120),
+            "role": clean("role", 80), "interest": clean("interest", 40), "cities": clean("cities", 200),
+            "message": str(body.get("message") or "").strip()[:2000], "page": clean("page", 120)}
+    if not lead["name"] or not _re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", lead["email"]):
+        return reply({"error": "invalid", "message": "Please add your name and a valid work email."}, 400)
+    if lead["interest"] not in _LEAD_INTERESTS:
+        lead["interest"] = "other"
+    lead["id"] = _secrets.token_hex(4)
+    lead["received_at"] = _dt.now(_tz.utc).isoformat(timespec="seconds")
+    _lead_hits[ip] = hits + [now]
+    path = os.environ.get("LEADS_FILE") or str(Path.home() / "paisamap-leads.jsonl")
+    try:
+        with open(path, "a") as fh:
+            fh.write(_json.dumps(lead) + "\n")
+    except OSError as e:
+        print(f"[leads] could not write {path}: {e}", flush=True)
+    try:
+        import _email
+        sent = _email.send_lead_notice(lead)
+    except Exception as e:  # never lose the reply over an email problem
+        print(f"[leads] email failed: {type(e).__name__}", flush=True)
+        sent = False
+    print(f"[leads] received {lead['id']} interest={lead['interest']} emailed={sent}", flush=True)
+    return reply({"status": "ok", "id": lead["id"]}, 201)
+
+
+@app.route("/business/")
+@app.route("/business/<path:rel>")
+def business_site(rel=""):
+    """The static business site (built by site/build.py into business/). nginx
+    serves it directly in production; this is for local development."""
+    root = APP / "business"
+    target = root / rel
+    if rel == "" or rel.endswith("/") or target.is_dir():
+        rel = rel.rstrip("/") + ("/" if rel.strip("/") else "") + "index.html"
+    return send_from_directory(root, rel.lstrip("/"))
+
+
 @app.route("/privacy")
 def privacy_policy():
     return send_file(APP / "privacy.html")
