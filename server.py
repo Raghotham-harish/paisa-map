@@ -336,6 +336,18 @@ def _parse_enrich_output(stdout):
 def root():
     return send_file(APP / "index.html")
 
+@app.route("/business/")
+@app.route("/business/<path:rel>")
+def business_site(rel=""):
+    """The static business site (built by site/build.py into business/). nginx
+    serves it directly in production; this is for local development."""
+    root = APP / "business"
+    target = root / rel
+    if rel == "" or rel.endswith("/") or target.is_dir():
+        rel = rel.rstrip("/") + ("/" if rel.strip("/") else "") + "index.html"
+    return send_from_directory(root, rel.lstrip("/"))
+
+
 @app.route("/privacy")
 def privacy_policy():
     return send_file(APP / "privacy.html")

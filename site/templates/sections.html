@@ -1,0 +1,216 @@
+{# One macro per section type. Each page in content.py is a list of {"type": ..., ...}. #}
+
+{% macro img(site, name, alt, sizes="(min-width: 960px) 50vw, 100vw", eager=False) -%}
+{%- set m = site.images[name] -%}
+<img src="{{ site.base }}assets/img/{{ name }}-{{ m.small }}.webp"
+     srcset="{{ site.base }}assets/img/{{ name }}-{{ m.small }}.webp {{ m.small }}w, {{ site.base }}assets/img/{{ name }}-{{ m.large }}.webp {{ m.large }}w"
+     sizes="{{ sizes }}" width="{{ m.w }}" height="{{ m.h }}" alt="{{ alt }}"
+     {% if eager %}fetchpriority="high"{% else %}loading="lazy" decoding="async"{% endif %}>
+{%- endmacro %}
+
+{% macro btns(site, ctas) -%}
+{% if ctas %}<div class="btn-row">{% for c in ctas %}<a class="btn {{ 'btn-primary' if loop.first else 'btn-ghost' }}" href="{{ c.url }}">{{ c.label }}</a>{% endfor %}</div>{% endif %}
+{%- endmacro %}
+
+{% macro shots_carousel(site, shots, autoplay=False, eager=False) -%}
+<div class="carousel" {% if autoplay %}data-autoplay{% endif %}>
+  <div class="car-track" tabindex="0" aria-label="Screenshots">
+    {% for s in shots %}<figure class="frame" style="margin:0" data-caption="<b>{{ s.title }}</b> · {{ s.caption }}">{{ img(site, s.img, s.title ~ ': ' ~ s.caption, eager=(eager and loop.first)) }}</figure>{% endfor %}
+  </div>
+  <div class="car-cap"><p data-cap></p><div class="car-ctrl"><div class="dots"></div><button type="button" data-prev aria-label="Previous">‹</button><button type="button" data-next aria-label="Next">›</button></div></div>
+</div>
+{%- endmacro %}
+
+{% macro render(s, site, page, n) %}
+{% if s.type == "hero" %}
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      {% if s.crumbs %}<nav class="crumbs" aria-label="Breadcrumb">{% for c in s.crumbs %}<a href="{{ c.url }}">{{ c.label }}</a> / {% endfor %}<span>{{ s.crumb_here }}</span></nav>{% endif %}
+      {% if s.kicker %}<p class="kicker">{{ s.kicker }}</p>{% endif %}
+      <h1>{{ s.title | safe }}</h1>
+      <p class="lede">{{ s.lede }}</p>
+      {{ btns(site, s.ctas) }}
+      {% if s.meta %}<div class="hero-meta">{% for m in s.meta %}<span>{{ m }}</span>{% endfor %}</div>{% endif %}
+    </div>
+    <div>
+      {% if s.shots %}{{ shots_carousel(site, s.shots, autoplay=True, eager=True) }}
+      {% elif s.shot %}<figure class="frame" style="margin:0">{{ img(site, s.shot, s.shot_alt, eager=True) }}
+        {% for c in s.chips or [] %}<div class="chip-float {{ c.pos }}"><b>{{ c.big }}</b>{{ c.text }}</div>{% endfor %}</figure>{% endif %}
+    </div>
+  </div>
+</section>
+
+{% elif s.type == "head" %}
+<section style="padding-bottom:0">
+  <div class="wrap {{ 'center' if s.center }}">
+    {% if s.kicker %}<p class="kicker">{{ s.kicker }}</p>{% endif %}
+    <h2>{{ s.title | safe }}</h2>
+    {% if s.lede %}<p class="lede">{{ s.lede }}</p>{% endif %}
+  </div>
+</section>
+
+{% elif s.type == "tabs" %}
+<section{% if s.dark %} class="dark"{% endif %}>
+  <div class="wrap">
+    <div class="center"><p class="kicker">{{ s.kicker }}</p><h2>{{ s.title }}</h2>{% if s.lede %}<p class="lede">{{ s.lede }}</p>{% endif %}</div>
+    <div data-tabs>
+      <div class="tabs" role="tablist" aria-label="{{ s.title }}">
+        {% for t in s.tabs %}<button type="button" role="tab" id="tab-{{ n }}-{{ loop.index }}" aria-controls="panel-{{ n }}-{{ loop.index }}" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ 0 if loop.first else -1 }}">{{ t.label }}</button>{% endfor %}
+      </div>
+      {% for t in s.tabs %}
+      <div class="tab-panel" role="tabpanel" id="panel-{{ n }}-{{ loop.index }}" aria-labelledby="tab-{{ n }}-{{ loop.index }}" {% if not loop.first %}hidden{% endif %}>
+        <div>
+          <p class="kicker">{{ t.kicker }}</p>
+          <h3 style="font-size:clamp(1.4rem,3vw,2rem)">{{ t.title }}</h3>
+          <p class="muted">{{ t.text }}</p>
+          <ul class="ticks">{% for b in t.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+          {{ btns(site, t.ctas) }}
+        </div>
+        <figure class="frame" style="margin:0">{{ img(site, t.img, t.title) }}</figure>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{% elif s.type == "bento" %}
+<section>
+  <div class="wrap">
+    <div class="{{ 'center' if s.center }}" style="margin-bottom:28px"><p class="kicker">{{ s.kicker }}</p><h2>{{ s.title }}</h2>{% if s.lede %}<p class="lede">{{ s.lede }}</p>{% endif %}</div>
+    <div class="bento">
+      {% for t in s.tiles %}
+      <div class="tile {{ t.cls or '' }}">
+        {% if t.num %}<div class="num">{{ t.num }}</div>{% endif %}
+        {% if t.icon %}<div class="ic" aria-hidden="true">{{ t.icon }}</div>{% endif %}
+        <h3>{{ t.title }}</h3>
+        <p>{{ t.text }}</p>
+        {% if t.img %}<div class="shot">{{ img(site, t.img, t.title, sizes="(min-width:1050px) 50vw, 100vw") }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+
+{% elif s.type == "carousel" %}
+<section{% if s.dark %} class="dark"{% endif %}>
+  <div class="wrap">
+    <div style="margin-bottom:24px"><p class="kicker">{{ s.kicker }}</p><h2>{{ s.title }}</h2>{% if s.lede %}<p class="lede">{{ s.lede }}</p>{% endif %}</div>
+    {{ shots_carousel(site, s.shots) }}
+  </div>
+</section>
+
+{% elif s.type == "compare" %}
+<section>
+  <div class="wrap split">
+    <div>
+      <p class="kicker">{{ s.kicker }}</p><h2>{{ s.title }}</h2><p class="lede">{{ s.lede }}</p>
+      <ul class="ticks">{% for b in s.bullets %}<li>{{ b }}</li>{% endfor %}</ul>
+    </div>
+    <div class="compare media">
+      {{ img(site, s.right, s.right_label) }}
+      <div class="top">{{ img(site, s.left, s.left_label) }}</div>
+      <span class="lbl l">{{ s.left_label }}</span><span class="lbl r">{{ s.right_label }}</span>
+      <div class="bar"></div>
+      <input type="range" min="0" max="100" value="50" aria-label="Drag to compare {{ s.left_label }} and {{ s.right_label }}">
+    </div>
+  </div>
+</section>
+
+{% elif s.type == "splits" %}
+<section>
+  <div class="wrap">
+    {% if s.title %}<div class="center" style="margin-bottom:12px"><p class="kicker">{{ s.kicker }}</p><h2>{{ s.title }}</h2>{% if s.lede %}<p class="lede">{{ s.lede }}</p>{% endif %}</div>{% endif %}
+    {% for r in s.rows %}
+    <div class="split {{ 'flip' if loop.index is even }}">
+      <figure class="frame media {{ 'phone' if r.phone }}" style="margin:0">{{ img(site, r.img, r.title, sizes=("300px" if r.phone else "(min-width:900px) 50vw, 100vw")) }}
+        {% for c in r.chips or [] %}<div class="chip-float {{ c.pos }}"><b>{{ c.big }}</b>{{ c.text }}</div>{% endfor %}</figure>
+      <div>
+        <p class="kicker">{{ r.kicker }}</p><h3 style="font-size:clamp(1.4rem,3vw,2rem)">{{ r.title }}</h3>
+        <p class="muted">{{ r.text }}</p>
+        {% if r.bullets %}<ul class="ticks">{% for b in r.bullets %}<li>{{ b }}</li>{% endfor %}</ul>{% endif %}
+        {{ btns(site, r.ctas) }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+
+{% elif s.type == "steps" %}
+<section{% if s.dark %} class="dark"{% endif %}>
+  <div class="wrap">
+    <div class="{{ 'center' if s.center }}" style="margin-bottom:28px"><p class="kicker">{{ s.kicker }}</p><h2>{{ s.title }}</h2>{% if s.lede %}<p class="lede">{{ s.lede }}</p>{% endif %}</div>
+    <div class="steps" style="--n:{{ s.steps | length }}">
+      {% for st in s.steps %}<div class="step"><h3>{{ st.title }}</h3><p>{{ st.text }}</p></div>{% endfor %}
+    </div>
+    {{ btns(site, s.ctas) }}
+  </div>
+</section>
+
+{% elif s.type == "marquee" %}
+<section style="padding-block:40px">
+  <div class="wrap center"><p class="kicker">{{ s.kicker }}</p><h2 style="font-size:clamp(1.3rem,3vw,1.8rem)">{{ s.title }}</h2></div>
+  <div class="marquee" aria-label="{{ s.title }}"><div class="marquee-track">
+    {% for _ in range(2) %}{% for p in s['items'] %}<span class="pill" {% if _ %}aria-hidden="true"{% endif %}><i>{{ p.kind }}</i>{{ p.label }}</span>{% endfor %}{% endfor %}
+  </div></div>
+  {% if s.note %}<div class="wrap" style="margin-top:18px"><p class="note" style="margin-inline:auto">{{ s.note }}</p></div>{% endif %}
+</section>
+
+{% elif s.type == "cards" %}
+<section{% if s.dark %} class="dark"{% endif %}>
+  <div class="wrap">
+    <div style="margin-bottom:24px"><p class="kicker">{{ s.kicker }}</p><h2>{{ s.title }}</h2>{% if s.lede %}<p class="lede">{{ s.lede }}</p>{% endif %}</div>
+    {% if s.carousel %}
+    <div class="carousel"><div class="car-track cards-track" tabindex="0" aria-label="{{ s.title }}">
+    {% else %}<div class="grid-3">{% endif %}
+      {% for c in s.cards %}
+      <a class="card" href="{{ c.url }}">
+        {% if c.img %}<div class="thumb">{{ img(site, c.img, c.title, sizes="(min-width:1050px) 33vw, 85vw") }}</div>{% endif %}
+        {% if c.tag %}<span class="tag">{{ c.tag }}</span>{% endif %}
+        <h3>{{ c.title }}</h3><p>{{ c.text }}</p><span class="more">{{ c.more or 'Learn more' }} →</span>
+      </a>
+      {% endfor %}
+    {% if s.carousel %}</div><div class="car-cap"><p></p><div class="car-ctrl"><button type="button" data-prev aria-label="Previous">‹</button><button type="button" data-next aria-label="Next">›</button></div></div></div>
+    {% else %}</div>{% endif %}
+  </div>
+</section>
+
+{% elif s.type == "pricing_teaser" %}
+<section>
+  <div class="wrap">
+    <div class="center" style="margin-bottom:28px"><p class="kicker">{{ s.kicker }}</p><h2>{{ s.title }}</h2><p class="lede">{{ s.lede }}</p></div>
+    <div class="price-row">
+      {% for p in s.plans %}
+      <div class="price {{ 'hl' if p.highlight }}">
+        <span class="tag">{{ p.tag }}</span><h3 style="margin:6px 0 0">{{ p.name }}</h3>
+        <div class="amt">{{ p.amount }} <small>{{ p.per }}</small></div>
+        <p class="muted" style="font-size:14px;margin:0">{{ p.blurb }}</p>
+        <ul>{% for f in p.features %}<li>{{ f }}</li>{% endfor %}</ul>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="muted center" style="font-size:14px;margin-top:16px">{{ s.footnote }}</p>
+    <div class="center">{{ btns(site, s.ctas) }}</div>
+  </div>
+</section>
+
+{% elif s.type == "faq" %}
+<section>
+  <div class="wrap">
+    <div class="center" style="margin-bottom:20px"><p class="kicker">{{ s.kicker or 'FAQ' }}</p><h2>{{ s.title }}</h2></div>
+    <div class="faq">{% for q in s['items'] %}<details><summary>{{ q.q }}</summary><p>{{ q.a }}</p></details>{% endfor %}</div>
+    {% if s.more %}<p class="center" style="margin-top:24px"><a href="{{ s.more.url }}">{{ s.more.label }} →</a></p>{% endif %}
+  </div>
+</section>
+
+{% elif s.type == "cta" %}
+<section>
+  <div class="wrap"><div class="cta-band">
+    <h2>{{ s.title }}</h2><p class="lede" style="margin-inline:auto">{{ s.lede }}</p>{{ btns(site, s.ctas) }}
+  </div></div>
+</section>
+
+{% elif s.type == "html" %}
+<section><div class="wrap">{{ s.html | safe }}</div></section>
+{% endif %}
+{% endmacro %}

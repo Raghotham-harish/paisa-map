@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{{ page.title }}</title>
+<meta name="description" content="{{ page.description }}">
+<link rel="canonical" href="{{ site.origin }}{{ page.url }}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="PaisaMaps">
+<meta property="og:title" content="{{ page.title }}">
+<meta property="og:description" content="{{ page.description }}">
+<meta property="og:url" content="{{ site.origin }}{{ page.url }}">
+<meta property="og:image" content="{{ site.origin }}{{ site.base }}assets/img/{{ page.og_image or 'hero-blr-choropleth-ppi' }}-1600.webp">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#115000">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Anybody:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="{{ site.base }}assets/site.css?v={{ site.build }}">
+{% for block in page.jsonld %}<script type="application/ld+json">{{ block | tojson }}</script>
+{% endfor %}
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-head">
+  <div class="wrap head-row">
+    <a class="brand" href="{{ site.base }}"><img src="/assets/logo-box-v2.svg" alt="" width="28" height="28">PaisaMaps <small>for business</small></a>
+    <nav aria-label="Main">
+      <ul class="nav">
+        {% for item in site.nav %}
+        <li>
+          {% if item.groups %}
+          <button type="button" data-mega="mega-{{ loop.index }}" aria-expanded="false">{{ item.label }} <span aria-hidden="true">▾</span></button>
+          <div class="mega" id="mega-{{ loop.index }}">
+            {% for g in item.groups %}<h4>{{ g.label }}</h4>
+            {% for l in g.links %}<a href="{{ l.url }}"><b>{{ l.label }}</b><span>{{ l.blurb }}</span></a>{% endfor %}
+            {% endfor %}
+          </div>
+          {% else %}<a href="{{ item.url }}"{% if item.url == page.url %} aria-current="page"{% endif %}>{{ item.label }}</a>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </nav>
+    <div class="head-cta">
+      <a class="btn btn-ghost" href="/">Open the map</a>
+      <a class="btn btn-primary" href="{{ site.base }}contact/">Talk to us</a>
+    </div>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="drawer" aria-label="Menu">☰</button>
+  </div>
+</header>
+<div class="drawer" id="drawer">
+  {% for item in site.nav %}
+  {% if item.groups %}<details><summary>{{ item.label }}</summary>
+    {% for g in item.groups %}{% for l in g.links %}<a href="{{ l.url }}">{{ l.label }}<span>{{ l.blurb }}</span></a>{% endfor %}{% endfor %}
+  </details>
+  {% else %}<a href="{{ item.url }}">{{ item.label }}</a>{% endif %}
+  {% endfor %}
+  <div class="btn-row"><a class="btn btn-ghost" href="/">Open the map</a><a class="btn btn-primary" href="{{ site.base }}contact/">Talk to us</a></div>
+</div>
+
+<main id="main">
+{% block main %}{% endblock %}
+</main>
+
+<footer class="site-foot">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-brand">
+        <a class="brand" href="{{ site.base }}"><img src="/assets/logo-box-v2.svg" alt="" width="28" height="28">PaisaMaps</a>
+        <p style="margin-top:12px;max-width:34ch">Spending power for every Indian pincode, on a map and in a workspace built for expansion decisions.</p>
+      </div>
+      {% for col in site.footer %}
+      <div><h4>{{ col.label }}</h4><ul>{% for l in col.links %}<li><a href="{{ l.url }}">{{ l.label }}</a></li>{% endfor %}</ul></div>
+      {% endfor %}
+    </div>
+    <div class="foot-legal">
+      <span>© {{ site.year }} PaisaMaps · Scores are modelled estimates from public data, not measured household incomes.</span>
+      <span><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/refund">Refunds</a> · <a href="/contact">Contact</a></span>
+    </div>
+  </div>
+</footer>
+<script src="{{ site.base }}assets/site.js?v={{ site.build }}" defer></script>
+</body>
+</html>
