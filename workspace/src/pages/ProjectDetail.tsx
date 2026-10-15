@@ -256,8 +256,9 @@ export default function ProjectDetail() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
               <p className="map-hero-kicker">
                 Project {project.archived_at && <Pill tone="shortlist">Archived</Pill>}
+                {project.role === "viewer" && <Pill tone="shortlist">View only</Pill>}
               </p>
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ display: project.role === "viewer" ? "none" : "flex", gap: 12, flexWrap: "wrap" }}>
                 <button className="icon-link" style={{ background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer" }} onClick={startEdit}>
                   <i className="ti ti-pencil" /> Edit
                 </button>

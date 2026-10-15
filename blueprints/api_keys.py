@@ -33,7 +33,7 @@ def create_key(user_id):
     # the one chosen in the switcher if the caller is a member, else their own.
     org_id, err = _auth_db.resolve_api_key_company(user_id, body.get("org_id"))
     if err:
-        return jsonify(err), 404 if err["error"] == "not_found" else 400
+        return jsonify(err), {"not_found": 404, "read_only": 403}.get(err["error"], 400)
     raw_key, key_hash, key_prefix = _api_keys.generate_key()
     record = _auth_db.create_api_key(user_id, key_hash, key_prefix, label, org_id=org_id)
     # The raw key is returned exactly once, here — nothing in this app stores

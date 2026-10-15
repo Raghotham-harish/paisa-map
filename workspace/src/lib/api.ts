@@ -217,7 +217,7 @@ export interface MeResponse {
 export type OutcomeGoal = "revenue_reach" | "store_count" | "balanced";
 export type RevenuePeriod = "monthly" | "annual";
 
-export type OrgRole = "owner" | "admin" | "member";
+export type OrgRole = "owner" | "admin" | "member" | "viewer";
 
 export interface Organization {
   id: number;
@@ -293,7 +293,7 @@ export interface Project {
   // created it or own the company; admin/member if you reach it via
   // company membership) — present on every list/get response. Used from E2
   // onward to hide the Share action for a plain member (see set_project_share_token).
-  role?: "owner" | "admin" | "member";
+  role?: "owner" | "admin" | "member" | "viewer";
 }
 
 // E2 — the public, read-only shape returned by GET /api/projects/shared/<token>.
