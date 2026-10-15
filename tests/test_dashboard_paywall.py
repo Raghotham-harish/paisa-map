@@ -23,6 +23,8 @@ sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "paisamap-etl", "etl"))
 
 os.environ.setdefault("DATABASE_URL", "sqlite:////tmp/paywall_default.sqlite")
+# These fixtures link a client under a 1-company tier; P5 limits are tested in test_seat_limits.py.
+os.environ.pop("SEAT_LIMITS", None)
 if "sqlite" not in os.environ["DATABASE_URL"]:
     raise SystemExit("Refusing to run: DATABASE_URL doesn't look like a throwaway sqlite file.")
 if not os.environ.get("CUSTOMER_DATA_KEY"):

@@ -52,6 +52,9 @@ _ERROR_STATUS = {
     "no_match": 404,
     "invalid_value": 400,
     "no_company": 409,
+    # P5: the account is at its tier's limit — buy more or move up a tier.
+    "seat_limit": 402,
+    "company_limit": 402,
 }
 
 
@@ -77,6 +80,8 @@ def create_organization(user_id):
     if not name:
         return jsonify({"error": "name is required"}), 400
     org = _auth_db.create_organization(user_id, name)
+    if "error" in org:
+        return _error_response(org)
     return jsonify({"organization": org}), 201
 
 
