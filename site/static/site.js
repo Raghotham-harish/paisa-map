@@ -62,6 +62,7 @@
       idx = Math.round(track.scrollLeft / w);
       if (dots) Array.prototype.forEach.call(dots.children, function (d, i) { d.setAttribute("aria-current", i === idx ? "true" : "false"); });
       if (cap && slides[idx]) cap.innerHTML = slides[idx].getAttribute("data-caption") || "";
+      slides.forEach(function (s, i) { s.classList.toggle("is-off", i !== idx); });
     }
     track.addEventListener("scroll", function () { window.requestAnimationFrame(mark); }, { passive: true });
     var prev = car.querySelector("[data-prev]"), next = car.querySelector("[data-next]");
@@ -95,6 +96,27 @@
         if (!n) return;
         var t = btns[(i + n + btns.length) % btns.length]; t.focus(); select(t);
       });
+    });
+  });
+
+  // Contact form → POST /api/leads (JSON). Works without JS too: the form's own
+  // action posts there and the server answers with a plain page.
+  document.querySelectorAll("form[data-lead]").forEach(function (f) {
+    var status = f.querySelector(".form-status");
+    f.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var data = {};
+      new FormData(f).forEach(function (v, k) { data[k] = v; });
+      var btn = f.querySelector("button[type=submit]");
+      btn.disabled = true; status.className = "form-status"; status.textContent = "Sending…";
+      fetch(f.getAttribute("action"), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (res) {
+          if (res.ok) { f.reset(); status.className = "form-status ok"; status.textContent = "Thanks — we've got it and will reply within one working day."; }
+          else { status.className = "form-status err"; status.textContent = (res.j && res.j.message) || "That didn't go through. Please check the fields and try again."; }
+        })
+        .catch(function () { status.className = "form-status err"; status.textContent = "Couldn't reach us. Email ragho@paisamaps.com instead."; })
+        .then(function () { btn.disabled = false; });
     });
   });
 

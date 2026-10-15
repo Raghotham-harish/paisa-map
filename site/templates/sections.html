@@ -210,6 +210,96 @@
   </div></div>
 </section>
 
+{% elif s.type == "signals" %}
+<section{% if s.dark %} class="dark"{% endif %} id="signals">
+  <div class="wrap">
+    <div style="margin-bottom:20px"><p class="kicker">{{ s.kicker }}</p><h2>{{ s.title }}</h2>{% if s.lede %}<p class="lede">{{ s.lede }}</p>{% endif %}</div>
+    <div class="sig-legend"><span class="tier core">Core</span> on the free map <span class="tier lite">Lite</span> ₹200 signal plan and up <span class="tier pro">Pro</span> ₹500 signal plan, every dashboard plan</div>
+    <div class="sig-groups">
+      {% for g in site.signal_groups if (not s.groups or g.label in s.groups) %}
+      <article class="sig-group">
+        <div class="sig-ramp" aria-hidden="true">{% for c in g.ramp %}<i style="background:{{ c }}"></i>{% endfor %}</div>
+        <header><h3>{{ g.label }}</h3><span>{{ g.signals | length }} signal{{ 's' if g.signals|length != 1 }}</span></header>
+        <ul class="sig-list">
+          {% for x in g.signals %}<li><b>{{ x.label }}</b><span class="tier {{ x.tier }}">{{ {'core':'Core','free':'Free','lite':'Lite','pro':'Pro'}[x.tier] }}</span>
+            <p>{{ x.what }}</p><small><em>{{ x.level }}</em>{{ x.source }}</small></li>{% endfor %}
+        </ul>
+      </article>
+      {% endfor %}
+    </div>
+    {% if s.note %}<p class="note" style="margin-top:18px">{{ s.note }}</p>{% endif %}
+    {{ btns(site, s.ctas) }}
+  </div>
+</section>
+
+{% elif s.type == "ramps" %}
+<section>
+  <div class="wrap">
+    <div style="margin-bottom:20px"><p class="kicker">{{ s.kicker }}</p><h2>{{ s.title }}</h2>{% if s.lede %}<p class="lede">{{ s.lede }}</p>{% endif %}</div>
+    <div class="ramps">
+      {% for r in site.ramps %}<div class="ramp"><b>{{ r.label }}</b><div class="ramp-bar" aria-hidden="true">{% for c in r.colors %}<i style="background:{{ c }}"></i>{% endfor %}</div><div class="ramp-ends"><span>{{ r.low }}</span><span>{{ r.high }}</span></div></div>{% endfor %}
+    </div>
+  </div>
+</section>
+
+{% elif s.type == "table" %}
+<section>
+  <div class="wrap">
+    <div style="margin-bottom:20px" class="{{ 'center' if s.center }}"><p class="kicker">{{ s.kicker }}</p><h2>{{ s.title }}</h2>{% if s.lede %}<p class="lede">{{ s.lede }}</p>{% endif %}</div>
+    <div class="tbl-wrap"><table class="cmp">
+      {% if s.highlight is defined %}<colgroup><col>{% for h in s.head[1:] %}<col{% if loop.index0 == s.highlight %} class="hl"{% endif %}>{% endfor %}</colgroup>{% endif %}
+      <thead><tr>{% for h in s.head %}<th scope="col">{{ h }}</th>{% endfor %}</tr></thead>
+      <tbody>{% for r in s.rows %}<tr><th scope="row">{{ r[0] }}</th>{% for c in r[1:] %}<td class="{{ 'yes' if c == '✓' else 'no' if c == '—' else 'num' if s.numeric else '' }}">{{ c }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+    </table></div>
+    {% if s.footnote %}<p class="muted" style="font-size:13.5px;margin-top:12px">{{ s.footnote }}</p>{% endif %}
+    {{ btns(site, s.ctas) }}
+  </div>
+</section>
+
+{% elif s.type == "lanes" %}
+<section>
+  <div class="wrap">
+    <div style="margin-bottom:20px"><p class="kicker">{{ s.kicker }}</p><h2>{{ s.title }}</h2>{% if s.lede %}<p class="lede">{{ s.lede }}</p>{% endif %}</div>
+    <div class="lanes">
+      {% for l in s.lanes %}<div class="lane"><h3>{{ l.title }} <span class="tag">{{ l.tag }}</span></h3><p class="muted" style="margin:0">{{ l.text }}</p>
+        <ol>{% for st in l.steps %}<li><div><b>{{ st.title }}</b><span>{{ st.text }}</span></div></li>{% endfor %}</ol>
+        {{ btns(site, l.ctas) }}</div>{% endfor %}
+    </div>
+  </div>
+</section>
+
+{% elif s.type == "contact" %}
+<section>
+  <div class="wrap contact-grid">
+    <form class="form" data-lead action="/api/leads" method="post" novalidate>
+      <div class="row">
+        <label for="lead-name">Your name<input id="lead-name" name="name" autocomplete="name" required maxlength="100"></label>
+        <label for="lead-email">Work email<input id="lead-email" name="email" type="email" autocomplete="email" required maxlength="160"></label>
+      </div>
+      <div class="row">
+        <label for="lead-company">Company<input id="lead-company" name="company" autocomplete="organization" maxlength="120"></label>
+        <label for="lead-role">Your role<input id="lead-role" name="role" autocomplete="organization-title" maxlength="80"></label>
+      </div>
+      <div class="row">
+        <label for="lead-interest">What are you working on?
+          <select id="lead-interest" name="interest">
+            {% for v, t in s.interests %}<option value="{{ v }}">{{ t }}</option>{% endfor %}
+          </select></label>
+        <label for="lead-cities">Cities or regions <span class="hint">optional</span><input id="lead-cities" name="cities" maxlength="200" placeholder="e.g. Bengaluru, Pune"></label>
+      </div>
+      <label for="lead-message">What would you like to decide? <span class="hint">optional</span><textarea id="lead-message" name="message" maxlength="2000" placeholder="e.g. Where to open our next 5 cafés in Bengaluru"></textarea></label>
+      <label class="hp" aria-hidden="true">Leave this empty<input name="website" tabindex="-1" autocomplete="off"></label>
+      <input type="hidden" name="page" value="{{ page.url }}">
+      <div><button class="btn btn-primary" type="submit">Send</button></div>
+      <p class="form-status" role="status" aria-live="polite"></p>
+      <p class="muted" style="font-size:13px;margin:0">We use these details only to reply to you. See our <a href="/privacy">privacy policy</a>.</p>
+    </form>
+    <div class="contact-side">
+      {% for c in s.side %}<div class="card"><span class="tag">{{ c.tag }}</span><h3>{{ c.title }}</h3><p>{{ c.text | safe }}</p></div>{% endfor %}
+    </div>
+  </div>
+</section>
+
 {% elif s.type == "html" %}
 <section><div class="wrap">{{ s.html | safe }}</div></section>
 {% endif %}

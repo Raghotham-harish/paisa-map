@@ -87,6 +87,49 @@ SOURCES = [
     {"kind": "Income", "label": "Karnataka DES district income"},
 ]
 
+# Signal palette: group → ramp (the map's own colours, index.html PALETTES /
+# SIGNAL_GROUP_PALETTES) and, per signal, what it tells you, its geographic
+# level and source. Tiers are read from the code at build time.
+SIGNAL_GROUPS = [
+    {"label": "Purchasing power", "ramp": ["#D73027", "#FC8D59", "#FEE08B", "#D9EF8B", "#91CF60", "#1A9850"], "signals": [
+        {"key": "ppi_ml", "label": "Purchasing Power Index", "what": "One number for an area's spending power, 100 = the regional average.", "level": "Pincode · modelled", "source": "Built from every signal below"},
+        {"key": "est_monthly_income_hh", "label": "Household income / month", "what": "Estimated monthly income of a typical household in the pincode.", "level": "Pincode · modelled", "source": "NSSO HCES, calibrated with state and district data"},
+        {"key": "est_monthly_spend_hh", "label": "Household spend / month", "what": "Estimated monthly consumption spend of a typical household.", "level": "Pincode · modelled", "source": "NSSO HCES household spending survey"},
+    ]},
+    {"label": "Banking & UPI", "ramp": ["#B2182B", "#EF8A62", "#FDDBC7", "#D1E5F0", "#67A9CF", "#2166AC"], "signals": [
+        {"key": "bank_branches_per_lakh", "label": "Bank branches / lakh people", "what": "How well served an area is by formal banking.", "level": "District", "source": "RBI branch statistics"},
+        {"key": "deposits_per_capita", "label": "Bank deposits per person", "what": "Savings held in banks, a proxy for accumulated wealth.", "level": "District", "source": "RBI BSR deposits"},
+        {"key": "upi_txn_value_per_capita", "label": "UPI value per person", "what": "How much people pay digitally, a live signal of everyday spending.", "level": "District", "source": "PhonePe Pulse"},
+    ]},
+    {"label": "Tax & economy", "ramp": ["#B35806", "#F1A340", "#FEE0B6", "#D8DAEB", "#998EC3", "#542788"], "signals": [
+        {"key": "filers_per_capita", "label": "Income-tax filers per person", "what": "Share of people filing returns, a direct marker of formal income.", "level": "State", "source": "CBDT annual report"},
+        {"key": "msme_per_lakh", "label": "MSMEs / lakh people", "what": "Density of small businesses, a read on local enterprise.", "level": "District", "source": "MSME Udyam registrations"},
+        {"key": "factories_per_lakh", "label": "Factories / lakh people", "what": "Industrial employment base.", "level": "State", "source": "ASI factory counts"},
+        {"key": "nsdp_per_capita", "label": "State output per person", "what": "Net state domestic product per head, the wider economy around the area.", "level": "State", "source": "State NSDP statistics"},
+        {"key": "cropping_intensity_pct", "label": "Cropping intensity", "what": "How intensively farmland is used, useful for rural markets.", "level": "State", "source": "MoSPI statistical year book"},
+    ]},
+    {"label": "Infrastructure", "ramp": ["#D73027", "#FC8D59", "#FEE090", "#E0F3F8", "#91BFDB", "#4575B4"], "signals": [
+        {"key": "radiance_mean", "label": "Night-light brightness", "what": "Satellite-measured light at night, a strong proxy for economic activity.", "level": "Pincode", "source": "NASA VIIRS"},
+        {"key": "schools_per_lakh", "label": "Schools / lakh people", "what": "Social infrastructure and family density.", "level": "District", "source": "UDISE+"},
+    ]},
+    {"label": "Vehicles", "ramp": ["#00695C", "#4DB6AC", "#B2DFDB", "#F5C6CB", "#E57373", "#C62828"], "signals": [
+        {"key": "lmv_per_1000", "label": "Cars / 1,000 people", "what": "Car ownership, one of the clearest affluence signals.", "level": "District", "source": "VAHAN registrations"},
+        {"key": "car_2w_ratio", "label": "Car to two-wheeler ratio", "what": "How far an area has moved up from two-wheelers.", "level": "District", "source": "VAHAN registrations"},
+        {"key": "luxury_share", "label": "Luxury vehicle share", "what": "Share of premium vehicles among registrations.", "level": "District", "source": "VAHAN registrations"},
+        {"key": "ev_share", "label": "EV share", "what": "Early-adopter and premium-buyer signal.", "level": "District", "source": "VAHAN registrations"},
+    ]},
+    {"label": "Property", "ramp": ["#C51B7D", "#E9A3C9", "#FDE0EF", "#E6F5D0", "#A1D76A", "#4D9221"], "signals": [
+        {"key": "rate_per_sqft", "label": "Property rate / sq ft", "what": "Indicative price of property. A city-level estimate, not transaction data.", "level": "City-level estimate", "source": "PaisaMaps estimate"},
+    ]},
+]
+
+RAMPS = [
+    {"label": "Purchasing power", "colors": SIGNAL_GROUPS[0]["ramp"], "low": "below the region", "high": "above the region"},
+    {"label": "Household income", "colors": ["#762A83", "#AF8DC3", "#E7D4E8", "#D9F0D3", "#7FBF7B", "#1B7837"], "low": "lower", "high": "higher"},
+    {"label": "Household spend", "colors": ["#8C510A", "#D8B365", "#F6E8C3", "#C7EAE5", "#5AB4AC", "#01665E"], "low": "lower", "high": "higher"},
+    {"label": "Project suitability", "colors": ["#D53E4F", "#FC8D59", "#FEE08B", "#E6F598", "#99D594", "#3288BD"], "low": "poor fit", "high": "strong fit"},
+]
+
 HOME = {
     "url": B,
     "title": "PaisaMaps for business: spending power for every Indian pincode",
@@ -243,4 +286,5 @@ HOME = {
     ],
 }
 
-PAGES = [HOME]
+from pages import ALL as _MORE  # noqa: E402
+PAGES = [HOME] + _MORE

@@ -65,17 +65,38 @@ def pricing_teaser():
 
 
 def image_manifest(img_dir):
+    """name -> {w, h (of the largest file), large, small (available widths)}.
+    Files are <name>-<width>.webp; phone shots are narrower than 1600."""
+    import re
+    widths = {}
+    for f in img_dir.glob("*.webp"):
+        m = re.match(r"(.+)-(\d+)\.webp$", f.name)
+        if m:
+            widths.setdefault(m.group(1), []).append(int(m.group(2)))
     out = {}
-    for f in sorted(img_dir.glob("*-1600.webp")):
-        name = f.name[: -len("-1600.webp")]
-        large = Image.open(f)
-        small_path = img_dir / f"{name}-800.webp"
-        out[name] = {"w": large.width, "h": large.height, "large": 1600,
-                     "small": 800 if small_path.exists() else 1600}
-        if large.width < 1600:  # phone shots: the "1600" file is really its native width
-            out[name]["large"] = large.width
-            out[name]["small"] = min(800, large.width)
+    for name, ws in sorted(widths.items()):
+        ws = sorted(set(ws))
+        big = Image.open(img_dir / f"{name}-{ws[-1]}.webp")
+        out[name] = {"w": big.width, "h": big.height, "large": ws[-1], "small": ws[0]}
     return out
+
+
+def signal_groups():
+    """content.SIGNAL_GROUPS with each signal's tier read from the code, and a
+    check that every served signal is described (so a new one can't go missing)."""
+    import _signals_data
+    groups, seen = [], set()
+    for g in content.SIGNAL_GROUPS:
+        sigs = []
+        for x in g["signals"]:
+            tier = _signals_data.signal_tier_of(x["key"])
+            sigs.append(dict(x, tier=tier))
+            seen.add(x["key"])
+        groups.append(dict(g, signals=sigs))
+    missing = set(_signals_data.SIGNAL_COLUMNS) - seen
+    if missing:
+        raise SystemExit(f"signals served but not described on the site: {sorted(missing)}")
+    return groups
 
 
 def jsonld(page):
@@ -104,7 +125,8 @@ def main():
                       trim_blocks=True, lstrip_blocks=True)
     site = {"origin": ORIGIN, "base": content.B, "nav": content.NAV, "footer": content.FOOTER,
             "year": date.today().year, "build": str(int(time.time())),
-            "images": image_manifest(HERE / "static" / "img")}
+            "images": image_manifest(HERE / "static" / "img"),
+            "signal_groups": signal_groups(), "ramps": content.RAMPS}
     tpl = env.get_template("page.html")
 
     urls = []
@@ -112,7 +134,7 @@ def main():
         for s in page["sections"]:
             if s["type"] == "pricing_teaser" and not s["plans"]:
                 s["plans"] = pricing_teaser()
-            for key in ("img", "left", "right", "shot"):
+            for key in ("img", "left", "right", "shot"):  # top-level images; nested ones are checked by the template
                 if s.get(key) and s[key] not in site["images"]:
                     raise SystemExit(f"{page['url']}: missing image {s[key]}")
         page = dict(page, jsonld=jsonld(page))
