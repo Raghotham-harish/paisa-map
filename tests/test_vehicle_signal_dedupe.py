@@ -57,9 +57,10 @@ vehicle = [k for k in keys if k in ("cars_per_1000", "lmv_per_1000")]
 check(vehicle == ["lmv_per_1000"], f"catalog publishes one vehicle-density signal, got {vehicle}")
 
 lite = _pricing.SIGNAL_TIERS["lite"]["extra_signals"]
-# 9 extras since premium_poi_per_km2 (OSM) left the paid tiers (issue #8).
-check("lmv_per_1000" in lite and "cars_per_1000" not in lite and len(lite) == 9 and len(set(lite)) == 9,
-      "lite tier lists lmv_per_1000 once among 9 extras")
+# 10 extras: premium_poi_per_km2 (OSM) left the paid tiers (issue #8) and
+# filers_per_capita took the slot (U9, 2026-10-15).
+check("lmv_per_1000" in lite and "cars_per_1000" not in lite and len(lite) == 10 and len(set(lite)) == 10,
+      "lite tier lists lmv_per_1000 once among 10 extras")
 
 index = (REPO / "index.html").read_text()
 check('id:"cars_per_1000"' not in index and "id:'cars_per_1000'" not in index,
