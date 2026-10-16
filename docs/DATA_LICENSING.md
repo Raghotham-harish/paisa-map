@@ -61,6 +61,7 @@ until this is settled.
 | `retail_poi`, `fb_poi`, `retail_per_km2`, `fb_per_km2` (raw file only, not yet a signal) | **Overture Maps** Places release 2026-09-23.1, counted per DoP PIN polygon → `paisamap-etl/data/raw/overture_poi_density.csv` | **CDLA-Permissive-2.0** (Meta, Microsoft and others) + **Apache-2.0** (Foursquare) + CC0 (AllThePlaces) | 🟢 yes | Contains no OSM, so no ODbL — the clean replacement candidate for `premium_poi_per_km2`. Keep the Apache-2.0 notice with anything redistributed. |
 | `builtup_share` (raw file only, not yet a signal) | **GHSL** GHS-BUILT-S R2023A, epoch 2020, 100 m (EU / JRC), share of each DoP PIN polygon → `paisamap-etl/data/raw/ghsl_builtup_pincode.csv` | **CC BY 4.0** | 🟢 yes, with attribution | Cite: Pesaresi, M., Politis, P. (2023): GHS-BUILT-S R2023A — GHS built-up surface grid, derived from Sentinel2 composite and Landsat, multitemporal (1975-2030). European Commission, JRC. doi:10.2905/9F06F36F-4B11-47EC-ABB0-4F8B7B1D72EA |
 | `hospital`, `clinic`, `subcentre`, `other_facility`, `facility_total` + `*_per_km2` (raw file only, not yet a signal) | **NIN Health Facilities with Geo Code** (NIHFW / MoHFW, National Health Portal), data.gov.in; counted per DoP PIN polygon → `paisamap-etl/data/raw/nhp_health_facilities_pincode.csv`. Our copy came via the GitHub mirror `ramSeraph/indian_facilities` | **GODL-India** | 🟢 yes, with attribution | Attribute NIHFW / MoHFW and data.gov.in under GODL. Freshness uncertain (portal updated 2026-08-11, content historically ~2018); biased towards public facilities; no pharmacies. Re-fetch from the official data.gov.in resource before selling, so the provenance doesn't rest on a third-party mirror. |
+| `gdp_per_capita`, `gdp_per_km2` (free signals, **est., modelled**) | **Kummu, Kosonen & Masoumzadeh Sayyar (2025)**, Aalto University — Downscaled gridded global GDP per capita PPP, Zenodo v4 (doi:10.5281/zenodo.18429133, concept 10.5281/zenodo.10976733): `rast_gdpTot_1990_2024_30arcsec.tif` band 2024 summed on DoP PIN polygons; per-capita = that sum / the source's population (GHS-POP R2023A). Stored in INR = 2021 intl $ PPP × 20.7279 (World Bank PA.NUS.PPP, India 2021) → `paisamap-etl/data/raw/gdp_pincode.csv` | **CC BY 4.0** | 🟢 yes, with attribution — ⚠️ upstream inputs, see action item 9 | A modelled estimate, not a pincode GDP statistic: `gdp_per_capita` is a district value (~96% of its variance) spread by population; `gdp_per_km2` ≈ density × that value. Required attribution (shown on the map legend + catalog, and in every export — JSON `attribution`, CSV `X-Data-Attribution` header, xlsx Metadata sheet): "GDP estimates: Kummu, Kosonen & Masoumzadeh Sayyar (2025), Aalto University, CC BY 4.0, modified (summed to PIN polygons)." Never a PPI/refit input or an expansion driver (`MODELLED_COLUMNS`); blanks (7 Lakshadweep `in_gdp=0`, 74 PPI pins with no DoP polygon) export as null. `ppi_signal_join_with_gdp.csv` = the health join + GDP; the retrain keeps reading `ppi_signal_join_with_health.csv` (GDP is not a model input). |
 | `premium_poi_per_km2` | **OSM** via Overpass API | **ODbL** (share-alike) | 🔴 **do not sell until resolved** | See the ODbL note above. |
 | `rate_per_sqft` | **PaisaMap's own estimate** — `enrich_single.py` scales a hardcoded per-city prior (`CITY_PRIORS`) by a local ratio; `llm_extract.py` also pulls transaction value/area from documents | our own modelled value | 🟢 likely OK | Not a scraped feed. Residual question: where the `CITY_PRIORS` numbers originally came from (manual research vs. a copied table). Document that provenance; if any prior was lifted from a portal's published "average rate" table, note it. |
 
@@ -84,7 +85,9 @@ until this is settled.
 > Foundation Places (CDLA-Permissive-2.0 / Apache-2.0); GHSL — Pesaresi &
 > Politis (2023), European Commission JRC, doi:10.2905/9F06F36F-4B11-47EC-ABB0-4F8B7B1D72EA
 > (CC BY 4.0); NIHFW / Ministry of Health and Family Welfare, NIN Health
-> Facilities (data.gov.in, GODL-India). WorldPop, Overture, GHSL and health-
+> Facilities (data.gov.in, GODL-India); GDP estimates: Kummu, Kosonen &
+> Masoumzadeh Sayyar (2025), Aalto University (CC BY 4.0), modified (summed to
+> PIN polygons). WorldPop, Overture, GHSL and health-
 > facility values are aggregated to PIN polygons by PaisaMap. Derived signals and the Purchasing Power Index are
 > PaisaMap's own work.
 
@@ -104,4 +107,13 @@ until this is settled.
 6. ⚠️ Switch the vehicle signals to the **MoRTH annual-report** provenance, not
    the live VAHAN scrape, for anything sold.
 7. 🕰️ Refresh or footnote `cropping_intensity_pct` (2012-13).
-8. Publish the attribution block once 1–5 are cleared.
+8. Publish the attribution block once 1–5 and 9 are cleared.
+9. ⚠️ **GDP signal upstream inputs (counsel, before public launch).** The
+   Kummu et al. dataset is CC BY 4.0, but it was built from (a) the RBI Handbook
+   of Statistics on Indian States for the India state GDP series (same RBI-terms
+   question as item 4) and (b) **GADM** admin-2 units, whose licence bars
+   commercial use and redistribution without permission. Question for counsel:
+   does CC BY on the published output cover us, or do those terms carry through?
+   We ship no GADM geometry or district names, which narrows it. Related pricing
+   note (founder, 2026-10-16): free `gdp_per_capita` is a finer cut of the same
+   state data behind Pro `nsdp_per_capita` — separate PR proposes making NSDP free.

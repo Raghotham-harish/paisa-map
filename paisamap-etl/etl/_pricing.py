@@ -151,7 +151,9 @@ CORE_SIGNALS = ("ppi_ml", "est_monthly_income_hh", "est_monthly_spend_hh")
 # charging for. rate_per_sqft is ~95% city/state priors (143 distinct values
 # across ~15k pincodes) — labelled "est., city-level" and kept free until the
 # retrain gives it real pincode-level data (founder decision, 2026-10-15).
-FREE_SIGNALS = ("rate_per_sqft",)
+# gdp_per_capita / gdp_per_km2 are modelled (Kummu et al. 2025, CC BY 4.0) and
+# labelled "est., modelled" — free by founder decision, 2026-10-16.
+FREE_SIGNALS = ("rate_per_sqft", "gdp_per_capita", "gdp_per_km2")
 SIGNAL_TIERS = {
     "lite": {
         "label": "Signals Lite", "price_paise": 20_000,

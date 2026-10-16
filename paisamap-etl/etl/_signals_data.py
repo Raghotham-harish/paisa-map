@@ -65,6 +65,11 @@ EXPORT_SIGNAL_FILES = [
     ("agriculture.csv",         ["cropping_intensity_pct"]),
     ("industrial.csv",          ["factories_per_lakh"]),
     ("economic.csv",            ["nsdp_per_capita"]),
+    # Modelled, not a statistic: Kummu et al. (2025) gridded GDP summed on DoP
+    # PIN polygons. gdp_per_capita is a district value spread by population;
+    # gdp_per_km2 ~ population density x that value. Served only — never a PPI
+    # or refit input, never a driver/suitability input (MODELLED_COLUMNS).
+    ("gdp_pincode.csv",         ["gdp_per_capita", "gdp_per_km2"]),
 ]
 EXPORT_ALL_COLUMNS = EXPORT_CORE_FIELDS + [c for _, cols in EXPORT_SIGNAL_FILES for c in cols]
 
@@ -157,7 +162,33 @@ SIGNAL_LABELS = {
     "car_2w_ratio": "Car:2W ratio",
     "luxury_share": "Luxury vehicle share",
     "ev_share": "EV share",
+    "gdp_per_capita": "GDP per capita (est., modelled)",
+    "gdp_per_km2": "GDP /km² (est., modelled)",
 }
+
+# Modelled estimates: published for display and export only. They stay out of
+# anything that scores locations (expansion drivers / suitability), and a
+# missing value is always exported as null — never 0, never a default.
+MODELLED_COLUMNS = frozenset({"gdp_per_capita", "gdp_per_km2"})
+
+GDP_ATTRIBUTION = ("GDP estimates: Kummu, Kosonen & Masoumzadeh Sayyar (2025), "
+                   "Aalto University, CC BY 4.0, modified (summed to PIN polygons).")
+GDP_NOTE = ("Modelled estimate: a district-level GDP per capita spread by population. "
+            "Not an official statistic.")
+
+# Per-signal tooltip + attribution, surfaced by the catalog and the export.
+SIGNAL_NOTES = {c: GDP_NOTE for c in MODELLED_COLUMNS}
+SIGNAL_ATTRIBUTION = {c: GDP_ATTRIBUTION for c in MODELLED_COLUMNS}
+
+
+def attributions_for(columns):
+    """The distinct attribution lines the given export columns require."""
+    out = []
+    for c in columns:
+        a = SIGNAL_ATTRIBUTION.get(c)
+        if a and a not in out:
+            out.append(a)
+    return out
 
 
 # cars_per_1000 was published as its own signal but is an exact copy of
@@ -246,6 +277,11 @@ def load_ppi_signals_rows():
                     continue
                 for c in cols:
                     rows[pc][c] = r.get(c, "")
+    # A pincode with no row in a modelled file (no DoP polygon) still carries
+    # the key, empty, so the JSON export says null instead of dropping it.
+    for r in rows.values():
+        for c in MODELLED_COLUMNS:
+            r.setdefault(c, "")
     return rows, source
 
 

@@ -35,6 +35,7 @@ _GROUP_BY_FILE = {
     "education.csv": "Infrastructure",
     "rto_enhanced.csv": "Vehicles",
     "vehicle_density.csv": "Vehicles",
+    "gdp_pincode.csv": "Economy (modelled)",
 }
 
 
@@ -62,6 +63,10 @@ def catalog():
             "tier": _signals_data.signal_tier_of(col),
             "locked": col in _signals_data.SIGNAL_COLUMNS and col not in allowed,
             "group": group,
+            # Modelled signals carry a tooltip note + the licence attribution.
+            **({"note": _signals_data.SIGNAL_NOTES[col],
+                "attribution": _signals_data.SIGNAL_ATTRIBUTION[col],
+                "modelled": True} if col in _signals_data.MODELLED_COLUMNS else {}),
         }
         for col, group in groups.items()
     ]
