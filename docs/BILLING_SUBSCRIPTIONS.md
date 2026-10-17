@@ -278,6 +278,45 @@ Decisions to challenge (P7): signal buyers get no free trial; Signals Pro = all 
 "20" predates the OSM removal and the cars/LMV de-duplication); property rate is Signals Pro,
 not Lite; no proration on moving up.
 
+## P5 round 3 — self-serve extra seats and companies (built 2026-10-17)
+
+**Owner decision (17 Oct):** each purchase is its **own small monthly subscription**.
+Razorpay can't change the amount of a subscription authorised by UPI Autopay or
+eMandate ([update-subscription docs](https://razorpay.com/docs/api/payments/subscriptions/update-subscription/)),
+so "+₹900 on the plan's charge" would fail for most Indian payers.
+
+Example: Asha's agency is on Growth (6 seats, 1 company). She adds 2 seats (₹1,800 + GST
+a month, from today) and later 1 client company (₹2,500 + GST a month, from that day).
+Her bank shows three monthly debits: the plan and the two add-ons, each on its own date.
+
+- `addon_subscriptions` (one row per purchase) + `_addon_subs.py`. Limits =
+  tier + `wallet_addons` (set by hand, assisted customers) + paid add-ons.
+- Counts only after a real charge (`paid_count >= 1`). `pending` (Razorpay retrying) keeps
+  counting; `halted` doesn't. Cancelled → counts to the end of the paid month. Nobody is ever
+  removed: an account over its limit just can't add (round 1 rule).
+- Who/when: owner/admin of the paying company, with a **paid, active, renewing** plan
+  subscription on Starter or Growth, not past due. Scale/Pro: "arranged with PaisaMap"
+  (set `wallet_addons` by hand). Trials can't buy extras.
+- Each charge = an order of kind `addon` + a GST invoice ("Extra seats × 2 — monthly").
+- **Tied to the plan:** cancelling the plan stops its add-ons renewing. If the plan
+  ends or is set to cancel any other way, the webhook and the hourly sweep cancel the
+  add-ons ("orphans"). A plan being replaced after a failed payment (`/subscriptions/recover`)
+  gets 2 days' grace so its add-ons survive the hand-over.
+- Routes: `POST /api/billing/addons {kind, quantity, org_id}`, `POST /api/billing/addons/<id>/cancel`;
+  verify reuses `/subscriptions/verify`; `GET /subscriptions` returns `addons`, `addon_offer`, `limits`.
+- UI: "Extra seats and companies" card on Billing under the plan.
+
+**Deploy (after #21 + #22):** merge → run
+`db/apply_addon_subscriptions.py` (widens `orders.kind` to allow `addon`, then creates the
+table; the feature stays off until the table exists) → it opens with `SEAT_LIMITS=1` +
+`BILLING_SUBSCRIPTIONS=1`. The sweep cron needs `RAZORPAY_KEY_ID/SECRET` in db.env to cancel
+orphans (it only counts them otherwise).
+
+**Decisions to challenge:** no proration (an add-on bought on day 20 is charged a full
+month from day 20, on its own date); one Razorpay approval per purchase (buying "+1 seat"
+three times = three mandates, so the UI asks for a quantity); max 50 per purchase (typo guard);
+stopping extras that put an account over its limit is allowed (people stay, adding is blocked).
+
 ## Not in this round (Gantt order)
 
 

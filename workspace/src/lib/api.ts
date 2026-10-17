@@ -1015,6 +1015,47 @@ export interface SubscriptionsResponse {
   // Absent on an older server = no trial.
   trial?: TrialOffer;
   current_trial?: TrialView | null;
+  // P5: seats/companies used vs the plan's limit (+ extras); null when not limited.
+  limits?: SeatLimits | null;
+  // P5 round 3: extras bought self-serve, and whether more can be bought now.
+  addons?: AddonView[];
+  addon_offer?: AddonOffer;
+}
+
+export interface SeatLimits {
+  tier: string;
+  seats: number | null;
+  companies: number | null;
+  extra_seats: number;
+  extra_companies: number;
+  used_seats: number;
+  used_companies: number;
+  used_pending_invites: number;
+}
+
+export type AddonKind = "seat" | "company";
+
+export interface AddonView {
+  id: number;
+  kind: AddonKind;
+  quantity: number;
+  unit_paise: number;
+  amount_paise: number;
+  status: string;
+  paid: boolean;
+  counting: boolean;
+  current_end: string | null;
+  ends_at: string | null;
+  cancel_at_period_end: boolean;
+  past_due: boolean;
+}
+
+export interface AddonOffer {
+  available: boolean;
+  // not_enabled | limits_off | schema_not_applied | no_paid_plan | plan_cancelling | unpaid_balance | assisted_tier
+  reason: string | null;
+  prices: Record<AddonKind, number | null>;  // ex-GST per month, per one
+  max_quantity: number;
 }
 
 export interface SubscriptionCheckout {
@@ -1025,7 +1066,7 @@ export interface SubscriptionCheckout {
   tier: string;
 }
 
-export type OrderKind = "credit_pack" | "plan_upgrade" | "report_purchase";
+export type OrderKind = "credit_pack" | "plan_upgrade" | "report_purchase" | "addon";
 
 export interface Order {
   id: number;
@@ -1319,6 +1360,14 @@ export const api = {
     request("/api/billing/subscriptions/recover", {
       method: "POST", body: JSON.stringify(orgId != null ? { org_id: orgId } : {}),
     }) as Promise<SubscriptionCheckout>,
+  // P5 round 3: each purchase of extras is its own monthly subscription (owner/admin of the payer).
+  createAddon: (kind: AddonKind, quantity: number, orgId?: number | null, billing?: BuyerDetails) =>
+    request("/api/billing/addons", {
+      method: "POST",
+      body: JSON.stringify({ kind, quantity, ...(orgId != null ? { org_id: orgId } : {}), ...(billing ? { billing } : {}) }),
+    }) as Promise<{ razorpay_subscription_id: string; razorpay_key_id: string; amount_paise: number; addon: AddonView }>,
+  cancelAddon: (id: number) =>
+    request(`/api/billing/addons/${id}/cancel`, { method: "POST", body: "{}" }) as Promise<{ addon: AddonView | null }>,
   listInvoices: () => request("/api/billing/invoices") as Promise<{ invoices: Invoice[] }>,
   invoiceDownloadUrl: (id: number) => `/api/billing/invoices/${id}/download`,
 

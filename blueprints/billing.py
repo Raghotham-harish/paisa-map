@@ -35,6 +35,7 @@ import _gst  # noqa: E402
 import _invoice_pdf  # noqa: E402
 import _subscriptions  # noqa: E402
 import _seats  # noqa: E402
+import _addon_subs  # noqa: E402
 import _assisted_sale  # noqa: E402
 import _trial  # noqa: E402
 import _signals_data  # noqa: E402
@@ -593,6 +594,9 @@ def get_subscription(user_id):
         "subscription": _subscriptions.public_view(_subscriptions.get_latest(payer)) if ready else None,
         # P5: seats / companies used vs the tier's limit (+ bought extras); None when not limited.
         "limits": _seats.view_for(payer),
+        # P5 round 3: extra seats/companies bought self-serve, and what may be bought now.
+        "addons": [_addon_subs.public_view(a) for a in _addon_subs.list_for(payer)] if _addons_ready() else [],
+        "addon_offer": _addon_offer(payer, live),
         # `kind` splits the signal-only plans (P7) from the dashboard ones; with a
         # live subscription, `upgrade` marks the plans it can move up to now.
         "options": [{"tier": t, "label": _pricing.TIERS[t]["label"],
@@ -822,6 +826,8 @@ def verify_subscription(user_id):
     except razorpay.errors.SignatureVerificationError:
         return jsonify({"error": "signature_invalid"}), 400
     sub = _subscriptions.get_by_razorpay_id(sid) if _subscriptions.tables_ready() else None
+    if sub is None and _addons_ready():
+        return _verify_addon(client, user_id, sid, pid)
     if sub is None or _auth_db.get_org_role(sub["org_id"], user_id) not in ("owner", "admin"):
         return jsonify({"error": "subscription_not_found"}), 404
     try:
@@ -874,6 +880,10 @@ def cancel_subscription(user_id):
         res = _subscriptions.record_state(sub["razorpay_subscription_id"], status="cancelled",
                                           ends_at=_subscriptions._now())
         _subscriptions.sweep_ended()
+    if _addons_ready():
+        # Extras are only worth paying for alongside the plan: they stop renewing
+        # too (a paid-up one keeps counting to the end of its own paid month).
+        _addon_subs.cancel_all(client, payer, at_cycle_end=True)
     return jsonify({"subscription": _subscriptions.public_view(res.get("subscription"))}), 200
 
 
@@ -897,6 +907,8 @@ def _handle_subscription_event(payload):
     except (KeyError, TypeError):
         return jsonify({"status": "ignored"}), 200
     sub = _subscriptions.get_by_razorpay_id(sid) if _subscriptions.tables_ready() else None
+    if sub is None and _addons_ready() and _addon_subs.get_by_razorpay_id(sid) is not None:
+        return _handle_addon_event(payload, event, entity, sid)
     if sub is None:
         return jsonify({"status": "unknown_subscription"}), 200
     event_ts = _subscriptions.ts(payload.get("created_at"))
@@ -916,4 +928,221 @@ def _handle_subscription_event(payload):
     _subscriptions.sweep_ended()
     _trial.sweep(background=True)
     _subscriptions.dunning_sweep(background=True)
+    _cancel_orphan_addons()
     return jsonify({"status": "ok"}), 200
+
+
+# ── P5 round 3: self-serve extra seats / companies ───────────────────────────
+# Each purchase is its own small monthly subscription (see _addon_subs for why).
+# Same switches as subscriptions, plus SEAT_LIMITS=1 (extras mean nothing while
+# limits are off) and the add-on table. Webhooks for a known add-on are always
+# applied, like plan subscriptions.
+
+def _addons_ready():
+    return _addon_subs.tables_ready()
+
+
+def _addon_offer(payer, live):
+    """{available, reason, prices: {seat, company} ex-GST per month or None}."""
+    tier = live["tier"] if live else None
+    prices = {k: (_addon_subs.unit_paise(tier, k) if tier else None) for k in _addon_subs.KINDS}
+    reason = _addon_unavailable(payer, live)
+    return {"available": reason is None, "reason": reason, "prices": prices,
+            "max_quantity": _addon_subs.MAX_QUANTITY}
+
+
+def _addon_unavailable(payer, live):
+    """Why this company can't buy extras right now, or None."""
+    if not subscriptions_state()["enabled"]:
+        return "not_enabled"
+    if not _seats.enforced():
+        return "limits_off"
+    if not _addons_ready():
+        return "schema_not_applied"
+    if live is None or live["status"] != "active" or (live["paid_count"] or 0) < 1:
+        # A trial, a plan set up by PaisaMap directly, or a checkout not yet paid.
+        return "no_paid_plan"
+    if live["cancel_at_period_end"]:
+        return "plan_cancelling"
+    if _auth_db.wallet_dunning(payer) is not None:
+        return "unpaid_balance"
+    if all(_addon_subs.unit_paise(live["tier"], k) is None for k in _addon_subs.KINDS):
+        return "assisted_tier"
+    return None
+
+
+def _ensure_addon_plan(client, kind, tier, amount):
+    key = _addon_subs.plan_key(kind, tier)
+    plan_id = _subscriptions.cached_plan_id(key, "monthly", amount)
+    if plan_id:
+        return plan_id
+    noun = "seats" if kind == "seat" else "companies"
+    rp_plan = client.plan.create({
+        "period": "monthly", "interval": 1,
+        "item": {"name": f"PaisaMap extra {noun} ({_pricing.TIERS[tier]['label']}, monthly)",
+                 "amount": amount, "currency": "INR"},
+        "notes": {"addon": kind, "tier": tier, "price_book": _pricing.PRICE_BOOK_VERSION},
+    })
+    return _subscriptions.save_plan_id(key, "monthly", amount, rp_plan["id"])
+
+
+@billing_bp.route("/addons", methods=["POST"])
+@require_login
+def create_addon(user_id):
+    """Buy `quantity` extra seats or companies for the paying company: a new
+    monthly subscription for exactly that, to Checkout. Grants nothing until its
+    first charge succeeds."""
+    body = request.get_json(silent=True) or {}
+    kind, qty = body.get("kind"), body.get("quantity")
+    if kind not in _addon_subs.KINDS:
+        return jsonify({"error": "invalid_kind"}), 400
+    if isinstance(qty, bool) or not isinstance(qty, int) or not 1 <= qty <= _addon_subs.MAX_QUANTITY:
+        return jsonify({"error": "invalid_quantity", "max": _addon_subs.MAX_QUANTITY}), 400
+    payer, err = _payer_for_subscription(user_id, body)
+    if err:
+        return err
+    live = _subscriptions.get_live(payer) if _subscriptions.tables_ready() else None
+    reason = _addon_unavailable(payer, live)
+    if reason is not None:
+        status = 403 if reason in ("not_enabled", "limits_off", "schema_not_applied") else 409
+        return jsonify({"error": "addons_unavailable", "reason": reason}), status
+    tier = live["tier"]
+    unit = _addon_subs.unit_paise(tier, kind)
+    if unit is None:
+        return jsonify({"error": "addons_unavailable", "reason": "not_sold_on_tier"}), 409
+    buyer, berr = _checkout_buyer(user_id, body, payer)
+    if berr:
+        return berr
+    client = _client()
+    if client is None:
+        return _not_configured()
+    tax = _tax_for(unit * qty, buyer)
+    amount = tax["total_paise"]
+    try:
+        plan_id = _ensure_addon_plan(client, kind, tier, amount)
+        rp_sub = client.subscription.create({
+            "plan_id": plan_id, "total_count": _pricing.SUBSCRIPTION_TOTAL_COUNT,
+            "quantity": 1, "customer_notify": 1,
+            "notes": {"org_id": str(payer), "user_id": str(user_id), "addon": kind,
+                      "quantity": str(qty), "tier": tier},
+        })
+    except Exception as e:
+        return jsonify({"error": "gateway_error", "detail": str(e)}), 502
+    addon = _addon_subs.create_local(payer, user_id, kind, qty, tier, unit, amount, rp_sub["id"], plan_id,
+                                     meta={"tax": tax, "buyer": buyer})
+    return jsonify({
+        "razorpay_subscription_id": rp_sub["id"],
+        "razorpay_key_id": os.environ.get("RAZORPAY_KEY_ID"),
+        "amount_paise": amount, "currency": "INR",
+        "addon": _addon_subs.public_view(addon),
+    }), 201
+
+
+@billing_bp.route("/addons/<int:addon_id>/cancel", methods=["POST"])
+@require_login
+def cancel_addon(user_id, addon_id):
+    """Stop an add-on renewing. A paid-up one keeps counting to the end of the
+    month already paid for (no partial refund); one never paid ends now. Nobody
+    is removed if the account ends up over its limit — it just can't add more."""
+    addon = _addon_subs.get(addon_id) if _addons_ready() else None
+    if addon is None or _auth_db.get_org_role(addon["wallet_org_id"], user_id) not in ("owner", "admin"):
+        return jsonify({"error": "addon_not_found"}), 404
+    if addon["status"] not in _addon_subs.LIVE_STATUSES:
+        return jsonify({"error": "not_live"}), 409
+    if addon["cancel_at_period_end"]:
+        return jsonify({"error": "already_cancelling"}), 409
+    client = _client()
+    if client is None:
+        return _not_configured()
+    at_cycle_end = addon["status"] == "active"
+    try:
+        client.subscription.cancel(addon["razorpay_subscription_id"],
+                                   {"cancel_at_cycle_end": 1 if at_cycle_end else 0})
+    except Exception as e:
+        return jsonify({"error": "gateway_error", "detail": str(e)}), 502
+    if at_cycle_end:
+        res = _addon_subs.record_state(addon["razorpay_subscription_id"], cancel_at_period_end=True)
+    else:
+        res = _addon_subs.record_state(addon["razorpay_subscription_id"], status="cancelled")
+    _auth_db.log_activity(user_id, "addon_cancel", target_type="organization", target_id=addon["wallet_org_id"],
+                          metadata={"kind": addon["kind"], "quantity": addon["quantity"]})
+    return jsonify({"addon": _addon_subs.public_view(res.get("addon"))}), 200
+
+
+def _finish_addon_charge(addon, payment, sub_entity, event_ts=None):
+    res = _addon_subs.apply_charge(
+        addon["razorpay_subscription_id"], payment["id"], payment["amount"],
+        order_meta=_charge_meta(addon, payment["amount"]),
+        current_start=_subscriptions.ts(sub_entity.get("current_start")),
+        current_end=_subscriptions.ts(sub_entity.get("current_end")),
+        paid_count=sub_entity.get("paid_count"), event_ts=event_ts,
+        razorpay_order_id=payment.get("order_id"))
+    if "error" in res:
+        return res
+    if not _subscriptions.invoice_exists(res["order"]["id"]):
+        from sqlalchemy.exc import IntegrityError
+        try:
+            _create_invoice_for_order(res["order"], _addon_subs.line_item(addon))
+        except IntegrityError:
+            pass
+    if res["newly_paid"]:
+        _auth_db.log_activity(res["order"]["user_id"], "addon_charge", target_type="order",
+                              target_id=res["order"]["id"],
+                              metadata={"kind": addon["kind"], "quantity": addon["quantity"],
+                                        "org_id": addon["wallet_org_id"]})
+    return res
+
+
+def _verify_addon(client, user_id, sid, pid):
+    """/subscriptions/verify for an add-on (signature already checked)."""
+    addon = _addon_subs.get_by_razorpay_id(sid)
+    if addon is None or _auth_db.get_org_role(addon["wallet_org_id"], user_id) not in ("owner", "admin"):
+        return jsonify({"error": "subscription_not_found"}), 404
+    try:
+        payment = client.payment.fetch(pid)
+        sub_entity = client.subscription.fetch(sid)
+    except Exception as e:
+        return jsonify({"error": "gateway_error", "detail": str(e)}), 502
+    # Same two guards as plan subscriptions: an authentication-only payment, or
+    # one not captured yet, is finished by the webhook — never counted here.
+    if not (sub_entity.get("paid_count") or 0) or payment.get("status") != "captured":
+        return jsonify({"status": "pending"}), 200
+    res = _finish_addon_charge(addon, payment, sub_entity)
+    if "error" in res:
+        return jsonify({"error": res["error"]}), 409
+    return jsonify({"status": "active", "addon": _addon_subs.public_view(res["addon"])}), 200
+
+
+def _handle_addon_event(payload, event, entity, sid):
+    event_ts = _subscriptions.ts(payload.get("created_at"))
+    addon = _addon_subs.get_by_razorpay_id(sid)
+    if event == "subscription.charged":
+        payment = ((payload.get("payload") or {}).get("payment") or {}).get("entity") or {}
+        if payment.get("status") != "captured" or not payment.get("id"):
+            return jsonify({"status": "ignored"}), 200
+        _finish_addon_charge(addon, payment, entity, event_ts)
+    elif event in _EVENT_STATUS:
+        _addon_subs.record_state(
+            sid, status=_EVENT_STATUS[event], event_ts=event_ts,
+            current_start=_subscriptions.ts(entity.get("current_start")),
+            current_end=_subscriptions.ts(entity.get("current_end")),
+            paid_count=entity.get("paid_count"))
+    else:
+        return jsonify({"status": "ignored"}), 200
+    _cancel_orphan_addons()
+    return jsonify({"status": "ok"}), 200
+
+
+def _cancel_orphan_addons():
+    """Never let extras keep charging for a company whose plan won't renew. Best
+    effort: a failure is logged and the hourly sweep tries again."""
+    if not _addons_ready():
+        return
+    client = _client()
+    if client is None:
+        return
+    try:
+        _addon_subs.cancel_orphans(client)
+    except Exception:
+        import logging
+        logging.getLogger("paisamap.addons").exception("orphan add-on cancel failed")

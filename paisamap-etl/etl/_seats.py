@@ -4,7 +4,8 @@ _seats.py — P5: seat and company limits per paying account (pricing doc §5, d
 A paying account (wallet) is one company plus every company that draws on it
 (`organizations.billing_org_id`). Its tier comes from the wallet company's
 `organizations.plan` (a v2 plan id). Limits are the tier's `seats` / `companies`
-plus anything bought on top (`wallet_addons`).
+plus anything on top: set by hand (`wallet_addons`) or bought self-serve and
+paid up (`addon_subscriptions`, see _addon_subs).
 
 Counting (owner decisions, 15 Oct 2026):
   - seats are counted across the WHOLE account: a person in two of its companies
@@ -35,14 +36,18 @@ def _A():
 
 
 def _addons(conn, wallet_id):
+    """Extras set by hand (wallet_addons, assisted customers) plus those bought
+    self-serve and currently paid up (addon_subscriptions, round 3)."""
     A = _A()
+    import _addon_subs
+    bs, bc = _addon_subs.entitled_extras(conn, wallet_id)
     if not A._has_budget_table(conn, "wallet_addons"):
-        return 0, 0
+        return bs, bc
     t = A._get_tables()["wallet_addons"]
     from sqlalchemy import select
     row = conn.execute(select(t.c.extra_seats, t.c.extra_companies)
                        .where(t.c.wallet_org_id == wallet_id)).first()
-    return (int(row[0]), int(row[1])) if row else (0, 0)
+    return (int(row[0]) + bs, int(row[1]) + bc) if row else (bs, bc)
 
 
 def _wallet_tier(conn, wallet_id):

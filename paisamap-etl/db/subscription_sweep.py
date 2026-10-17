@@ -7,7 +7,10 @@ subscription_sweep.py — the time-driven half of subscription billing (P2 + P13
   * P4 no-card free trials: emails "your trial ends tomorrow" once, and at the end
     puts a company still on the trial back on Free (or marks it converted);
   * writes off plan credits that have expired (P3) in wallets nobody has looked
-    at since — balance reads and spends also do this for their own wallet.
+    at since — balance reads and spends also do this for their own wallet;
+  * P5 round 3: cancels extra-seat/company add-ons of a company whose plan
+    subscription has ended or won't renew, so they never charge for nothing
+    (needs the Razorpay keys in db.env; skipped with a note otherwise).
 Idempotent, and each email is claimed with a conditional UPDATE so overlapping runs
 can't double-send. The webhook also runs both opportunistically, so cron is the
 backstop for a company nobody has touched since.
@@ -39,3 +42,15 @@ print(f"sent {len(S.dunning_sweep())} dunning notice(s)")
 import _trial  # noqa: E402
 print(f"sent {len(_trial.sweep())} trial notice(s)")
 print(f"wrote off {S.A.expire_due_credits()} expired plan credit(s)")
+import _addon_subs  # noqa: E402
+if _addon_subs.tables_ready():
+    try:
+        import razorpay
+        key_id, key_secret = os.environ.get("RAZORPAY_KEY_ID"), os.environ.get("RAZORPAY_KEY_SECRET")
+        client = razorpay.Client(auth=(key_id, key_secret)) if key_id and key_secret else None
+    except ImportError:
+        client = None
+    if client is None:
+        print(f"add-ons without a live plan: {len(_addon_subs.orphan_wallets())} company(ies) - Razorpay not configured, not cancelled")
+    else:
+        print(f"cancelled {_addon_subs.cancel_orphans(client)} add-on(s) with no live plan")
