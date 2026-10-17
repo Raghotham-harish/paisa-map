@@ -66,7 +66,9 @@ Notes:
   labelled "est., modelled": Kummu et al. (2025, CC BY 4.0) gridded GDP summed on
   PIN polygons — a district value spread by population, not a pincode statistic.
   Display/export only: never a PPI, refit or expansion-driver input. Open
-  question: it is a finer cut of the state data behind Pro `nsdp_per_capita`.
+  It is a finer cut of the state data behind `nsdp_per_capita`; decided 2026-10-17
+  (founder): **NSDP stays paid** (Lite + Pro) — GDP is the free one, NSDP is the official
+  state statistic buyers pay for. Lite keeps its 10 signals.
 - **The 10-signal "Lite" subset** (confirmed 2026-10-15, U9): `bank_branches_per_lakh`,
   `upi_txn_value_per_capita`, `deposits_per_capita`, `msme_per_lakh`,
   `nsdp_per_capita`, `radiance_mean`, `lmv_per_1000`, `car_2w_ratio`, `luxury_share`,

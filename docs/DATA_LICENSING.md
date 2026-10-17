@@ -116,4 +116,5 @@ until this is settled.
    does CC BY on the published output cover us, or do those terms carry through?
    We ship no GADM geometry or district names, which narrows it. Related pricing
    note (founder, 2026-10-16): free `gdp_per_capita` is a finer cut of the same
-   state data behind Pro `nsdp_per_capita` — separate PR proposes making NSDP free.
+   state data behind paid `nsdp_per_capita`. Decided 2026-10-17: NSDP stays paid
+   (Lite + Pro); GDP is the free economic-output signal.
