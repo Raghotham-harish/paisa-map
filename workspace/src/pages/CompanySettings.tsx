@@ -8,6 +8,7 @@ import { StatChip } from "../components/StatChip";
 import { describeActivity } from "../lib/activity";
 import { WebsiteVerification } from "../components/WebsiteVerification";
 import { planLabel } from "../lib/planLabel";
+import { limitMessage } from "../lib/limits";
 
 // Metadata detail beyond describeActivity's own pincode suffix — the two
 // D4 action types whose metadata is actually worth surfacing here.
@@ -138,10 +139,10 @@ export default function CompanySettings() {
           loadInvites();
         } catch (inviteErr) {
           const inviteCode = inviteErr instanceof ApiError ? inviteErr.body?.error : null;
-          setError((inviteCode && ADD_MEMBER_ERRORS[inviteCode]) || "Couldn't send that invite — try again.");
+          setError(limitMessage(inviteErr) || (inviteCode && ADD_MEMBER_ERRORS[inviteCode]) || "Couldn't send that invite — try again.");
         }
       } else {
-        setError((code && ADD_MEMBER_ERRORS[code]) || "Couldn't add that member — try again.");
+        setError(limitMessage(e) || (code && ADD_MEMBER_ERRORS[code]) || "Couldn't add that member — try again.");
       }
     } finally {
       setAdding(false);
@@ -193,8 +194,8 @@ export default function CompanySettings() {
       setNewCompanyName("");
       reloadOrgs();
       setActiveOrgId(organization.id);
-    } catch {
-      setError("Couldn't create that company — try again.");
+    } catch (e) {
+      setError(limitMessage(e) || "Couldn't create that company — try again.");
     } finally {
       setCreating(false);
     }

@@ -552,6 +552,21 @@ def _get_tables():
         UniqueConstraint("tier", "cycle", "amount_paise", name="uq_razorpay_plans_tier_cycle_amount"),
     )
 
+    # P5: seats / companies bought on top of a wallet's tier (pricing doc §5).
+    # One row per paying account; a missing row (or a missing table, before
+    # apply_wallet_addons_table.py has run) means none bought. Its own table
+    # rather than columns on organizations, so a deploy that beats the schema
+    # step can't break any query that reads organizations.
+    wallet_addons = Table(
+        "wallet_addons", _metadata,
+        Column("wallet_org_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True),
+        Column("extra_seats", Integer, nullable=False, server_default="0"),
+        Column("extra_companies", Integer, nullable=False, server_default="0"),
+        Column("updated_by", Integer),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+        CheckConstraint("extra_seats >= 0 AND extra_companies >= 0", name="ck_wallet_addons_nonneg"),
+    )
+
     # Billing-v2 budgets: a cap, in credits, on what one COMPANY may spend from
     # its wallet per period (kind='cap'), and an optional floor a wallet keeps
     # back for its own company (kind='reserve', org_id = wallet_org_id). The
@@ -684,7 +699,7 @@ def _get_tables():
         "project_connection_selections": project_connection_selections,
         "orders": orders, "invoices": invoices,
         "api_keys": api_keys,
-        "credit_budgets": credit_budgets,
+        "credit_budgets": credit_budgets, "wallet_addons": wallet_addons,
         "credit_member_budgets": credit_member_budgets,
         "credit_link_requests": credit_link_requests,
         "org_domains": org_domains,
@@ -717,7 +732,7 @@ def init_schema():
         tables["api_keys"], tables["credit_budgets"], tables["credit_member_budgets"],
         tables["credit_link_requests"], tables["org_domains"],
         tables["subscriptions"], tables["razorpay_plans"], tables["assisted_sales"],
-        tables["credit_lots"], tables["trials"],
+        tables["credit_lots"], tables["trials"], tables["wallet_addons"],
     ])
     _ensure_invoice_sequence(engine)
 
@@ -1104,6 +1119,10 @@ def _apply_payer(conn, org_id, payer_org_id):
             .where(func.coalesce(ledger.c.billing_org_id, ledger.c.org_id) == org_id)).scalar() or 0
         if own != 0:
             return {"error": "company_has_credits"}
+        import _seats
+        over = _seats.check_link(conn, org_id, payer_org_id)
+        if over:
+            return over
     conn.execute(orgs.update().where(orgs.c.id == org_id).values(billing_org_id=payer_org_id))
     # A cap belongs to whoever set it as payer: a new payer (or none) starts
     # clean, and re-linking to the old payer later doesn't resurrect it.
@@ -3309,6 +3328,11 @@ def create_organization(user_id, name):
     with engine.begin() as conn:
         primary = _primary_org_id(conn, user_id)
         payer = _payer_org_id(conn, primary) if primary is not None else None
+        if payer is not None:
+            import _seats
+            over = _seats.check_new_company(conn, payer)
+            if over:
+                return over
         result = conn.execute(
             orgs.insert().values(name=name, owner_user_id=user_id, plan="free",
                                  billing_org_id=payer, created_at=now)
@@ -3579,6 +3603,10 @@ def add_org_member(org_id, actor_user_id, target_email, role="member"):
         ).first()
         if existing:
             return {"error": "already_a_member"}
+        import _seats
+        over = _seats.check_new_seat(conn, org_id, user_id=target["id"], role=role)
+        if over:
+            return over
         conn.execute(
             members.insert().values(org_id=org_id, user_id=target["id"], role=role, created_at=now)
         )
@@ -3638,6 +3666,11 @@ def update_org_member_role(org_id, actor_user_id, target_user_id, role):
             return {"error": "not_a_member"}
         if current_role == "owner" and role != "owner" and _count_owners(org_id, conn) <= 1:
             return {"error": "cannot_demote_last_owner"}
+        import _seats
+        if current_role in _seats.FREE_ROLES and role not in _seats.FREE_ROLES:
+            over = _seats.check_new_seat(conn, org_id, user_id=target_user_id, role=role)
+            if over:
+                return over
         conn.execute(
             members.update()
             .where(members.c.org_id == org_id, members.c.user_id == target_user_id)
@@ -3713,6 +3746,10 @@ def create_or_resend_org_invite(org_id, actor_user_id, target_email, role="membe
         ).first()
         if already_member:
             return {"error": "already_a_member"}
+        import _seats
+        over = _seats.check_new_seat(conn, org_id, email=email, role=role)
+        if over:
+            return over
         pending = conn.execute(
             select(invites.c.id)
             .where(invites.c.org_id == org_id, invites.c.email == email, invites.c.status == "pending")
@@ -3850,6 +3887,13 @@ def accept_org_invite(token, accepting_user_id):
             select(members.c.id).where(members.c.org_id == row["org_id"], members.c.user_id == accepting_user_id)
         ).first()
         if existing is None:
+            # Normally the invite already held this seat; re-checked because the
+            # account may have shrunk since (a downgrade). Stays pending if so.
+            import _seats
+            over = _seats.check_new_seat(conn, row["org_id"], user_id=accepting_user_id, email=row["email"],
+                                         role=row["role"], ignore_invite_email=row["email"])
+            if over:
+                return over
             conn.execute(
                 members.insert().values(
                     org_id=row["org_id"], user_id=accepting_user_id, role=row["role"], created_at=_now()

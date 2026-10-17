@@ -34,6 +34,7 @@ import _pricing  # noqa: E402
 import _gst  # noqa: E402
 import _invoice_pdf  # noqa: E402
 import _subscriptions  # noqa: E402
+import _seats  # noqa: E402
 import _assisted_sale  # noqa: E402
 import _trial  # noqa: E402
 import _signals_data  # noqa: E402
@@ -590,6 +591,8 @@ def get_subscription(user_id):
         # A plan PaisaMap set up directly (invoice/NEFT): shown as "managed by PaisaMap until ...".
         "assisted": _assisted_sale.public_view(_assisted_sale.active_for_org(payer)) if ready else None,
         "subscription": _subscriptions.public_view(_subscriptions.get_latest(payer)) if ready else None,
+        # P5: seats / companies used vs the tier's limit (+ bought extras); None when not limited.
+        "limits": _seats.view_for(payer),
         # `kind` splits the signal-only plans (P7) from the dashboard ones; with a
         # live subscription, `upgrade` marks the plans it can move up to now.
         "options": [{"tier": t, "label": _pricing.TIERS[t]["label"],

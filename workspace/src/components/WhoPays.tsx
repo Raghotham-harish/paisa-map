@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, BillingLink, IncomingLinkRequest, OutgoingLinkRequest, api } from "../lib/api";
 import { UsageStatement } from "./UsageStatement";
+import { limitMessage } from "../lib/limits";
 
 const STATUS_LABEL: Record<OutgoingLinkRequest["status"], string> = {
   pending: "Waiting for an answer",
@@ -20,7 +21,8 @@ const LINK_ERRORS: Record<string, string> = {
   forbidden: "Only the owner of a company can link it.",
 };
 const linkError = (e: unknown) =>
-  e instanceof ApiError && LINK_ERRORS[e.body?.error] ? LINK_ERRORS[e.body.error] : "Something went wrong — try again.";
+  limitMessage(e) ??
+  (e instanceof ApiError && LINK_ERRORS[e.body?.error] ? LINK_ERRORS[e.body.error] : "Something went wrong — try again.");
 
 /** Requests from a company that wants to pay for yours — shown to whoever the request was addressed to. */
 export function LinkRequestsInbox({ onChanged }: { onChanged?: () => void }) {
