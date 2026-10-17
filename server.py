@@ -102,6 +102,7 @@ def _mirror_to_static():
 # it registers. Pull the names in locally so every existing reference below
 # (EXPORT_CORE_FIELDS, EXPORT_ALL_COLUMNS, etc.) keeps working unchanged.
 from _signals_data import (EXPORT_CORE_FIELDS, EXPORT_ALL_COLUMNS, columns_for_plan,
+                            attributions_for as _attributions_for,
                             haversine_km as _haversine_km, coerce as _coerce,
                             load_ppi_signals_rows as _load_ppi_signals_rows)
 from pincode_master import validate_pincode
@@ -630,6 +631,9 @@ def api_export():
         base_name  = "paisamap_ppi_signals"
 
     filename = f"{base_name}_{ts}.{fmt}"
+    # CC BY sources (GDP) must travel with the data: JSON field, CSV response
+    # header (a comment line would break CSV parsers), xlsx Metadata sheet.
+    attribution = _attributions_for(columns)
 
     # Phase D4: audit trail for the actual data-access surface — who exported
     # what, when. Attributed via X-API-Key/session if either is present (see
@@ -645,6 +649,7 @@ def api_export():
             "dataset":      dataset,
             "source":       source,
             "count":        len(rows),
+            "attribution":  attribution,
             "rows":         [{k: _coerce(v) for k, v in r.items() if k in columns} for r in rows],
         }, indent=2)
         return payload, 200, {
@@ -659,11 +664,14 @@ def api_export():
         w.writeheader()
         for r in rows:
             w.writerow(r)
-        return buf.getvalue(), 200, {
+        headers = {
             "Content-Type":        "text/csv",
             "Content-Disposition": f"attachment; filename={filename}",
             "X-Data-Source":       source,
         }
+        if attribution:
+            headers["X-Data-Attribution"] = " | ".join(attribution)
+        return buf.getvalue(), 200, headers
 
     # xlsx
     try:
@@ -691,6 +699,8 @@ def api_export():
     meta.append(["Data read from", "PostgreSQL" if source == "database" else "CSV"])
     meta.append(["About", "PaisaMap — pan-India PPI model + government/open data signals"])
     meta.append(["Note", "Modelled estimates, not real transaction records — see in-app disclaimer."])
+    for a in attribution:
+        meta.append(["Attribution", a])
 
     out = io.BytesIO()
     wb.save(out)

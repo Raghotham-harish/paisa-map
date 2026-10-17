@@ -1152,6 +1152,7 @@
       <i style="background:#27AE60"></i><i style="background:#1A7A4A"></i>
     </div>
     <div class="ticks" id="denomTicks"><span>50</span><span>70</span><span>85</span><span>100</span><span>120</span><span>145+</span></div>
+    <div id="denomAttr" hidden style="font-size:9px;line-height:1.3;color:var(--ink-soft);margin-top:4px"></div>
   </div>
   <!-- Top-right floating cluster: Signals + Coverage radar, sitting immediately left of
        Leaflet's own basemap/layers switcher (also top-right, its default corner position —
@@ -1379,6 +1380,12 @@ const fmtINR = n => "₹" + Math.round(n).toLocaleString("en-IN");
 function esc(s){
   return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
+// Crore format for very large rupee values (GDP /km² runs to ₹1 lakh crore).
+const fmtCr = n => n >= 1e7 ? "₹" + (n/1e7).toLocaleString("en-IN", {maximumFractionDigits: n >= 1e9 ? 0 : 1}) + " Cr"
+                            : fmtINR(n);
+// A signal cell -> number, or NaN when it's missing. The export sends a blank
+// as null, and +null is 0 — a missing value must never read as a real zero.
+const sigNum = v => (v === null || v === undefined || v === "") ? NaN : +v;
 const fmtShort = n => n >= 100000 ? "₹" + (n/100000).toFixed(1).replace(/\.0$/,"") + "L"
                                   : "₹" + Math.round(n/1000) + "k";
 
@@ -1399,6 +1406,8 @@ const fmtShort = n => n >= 100000 ? "₹" + (n/100000).toFixed(1).replace(/\.0$/
 //   a raw, un-normalized count of things                   → symbol (size = the count)
 // OSM-derived signals (premium POI density, SFB/co-op/RRB branch counts,
 // fin. density) were removed — ODbL, not sold (_signals_data.OSM_COLUMNS).
+const GDP_NOTE = "Modelled estimate: a district-level GDP per capita spread by population. Not an official statistic.";
+const GDP_ATTRIBUTION = "GDP estimates: Kummu, Kosonen & Masoumzadeh Sayyar (2025), Aalto University, CC BY 4.0, modified (summed to PIN polygons).";
 const SIGNAL_GROUPS = [
   { label:"Property", pro:false, cols:[
     {id:"rate_per_sqft", label:"Property rate /sqft (est., city-level)", fmt:v=>fmtINR(v), viz:"choropleth"},
@@ -1430,6 +1439,16 @@ const SIGNAL_GROUPS = [
   // MPCE, not the calibrated multi-model PPI. Not Pro — this is a coverage
   // floor, not a premium tier. The RBI branch count and the PhonePe live-site
   // grid were removed from this public layer (licensing — docs/DATA_LICENSING.md).
+  // Modelled, not a statistic (Kummu et al. 2025, CC BY 4.0): a district GDP
+  // per capita spread by population, summed on PIN polygons. Display only —
+  // kept out of the suitability preview (c.modelled), same as the server keeps
+  // it out of drivers. Blank pincodes stay blank, never 0.
+  { label:"Economy (modelled)", pro:false, cols:[
+    {id:"gdp_per_capita", label:"GDP per capita (est., modelled)", fmt:v=>fmtINR(v), viz:"choropleth", modelled:true,
+     note:GDP_NOTE, source:GDP_ATTRIBUTION},
+    {id:"gdp_per_km2",    label:"GDP /km² (est., modelled)",       fmt:v=>fmtCr(v),  viz:"heatmap",    modelled:true,
+     note:GDP_NOTE, source:GDP_ATTRIBUTION},
+  ]},
   { label:"Nationwide coverage", pro:false, cols:[
     {id:"mpce_combined",        label:"Household spend (MPCE)",fmt:v=>fmtINR(v),    viz:"choropleth"},
     {id:"hces_ppi",             label:"HCES spend index (0-100)", fmt:v=>v.toFixed(1), viz:"choropleth"},
@@ -1448,7 +1467,7 @@ const CATEGORY_ICONS = {
   "All":"ti-apps", "Core":"ti-chart-histogram", "Property":"ti-building",
   "Banking & UPI":"ti-building-bank", "Tax & economy":"ti-receipt-tax",
   "Infrastructure":"ti-bulb", "Vehicles":"ti-car",
-  "Nationwide coverage":"ti-world",
+  "Nationwide coverage":"ti-world", "Economy (modelled)":"ti-chart-line",
 };
 
 // pincode → joined raw-signal row, loaded once from /api/export (json, all columns)
@@ -1479,11 +1498,12 @@ function refreshSuitabilityPreview(){
 // across signalMap, average, squash to 0-100, then blend the avg_ticket /
 // spend affordability term exactly as intelligence.opportunity_assessment does.
 function computeSuitabilityPreview(cfg){
-  const cols = ["ppi_ml"].concat((cfg.signals || []).filter(c => c && c !== "ppi_ml" && c !== "__suitability__"));
+  const cols = ["ppi_ml"].concat((cfg.signals || []).filter(c => c && c !== "ppi_ml" && c !== "__suitability__"
+                                                          && !(SIGNAL_DEFS[c] && SIGNAL_DEFS[c].modelled)));
   const stats = {};
   cols.forEach(col => {
     const vals = [];
-    for(const pc in signalMap){ const v = +signalMap[pc][col]; if(Number.isFinite(v)) vals.push(v); }
+    for(const pc in signalMap){ const v = sigNum(signalMap[pc][col]); if(Number.isFinite(v)) vals.push(v); }
     if(vals.length < 2) return;
     const mean = vals.reduce((s,x)=>s+x,0) / vals.length;
     const sd = Math.sqrt(vals.reduce((s,x)=>s+(x-mean)*(x-mean),0) / vals.length) || 1;
@@ -1496,7 +1516,7 @@ function computeSuitabilityPreview(cfg){
     const zs = [];
     cols.forEach(col => {
       const st = stats[col]; if(!st) return;
-      const v = +row[col]; if(!Number.isFinite(v)) return;
+      const v = sigNum(row[col]); if(!Number.isFinite(v)) return;
       zs.push((v - st.mean) / st.sd);
     });
     if(!zs.length) continue;
@@ -2545,6 +2565,15 @@ function updateLegend(){
   const strip = document.getElementById("denomStrip");
   const paint = arr => { strip.innerHTML = arr.map(c=>`<i style="background:${c}"></i>`).join(""); };
   const sub = txt => { const el = document.getElementById("denomSub"); if(el) el.textContent = txt; };
+  // Licence attribution + "modelled" tooltip for signals that need one (GDP).
+  const sigForAttr = SIGNAL_DEFS[metric];
+  const attrEl = document.getElementById("denomAttr");
+  if(attrEl){
+    attrEl.hidden = !(sigForAttr && sigForAttr.source);
+    attrEl.textContent = sigForAttr && sigForAttr.source ? sigForAttr.source : "";
+    attrEl.title = sigForAttr && sigForAttr.note ? sigForAttr.note : "";
+  }
+  document.getElementById("denomLabel").title = sigForAttr && sigForAttr.note ? sigForAttr.note : "";
 
   if(metric === "__suitability__"){
     document.getElementById("denomLabel").textContent =
@@ -2558,7 +2587,7 @@ function updateLegend(){
 
   const sig = SIGNAL_DEFS[metric];
   document.getElementById("denomLabel").textContent = sig ? sig.label : labels[metric];
-  sub("fades with distance from your pin");
+  sub(sig && sig.modelled ? "est., modelled · not official" : "fades with distance from your pin");
   if(sig){
     paint(signalPalette());
     const ticks = [];
@@ -2680,7 +2709,7 @@ function signalValue(d, sigId){
   if(sigId === "spend")  return d.spend;
   if(sigId === "ppi")    return d.ppi;
   const row = d.pincode && signalMap[d.pincode];
-  const v = row ? +row[sigId] : NaN;
+  const v = row ? sigNum(row[sigId]) : NaN;
   return Number.isFinite(v) ? v : NaN;
 }
 function metricValue(d){
@@ -3178,7 +3207,7 @@ function popupHTML(d, rows){
   // pincode actually has a real value for.
   if(d.isBroadOnly){
     const sigRow = d.pincode && signalMap[d.pincode];
-    const broadVals = [...BROAD_SIGNAL_IDS].map(id => ({id, v: sigRow ? +sigRow[id] : NaN}))
+    const broadVals = [...BROAD_SIGNAL_IDS].map(id => ({id, v: sigRow ? sigNum(sigRow[id]) : NaN}))
       .filter(s => Number.isFinite(s.v));
     const primary = broadVals.find(s => s.id === metric) || broadVals[0];
     const rest = broadVals.filter(s => s !== primary);
@@ -4069,6 +4098,7 @@ function selectSignalMetric(sigId, label){
     "Tax & economy":   "#9A6B12",
     "Infrastructure":  "#C2650C",
     "Vehicles":        "#2E7D6B",
+    "Economy (modelled)": "#7A5C2E",
   };
   function swatchFor(c){
     return {
@@ -4120,7 +4150,8 @@ function selectSignalMetric(sigId, label){
             ${signalBadge(c)}
           </div>
           <div class="catalog-card-meta">${c.group}</div>
-          <div class="catalog-card-desc">${coverageText}</div>
+          <div class="catalog-card-desc"${c.note ? ` title="${esc(c.note)}"` : ""}>${coverageText}${c.note ? " · ⓘ modelled" : ""}</div>
+          ${c.source ? `<div class="catalog-card-meta" style="font-size:10px;text-transform:none;letter-spacing:0">${esc(c.source)}</div>` : ""}
           <div class="catalog-card-actions">
             <span class="catalog-card-coverage">${total ? Math.round(have/total*100)+"% coverage" : ""}</span>
             <button type="button" class="catalog-card-use">${locked ? "🔒 Upgrade" : "Use on map"}</button>

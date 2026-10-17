@@ -81,7 +81,10 @@ def _compute_drivers(locations, rows_by_pincode):
         return {"sufficient_data": False, "sample_size": sample_size,
                 "min_samples_required": DRIVER_MIN_SAMPLES, "drivers": []}
 
-    candidate_columns = ["ppi_ml"] + [c for _, cols in _signals_data.EXPORT_SIGNAL_FILES for c in cols]
+    # Modelled estimates (GDP) are display-only: never a driver, so never part
+    # of the suitability/combined score either.
+    candidate_columns = ["ppi_ml"] + [c for _, cols in _signals_data.EXPORT_SIGNAL_FILES for c in cols
+                                      if c not in _signals_data.MODELLED_COLUMNS]
     scored = []
     for col in candidate_columns:
         pairs = []
