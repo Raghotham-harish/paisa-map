@@ -603,7 +603,10 @@ def get_subscription(user_id):
                      "list_paise": _pricing.subscription_list_paise(t), "amount_paise": _sub_amount(t),
                      "credits_per_month": _pricing.TIERS[t]["credits_per_month"], "seats": _pricing.TIERS[t]["seats"],
                      "kind": "signals" if _pricing.is_signal_tier(t) else "dashboard",
-                     "signal_count": len(_signals_data.allowed_signals(_pricing.plan_id_v2(t))),
+                     # Beyond what a free account already sees, so the copy never
+                     # advertises the free property-rate estimate as a paid extra.
+                     "signal_count": len(_signals_data.allowed_signals(_pricing.plan_id_v2(t))
+                                         - _signals_data.allowed_signals("free")),
                      "upgrade": _is_upgrade(live, t)}
                     for t in _pricing.TIERS if _offered(t)],
         # P4: may this person start the no-card free trial for this company, and the

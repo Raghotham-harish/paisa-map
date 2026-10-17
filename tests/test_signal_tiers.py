@@ -122,28 +122,29 @@ check(_plan_mapping.propose_tier("pro") == "growth" and _plan_mapping.propose_ti
 # ═════════════════════════════════════════════════════════════════════════════
 # 2. _signals_data allow-list
 # ═════════════════════════════════════════════════════════════════════════════
-check(LITE_SIGNALS < ALL and len(LITE_SIGNALS) == 9, "Lite's 9 signals are all real, served signals")
+check(LITE_SIGNALS < ALL and len(LITE_SIGNALS) == 10, "Lite's 10 signals are all real, served signals")
 check("rate_per_sqft" in ALL and "cars_per_1000" not in ALL, "signal columns = the export's (no duplicate alias)")
 flag(False)
 check(SD.allowed_signals("free") == ALL - SD.PRO_COLUMNS == {"rate_per_sqft"}, "flag off: free sees the non-Pro signal, as before")
 check(SD.allowed_signals("pro") == ALL and SD.allowed_signals(P.plan_id_v2("growth")) == ALL, "flag off: paid sees all")
 check(SD.allowed_signals(LITE) == {"rate_per_sqft"}, "flag off: a Lite plan is worth nothing extra (so it isn't sold)")
 flag(True)
-check(SD.allowed_signals("free") == frozenset() and SD.allowed_signals("junk") == frozenset(), "flag on: free = core only")
-check(SD.allowed_signals(LITE) == LITE_SIGNALS, "flag on: Lite = its list")
-check("rate_per_sqft" not in SD.allowed_signals(LITE), "flag on: property rate is a Signals Pro signal")
+check(SD.allowed_signals("free") == {"rate_per_sqft"} and SD.allowed_signals("junk") == {"rate_per_sqft"}, "flag on: free = core + the free property-rate estimate")
+check(SD.allowed_signals(LITE) == LITE_SIGNALS | {"rate_per_sqft"}, "flag on: Lite = its list + free signals")
+check("rate_per_sqft" in SD.allowed_signals(LITE), "flag on: property rate is free, so Lite sees it too")
 for p in (SPRO, "pro", "team", P.plan_id_v2("trial"), P.plan_id_v2("starter"), P.plan_id_v2("enterprise")):
     check(SD.allowed_signals(p) == ALL, f"flag on: {p} sees every signal")
 cols = SD.EXPORT_ALL_COLUMNS
 kept = SD.columns_for_plan(cols, "free")
-check(set(kept) == set(SD.EXPORT_CORE_FIELDS), "flag on: free export = identity + PPI/income/spend only")
-check(set(SD.columns_for_plan(cols, LITE)) == set(SD.EXPORT_CORE_FIELDS) | LITE_SIGNALS, "flag on: Lite export")
+check(set(kept) == set(SD.EXPORT_CORE_FIELDS) | {"rate_per_sqft"}, "flag on: free export = identity + PPI/income/spend + property-rate estimate")
+check(set(SD.columns_for_plan(cols, LITE)) == set(SD.EXPORT_CORE_FIELDS) | LITE_SIGNALS | {"rate_per_sqft"}, "flag on: Lite export")
 check(SD.columns_for_plan(cols, SPRO) == cols, "flag on: Signals Pro export = everything")
 check(SD.columns_for_plan(["pincode", "bogus_col"], "free") == ["pincode", "bogus_col"],
       "non-signal columns are not this filter's business")
 check({SD.signal_tier_of(c) for c in P.CORE_SIGNALS} == {"core"}, "tier_of: core")
 check({SD.signal_tier_of(c) for c in LITE_SIGNALS} == {"lite"}, "tier_of: lite")
-check(SD.signal_tier_of("rate_per_sqft") == "pro" and SD.signal_tier_of("ev_share") == "pro", "tier_of: pro")
+check(SD.signal_tier_of("rate_per_sqft") == "free", "tier_of: free")
+check(SD.signal_tier_of("ev_share") == "pro", "tier_of: pro")
 flag(False)
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -218,14 +219,14 @@ expect(free_u, {"rate_per_sqft"}, "flag off, free")
 expect(dash_u, ALL, "flag off, Growth")
 check(catalog(None)["access"]["enforced"] is False, "catalog says the tiers are off")
 flag(True)
-expect(None, set(), "flag on, anonymous")
-expect(free_u, set(), "flag on, free")
-expect(lite_u, LITE_SIGNALS, "flag on, Signals Lite")
+expect(None, {"rate_per_sqft"}, "flag on, anonymous")
+expect(free_u, {"rate_per_sqft"}, "flag on, free")
+expect(lite_u, LITE_SIGNALS | {"rate_per_sqft"}, "flag on, Signals Lite")
 expect(spro_u, ALL, "flag on, Signals Pro")
 expect(dash_u, ALL, "flag on, Growth")
 cat = catalog(lite_u)
 check(cat["access"]["enforced"] is True and cat["access"]["plan_label"] == "Signals Lite", "catalog names the plan")
-check({s["key"]: s["tier"] for s in cat["signals"]}["rate_per_sqft"] == "pro", "catalog tier for property rate")
+check({s["key"]: s["tier"] for s in cat["signals"]}["rate_per_sqft"] == "free", "catalog tier for property rate")
 m = me(lite_u)
 check(m["plan"] == "free" and m["user"]["tier_label"] == "Signals Lite", "/me: no Pro pill, but the plan's own name")
 # Explicitly asking for a column the plan lacks still gets it stripped.
@@ -303,7 +304,7 @@ check(FakeRP.sub_creates == 0, "...without contacting Razorpay")
 flag(True)
 opts = options(buy_u)
 check(opts["signals_lite"]["kind"] == "signals" and opts["growth"]["kind"] == "dashboard", "flag on: offered, with kind")
-check(opts["signals_lite"]["signal_count"] == 9 and opts["signals_pro"]["signal_count"] == len(ALL), "signal counts")
+check(opts["signals_lite"]["signal_count"] == 10 and opts["signals_pro"]["signal_count"] == len(ALL) - 1, "signal counts (beyond the free property rate)")
 check(not any(o["upgrade"] for o in opts.values()), "no live plan: nothing is an 'upgrade'")
 
 # Buy Signals Lite and have it charged.
@@ -315,7 +316,7 @@ period_end = datetime.now(UTC) + timedelta(days=30)
 res = S.apply_charge(sid_lite, "pay_lite_1", 20_000, current_start=datetime.now(UTC), current_end=period_end,
                      paid_count=1)
 check(res["newly_paid"] and plan_of(buy_o) == LITE, "charged: the company is on Signals Lite")
-check(set(me(buy_u)["user"]["signals"]["allowed"]) == LITE_SIGNALS, "and sees the Lite signals")
+check(set(me(buy_u)["user"]["signals"]["allowed"]) == LITE_SIGNALS | {"rate_per_sqft"}, "and sees the Lite signals")
 check(_trial.unavailable(buy_o, buy_u) == "trial_used", "a company that has paid (even Rs 200) gets no trial")
 
 # What it may move to.

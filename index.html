@@ -1400,7 +1400,7 @@ const fmtShort = n => n >= 100000 ? "₹" + (n/100000).toFixed(1).replace(/\.0$/
 // fin. density) were removed — ODbL, not sold (_signals_data.OSM_COLUMNS).
 const SIGNAL_GROUPS = [
   { label:"Property", pro:false, cols:[
-    {id:"rate_per_sqft", label:"Property rate /sqft", fmt:v=>fmtINR(v), viz:"choropleth"},
+    {id:"rate_per_sqft", label:"Property rate /sqft (est., city-level)", fmt:v=>fmtINR(v), viz:"choropleth"},
   ]},
   { label:"Banking & UPI", pro:true, cols:[
     {id:"bank_branches_per_lakh",     label:"Bank branches /lakh",   fmt:v=>v.toFixed(1), viz:"heatmap"},
@@ -3272,7 +3272,7 @@ document.querySelectorAll("#metricSeg button").forEach(b=>{
 // and free-plan accounts both see "free" — this is a live behavior change from the prior
 // hardcoded userPlan="pro": previously-unlocked Pro rows are now genuinely locked.
 let userPlan = "free"; // "free" | "pro" | "team"
-let signalAccess = null;   // P7, see loadSignalAccess(): {enforced, planLabel, locked:Set, tier:{id:"core"|"lite"|"pro"}}
+let signalAccess = null;   // P7, see loadSignalAccess(): {enforced, planLabel, locked:Set, tier:{id:"core"|"free"|"lite"|"pro"}}
 function isProPlan(){ return userPlan === "pro" || userPlan === "team"; }
 function renderPlanPill(){
   // A signal-only plan reads as "free" for the dashboard but has its own name.
