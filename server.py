@@ -254,6 +254,12 @@ def _log_unhandled(exc):
     from werkzeug.exceptions import HTTPException
     if isinstance(exc, HTTPException):
         return exc
+    # P5: a viewer (free, read-only seat) tried to write or spend in a company.
+    # Raised by _auth_db's write functions; an expected refusal, not a crash.
+    if type(exc).__name__ == "ReadOnlyRole":
+        return jsonify({"error": "read_only",
+                        "message": "Viewers can look but not change anything or spend credits. "
+                                   "Ask an owner or admin to make you a member."}), 403
     if _ops is not None:
         _ops.incr("unhandled_exceptions")
         _ops.capture_exception(exc)

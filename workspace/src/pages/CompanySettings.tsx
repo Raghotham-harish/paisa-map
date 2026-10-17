@@ -23,7 +23,9 @@ function auditDetail(entry: AuditLogEntry): string | null {
   return null;
 }
 
-const ROLE_OPTIONS: OrgRole[] = ["owner", "admin", "member"];
+const ROLE_OPTIONS: OrgRole[] = ["owner", "admin", "member", "viewer"];
+// Viewers are free: they don't use a seat, but can't change anything or spend credits.
+const roleLabel = (r: OrgRole) => (r === "viewer" ? "Viewer (free, read-only)" : r[0].toUpperCase() + r.slice(1));
 
 const ADD_MEMBER_ERRORS: Record<string, string> = {
   already_a_member: "They're already a member of this company.",
@@ -281,7 +283,7 @@ export default function CompanySettings() {
                     isOwner ? (
                       <>
                         <select value={m.role} onChange={(e) => onChangeRole(m.user_id, e.target.value as OrgRole)}>
-                          {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r[0].toUpperCase() + r.slice(1)}</option>)}
+                          {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
                         </select>
                         <button className="btn secondary" onClick={() => onRemoveMember(m)}>Remove</button>
                       </>
@@ -305,7 +307,7 @@ export default function CompanySettings() {
               <label style={{ flex: "0 0 140px" }}>
                 Role
                 <select value={newRole} onChange={(e) => setNewRole(e.target.value as OrgRole)}>
-                  {ROLE_OPTIONS.filter((r) => r !== "owner").map((r) => <option key={r} value={r}>{r[0].toUpperCase() + r.slice(1)}</option>)}
+                  {ROLE_OPTIONS.filter((r) => r !== "owner").map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
                 </select>
               </label>
               <button className="btn" disabled={adding || !newEmail.trim()} onClick={onAddMember}>

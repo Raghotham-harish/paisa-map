@@ -107,7 +107,7 @@ def _get_tables():
         Column("role", Text, nullable=False, server_default="member"),
         Column("created_at", DateTime(timezone=True), nullable=False),
         UniqueConstraint("org_id", "user_id", name="uq_org_members_org_user"),
-        CheckConstraint("role IN ('owner','admin','member')", name="ck_org_members_role"),
+        CheckConstraint("role IN ('owner','admin','member','viewer')", name="ck_org_members_role"),
     )
 
     # Phase D1: invites for an email with no PaisaMap account yet. A known
@@ -126,7 +126,7 @@ def _get_tables():
         Column("expires_at", DateTime(timezone=True), nullable=False),
         Column("accepted_by_user_id", Integer, ForeignKey("users.id", ondelete="SET NULL")),
         Column("responded_at", DateTime(timezone=True)),
-        CheckConstraint("role IN ('owner','admin','member')", name="ck_org_invites_role"),
+        CheckConstraint("role IN ('owner','admin','member','viewer')", name="ck_org_invites_role"),
         CheckConstraint("status IN ('pending','accepted','declined','revoked')", name="ck_org_invites_status"),
     )
 
@@ -2753,6 +2753,8 @@ def _spend_credits_tx(user_id, amount, reason, ref_type=None, ref_id=None, org_i
     ledger = tables["credits_ledger"]
     from sqlalchemy import select
     with engine.begin() as conn:
+        # A viewer never spends a company's credits (pricing decision #10).
+        _deny_viewer_org(org_id, user_id, conn)
         oid = org_id if org_id is not None else _primary_org_id(conn, user_id)
         wallet = _payer_org_id(conn, oid)
         if billing_scope() == "wallet" and wallet is not None:
@@ -3309,7 +3311,34 @@ def get_user_by_email(email):
 # (credits_ledger, customer_uploads, customer_locations, oauth_connections)
 # stay NULL until that later cutover actually writes to them.
 
-ORG_ROLES = ("owner", "admin", "member")
+# P5 round 2: 'viewer' is a free, read-only seat (pricing decision #10): sees the
+# company's projects, locations and reports, but can't create or change them,
+# spend the company's credits, or hold a company API key.
+ORG_ROLES = ("owner", "admin", "member", "viewer")
+READ_ONLY_ROLES = ("viewer",)
+
+
+class ReadOnlyRole(Exception):
+    """A viewer tried to write or spend in a company. server.py turns it into
+    403 {"error": "read_only"}; raised from the data layer so every route that
+    writes through these functions is covered, including future ones."""
+
+
+def _deny_viewer_org(org_id, user_id, conn=None):
+    if org_id is None:
+        return
+    role = _role_in(conn, org_id, user_id) if conn is not None else get_org_role(org_id, user_id)
+    if role in READ_ONLY_ROLES:
+        raise ReadOnlyRole()
+
+
+def _deny_viewer_project(project, user_id):
+    """`project` is a row/dict or an id. Only a company role can be 'viewer';
+    a project's creator is always owner-tier (see _project_role)."""
+    if project is not None and not isinstance(project, dict):
+        project = _load_project_row(project)
+    if _project_role(project, user_id) in READ_ONLY_ROLES:
+        raise ReadOnlyRole()
 
 
 def create_organization(user_id, name):
@@ -4036,6 +4065,7 @@ def create_project(user_id, name, description=None, org_id=None, **fields):
     projects = tables["projects"]
     if org_id is not None and get_org_role(org_id, user_id) is None:
         org_id = None
+    _deny_viewer_org(org_id, user_id)
     if org_id is None:
         from sqlalchemy import select
         with engine.connect() as conn:
@@ -4145,6 +4175,7 @@ def update_project(project_id, user_id, **fields):
     project = _load_project_row(project_id)
     if _project_role(project, user_id) is None:
         return None
+    _deny_viewer_project(project, user_id)
     allowed = {k: v for k, v in fields.items() if k in PROJECT_EDITABLE_FIELDS and v is not None}
     if not allowed:
         return get_project(project_id, user_id)
@@ -4181,6 +4212,7 @@ def _set_project_archived(project_id, user_id, archived):
     project = _load_project_row(project_id)
     if _project_role(project, user_id) is None:
         return None
+    _deny_viewer_project(project, user_id)
     engine = _require_engine()
     tables = _get_tables()
     projects = tables["projects"]
@@ -4282,6 +4314,7 @@ def create_saved_location(user_id, project_id, pincode, name=None, lat=None, lng
     """Upsert-like: a repeat save of the same (project_id, pincode) — the
     existing unique constraint — returns the existing row unchanged instead of
     raising, so re-clicking Save on the map is idempotent rather than an error."""
+    _deny_viewer_project(project_id, user_id)
     engine = _require_engine()
     tables = _get_tables()
     locs = tables["saved_locations"]
@@ -4374,6 +4407,7 @@ def update_saved_location(location_id, user_id, **fields):
     current = get_saved_location(location_id, user_id)
     if current is None:
         return None
+    _deny_viewer_project(current.get("project_id"), user_id)
     allowed = {k: v for k, v in fields.items() if k in LOCATION_EDITABLE_FIELDS and v is not None}
     if not allowed:
         return current
@@ -4483,6 +4517,8 @@ def list_reports(user_id):
 
 def create_report(user_id, project_id, title, format="pdf", status="pending",
                    file_path=None, params=None):
+    if project_id is not None:
+        _deny_viewer_project(project_id, user_id)
     engine = _require_engine()
     tables = _get_tables()
     reports = tables["reports"]
@@ -4545,8 +4581,11 @@ def set_report_share_token(report_id, user_id, token):
     (share_report/unshare_report) assign it straight to a `report` they then
     jsonify — /api/reports/<id>/share and .../unshare had always responded
     with {"report": null}, a real client-visible bug this touched anyway."""
-    if get_report(report_id, user_id) is None:
+    report = get_report(report_id, user_id)
+    if report is None:
         return None
+    if report.get("project_id") is not None:
+        _deny_viewer_project(report["project_id"], user_id)
     engine = _require_engine()
     tables = _get_tables()
     reports = tables["reports"]
@@ -4576,6 +4615,7 @@ def create_customer_upload(user_id, project_id, filename, format, headers, raw_r
     is shared across a company's projects (unlike connections, kept
     per-project — see the Organizations section for why these two data
     types ended up with different sharing rules)."""
+    _deny_viewer_project(project_id, user_id)
     engine = _require_engine()
     tables = _get_tables()
     uploads = tables["customer_uploads"]
@@ -4648,6 +4688,7 @@ def update_customer_upload(upload_id, user_id, **fields):
     current = get_customer_upload(upload_id, user_id)
     if current is None:
         return None
+    _deny_viewer_project(current.get("project_id"), user_id)
     allowed = {k: v for k, v in fields.items() if v is not None}
     if not allowed:
         return current
@@ -4694,6 +4735,7 @@ def create_customer_locations_bulk(user_id, project_id, upload_id, rows):
     existed, kept there until a separate, explicitly-approved backfill."""
     if not rows:
         return 0
+    _deny_viewer_project(project_id, user_id)
     import _customer_data_crypto as _cdc
     engine = _require_engine()
     tables = _get_tables()
@@ -4954,6 +4996,7 @@ def upsert_oauth_connection(project_id, user_id, provider, external_account_emai
     project's selection row so it immediately uses the connection it just
     created — connecting always makes it your active choice for this
     provider, even if you were previously using a company teammate's."""
+    _deny_viewer_project(project_id, user_id)
     engine = _require_engine()
     tables = _get_tables()
     conns = tables["oauth_connections"]
@@ -5071,6 +5114,7 @@ def select_org_connection_for_project(project_id, user_id, provider, oauth_conne
     project = get_project(project_id, user_id)
     if project is None or project.get("org_id") is None:
         return None
+    _deny_viewer_project(project_id, user_id)
     engine = _require_engine()
     tables = _get_tables()
     conns = tables["oauth_connections"]
@@ -5235,8 +5279,11 @@ def resolve_api_key_company(user_id, org_id=None):
                 return None, {"error": "no_company"}
         elif not isinstance(org_id, int) or isinstance(org_id, bool):
             return None, {"error": "invalid_company"}
-        if _role_in(conn, org_id, user_id) is None:
+        role = _role_in(conn, org_id, user_id)
+        if role is None:
             return None, {"error": "not_found"}
+        if role in READ_ONLY_ROLES:
+            return None, {"error": "read_only"}
     return org_id, None
 
 

@@ -2,7 +2,7 @@ import { ApiError } from "./api";
 
 const rupees = (paise: number) => `₹${Math.round(paise / 100).toLocaleString("en-IN")}`;
 
-/** P5: plain-language text for a 402 seat_limit / company_limit refusal, or
+/** P5: plain-language text for a 402 seat_limit / company_limit or 403 read_only refusal, or
  *  null for any other error. Seats are counted across the whole paying
  *  account, and a pending invite holds one until it's accepted or cancelled. */
 export function limitMessage(e: unknown): string | null {
@@ -12,6 +12,9 @@ export function limitMessage(e: unknown): string | null {
   if (b.error === "seat_limit") {
     const over = typeof b.would_use === "number" ? ` Linking it would bring that to ${b.would_use}.` : "";
     return `Your plan includes ${b.limit} seat${b.limit === 1 ? "" : "s"} across your account and ${b.used} are in use (pending invites hold a seat).${over} Remove someone, cancel an invite, move up a plan${extra}.`;
+  }
+  if (b.error === "read_only") {
+    return "You're a viewer in this company: you can look, but not change anything or spend credits. Ask an owner or admin to make you a member.";
   }
   if (b.error === "company_limit") {
     return `Your plan includes ${b.limit} compan${b.limit === 1 ? "y" : "ies"} and you have ${b.used}. Move up a plan${extra}.`;
