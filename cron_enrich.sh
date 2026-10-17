@@ -105,7 +105,9 @@ if [ -d "$STATIC_OUT" ]; then
 fi
 STATIC_ROOT="/var/www/paisamap/data"
 if [ -d "$STATIC_ROOT" ]; then
-    cp -f data/boundaries.geojson "$STATIC_ROOT/" 2>/dev/null || true
+    # Only when it changed: a same-content copy still bumps the ETag nginx serves.
+    cmp -s data/boundaries.geojson "$STATIC_ROOT/boundaries.geojson" \
+        || cp -f data/boundaries.geojson "$STATIC_ROOT/" 2>/dev/null || true
 fi
 
 # ── 7. Stage any new/updated data files ─────────────────────────────────────────

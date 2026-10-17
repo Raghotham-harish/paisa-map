@@ -510,9 +510,16 @@ def main():
         print(f"[DRY RUN] would write {len(geojson['features'])} features")
         return
 
+    # Most daily runs fetch nothing new; rewriting identical bytes would still
+    # bump the mtime and so the ETag nginx serves, making every browser
+    # re-download the ~12 MB file. Skip the write when nothing changed.
+    out = json.dumps(geojson, separators=(",", ":"))
+    if OUT_GEO.exists() and OUT_GEO.read_text() == out:
+        print(f"\nUnchanged: {OUT_GEO} — not rewritten")
+        return
     OUT_GEO.parent.mkdir(parents=True, exist_ok=True)
     with open(OUT_GEO, "w") as f:
-        json.dump(geojson, f, separators=(",", ":"))
+        f.write(out)
 
     kb = OUT_GEO.stat().st_size // 1024
     print(f"\nWritten: {OUT_GEO}  ({kb} KB)")
