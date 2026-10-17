@@ -108,8 +108,12 @@ until this is settled.
    the live VAHAN scrape, for anything sold.
 7. 🕰️ Refresh or footnote `cropping_intensity_pct` (2012-13).
 8. Publish the attribution block once 1–5 and 9 are cleared.
-9. ✅ **GDP signal upstream inputs — cleared by the founder 2026-10-17: yes, usable
-   commercially** (we ship only the CC BY 4.0 output; no GADM geometry or names). The
+9. ✅ **GDP signal upstream inputs — founder's own call 2026-10-17 (not a lawyer's):
+   accepted.** Reasoning: GDP is free on every plan, is never sold or priced, and feeds
+   no further logic (kept out of PPI, refit, drivers and suitability); we ship only the
+   CC BY 4.0 output, no GADM geometry or names. Residual: it still appears inside a
+   paid product (map + `/api/export`, incl. paid API keys). Revisit with counsel if
+   GDP is ever priced, used as a model input, or a GADM/RBI complaint arrives. The
    Kummu et al. dataset is CC BY 4.0, but it was built from (a) the RBI Handbook
    of Statistics on Indian States for the India state GDP series (same RBI-terms
    question as item 4) and (b) **GADM** admin-2 units, whose licence bars
