@@ -5,13 +5,37 @@
 > long-form history; several sections below predate it. Items ticked on 2026-09-21 were
 > confirmed live from memory notes of the verified deploys, not re-tested today.
 
+## 2026-10-15 — everything from 13–14 Oct merged; reviewer round closed; U9/D1/U17 done
+
+**Merged + live (prod fe83ff3)**
+- [x] PR #11 std floor (3f21cbf) · #12 Beta tag · #13 refit_history.jsonl · #14 India Post district placement · #15 honest cron message · #16 TODO
+- [x] Waiver `/home/ubuntu/refit_accept_drift` created (15 Oct) → Sun 18 Oct refit applies the std floor
+- [x] U17 nginx security headers (pen-test F4) applied + verified on / /workspace/ /privacy /terms /api/health; `server_tokens off`; no-cache intact
+- [x] D1: no trial for signal buyers, no proration Lite→Pro (confirmed); property rate → **free for everyone**, labelled "est., city-level"
+- [x] U9: Lite's 10th signal = `filers_per_capita`
+- [x] Swing report for the floor posted on PR #11 (+ `.local-patches/SWING_REPORT_std_floor_2026-10-15.md`): 3,997 >10pt, 10/10 gates, 700019 40→97; the floor flattens groups with no within-group signal (all 80 Kolkata ≈ 98, p10–p90 96–105); smaller floors (0.01–0.3) keep the *wrong* (noise) order
+
+**Open PRs (merge = deploy)**
+- [ ] #17 property rate free + Lite 10 signals + pricing doc
+- [ ] #18 Kanshiram Nagar → Kasganj 207123; fully scored districts logged `covered` → 14/14 districts resolve
+- [ ] #19 skip no-op `boundaries.geojson` rewrites + static-root copies (stops daily 12 MB re-downloads)
+- [ ] #10 (updated e0cffd8) `/api/boundary?pincode=` (own DoP polygon or 404); `index.html` 35 → 0 nominatim/overpass lines; removed "nearby hubs" + `loadLiveAreaData` (drew random incomes); 72 no-polygon pins keep their circle
+
+**Next**
+- [ ] Report the 15 Oct 07:37 cron: batch ok/fail + the 14 districts
+- [ ] Owner: keep or delete the waiver before Sun 18 Oct (brief given 15 Oct; recommendation keep)
+- [ ] Read the Sun 18 Oct refit: accepted, 10/10 gates, ~4k one-time shift, 700019 ≈ 97
+- [ ] Owner: SES sandbox status; retrain-brief answers (target, 74 blanks, catalog PR timing)
+- [ ] Build: P5 seat + company limits → public pricing page → #7 "estimated" badges
+- [ ] Follow-ups: shorten the 1.2–1.4 s per-lookup stagger (Nominatim-era) now `/api/reverse` is local; `syntheticAround()` still draws demo clusters where there's no data; locality list shows PPI > 200 under a "/ 200" header (seen locally)
+
 ## 2026-10-14 — D3 approved; std-floor fix in PR #11
 
 - [x] D3 = yes. Group-std floor (patch 01) committed ce86a5f, PR #11 open (not merged)
-- [ ] Merge PR #11 (auto-deploys), THEN create `/home/ubuntu/refit_accept_drift` before Sun 18 Oct cron
+- [x] Merge PR #11 (auto-deploys), THEN create `/home/ubuntu/refit_accept_drift` before Sun 18 Oct cron
 - [ ] Check 18 Oct refit log: 10/10 gates, ~4k one-time shift, 700019 ≈ 97
 - [ ] Retrain backtest (peer-review "defaults gap" brief, saved in .local-patches/RETRAIN_BRIEF_2026-10-14.md) — needs owner answers: target, 74 blanks, catalog PR timing
-- [ ] Patches 02–05 → one PR each (commits work again)
+- [x] Patches 02–05 → one PR each (commits work again)
 
 ## 2026-10-13 — wallet billing live; five fixes ready as local patches
 
@@ -30,11 +54,11 @@
 - [ ] 05 `cron_enrich.sh`: commit message states new pins + batch ok/fail; STALE warning when enrichment_log is unchanged 7d or batch has 0 successes in 7d
 
 **Open — owner**
-- [ ] D3 (by Sat 17 Oct): accept the Ballygunge fix's one-time shift (3,997 pins >10pt; PPI spread p10–p90 85–117 → 96–105)? Yes = waiver file before Sun 18 Oct; no = the 18 Oct refit is likely rejected (safe, map keeps 11 Oct scores)
-- [ ] Commit + push patches 01–05
+- [x] D3 (by Sat 17 Oct): accept the Ballygunge fix's one-time shift (3,997 pins >10pt; PPI spread p10–p90 85–117 → 96–105)? Yes = waiver file before Sun 18 Oct; no = the 18 Oct refit is likely rejected (safe, map keeps 11 Oct scores)
+- [x] Commit + push patches 01–05
 - [ ] Confirm the first hourly sweep ran (tail the sweep log)
 - [ ] SES: sandbox lifted?
-- [ ] Overdue: Signals Lite list (U9), P7 calls (D1), nginx security headers (U17)
+- [x] Overdue: Signals Lite list (U9), P7 calls (D1), nginx security headers (U17) — all done 15 Oct
 
 **Open — build**
 - [ ] PR #10 review: forward search still on Nominatim (scope?), 14 failing districts before/after, 74 PPI pins with no DoP polygon must return blank, `index.html` still calls nominatim + overpass
