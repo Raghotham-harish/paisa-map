@@ -70,13 +70,13 @@ PUBLIC = {
     "/api/auth/logout", "/api/auth/google", "/api/billing/pricing",
     "/api/billing/webhook", "/api/config", "/api/db_status", "/api/enrich",
     "/api/enrich_stats", "/api/export", "/api/health", "/api/metrics",
-    "/api/reverse", "/api/search", "/api/signals/catalog",
+    "/api/reverse", "/api/boundary", "/api/search", "/api/signals/catalog",
     "/api/status/<pincode>", "/api/intelligence/compare",
     "/api/intelligence/score", "/api/projects/shared/<token>",
     "/api/reports/shared/<token>", "/api/organizations/invites/<token>",
     "/api/organizations/invites/<token>/decline",
 }
-NEVER_CALLED = {"/api/enrich", "/api/reverse", "/api/search"}  # subprocess / Nominatim
+NEVER_CALLED = {"/api/enrich", "/api/search"}  # subprocess / Nominatim forward search
 
 client = app.test_client()
 unprotected = []

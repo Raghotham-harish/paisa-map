@@ -1005,7 +1005,6 @@
     <div class="action-bar">
       <div class="action-row">
         <button class="act-btn" id="locateBtn" title="Use my location" style="flex:1"><i class="ti ti-current-location"></i></button>
-        <button class="act-btn" id="nearbyBtn" title="Nearby hubs" style="flex:1"><i class="ti ti-building-store"></i></button>
       </div>
       <div class="action-row">
         <div class="mini-seg" id="metricSeg" role="group" aria-label="Metric" style="flex:1">
@@ -1374,8 +1373,8 @@ async function loadPPIData(){
 const DELHI_CENTER = [28.61, 77.21];
 const fmtINR = n => "₹" + Math.round(n).toLocaleString("en-IN");
 // Place names reach the DOM via innerHTML/Leaflet tooltips+popups (which parse
-// strings as HTML). Names originate from anonymous /api/enrich calls, Nominatim
-// and OSM tags, so every interpolation of one into markup goes through esc().
+// strings as HTML). Names originate from anonymous /api/enrich calls and search
+// results, so every interpolation of one into markup goes through esc().
 function esc(s){
   return String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 }
@@ -1741,9 +1740,7 @@ osmClassic.on("tileerror", ()=>{
 let circleLayer = null;
 let polyLayer = L.layerGroup().addTo(map);
 let markerGroup = L.layerGroup().addTo(map);
-let nearbyGroup = L.layerGroup().addTo(map);
 let boundaryLayer = null;
-let nearbyOn = false;
 
 // Distance-ring (catchment radius around the currently-selected pincode) and
 // "my stores" (a project's own uploaded locations) — both driven entirely by
@@ -1758,7 +1755,7 @@ let myStores = [];
 let representation = "symbol";
 let bivariateSecondary = null;   // signal id — set the first time bivariate is opened
 let topN = 10;
-const polyCache = new Map(); // locality name → GeoJSON geometry or null
+const polyCache = new Map(); // pincode → its DoP GeoJSON geometry or null
 
 // Pre-fetched pincode boundary polygons: pincode → GeoJSON feature
 let boundariesByPincode = {};
@@ -1795,32 +1792,21 @@ function boundaryCentroid(pc){
   }catch(e){ return null; }
 }
 
-// Nominatim's usage policy is ~1 request/sec — rendering 20-30 localities at once used to
-// fire that many reverse-geocode calls simultaneously, which gets the whole burst
-// rate-limited (choropleth silently stayed circles instead of upgrading to real shapes).
-// Serialize every call through one queue with a minimum gap instead.
-let nominatimQueue = Promise.resolve();
-const NOMINATIM_GAP_MS = 1100;
-function queueNominatim(fn){
-  const run = nominatimQueue.then(() => new Promise(r => setTimeout(r, NOMINATIM_GAP_MS))).then(fn);
-  nominatimQueue = run.catch(() => {});
-  return run;
-}
-
-async function fetchLocalityBoundary(name, lat, lng){
-  if(polyCache.has(name)) return polyCache.get(name);
-  polyCache.set(name, null);
-  return queueNominatim(async () => {
-    try{
-      const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&zoom=14&format=geojson&polygon_geojson=1`;
-      const res = await fetch(url, {headers:{"Accept-Language":"en"}});
-      const data = await res.json();
-      const geom = data.geometry || null;
-      const valid = geom && (geom.type==="Polygon" || geom.type==="MultiPolygon") ? geom : null;
-      polyCache.set(name, valid);
-      return valid;
-    }catch(e){ return null; }
-  });
+// A PIN's own India Post polygon from the server (local index, no outbound call).
+// null when that PIN has no DoP polygon — never a neighbour's shape, so it keeps
+// its circle rather than borrowing another PIN's outline.
+async function fetchPinBoundary(pincode){
+  if(!IS_SERVER || !pincode) return null;
+  if(polyCache.has(pincode)) return polyCache.get(pincode);
+  polyCache.set(pincode, null);
+  try{
+    const res = await fetch(`/api/boundary?pincode=${encodeURIComponent(pincode)}`);
+    const data = res.ok ? await res.json() : null;
+    const geom = data && data.geometry;
+    const valid = geom && (geom.type==="Polygon" || geom.type==="MultiPolygon") ? geom : null;
+    polyCache.set(pincode, valid);
+    return valid;
+  }catch(e){ return null; }
 }
 
 /* ---------- representation picker ---------- */
@@ -1885,10 +1871,9 @@ async function relocateYou(lat, lng){
   moveYou();
   syncCityInput(lat, lng);
   if(dataPromise) await dataPromise;
-  liveData = []; liveGen++;          // cancel any in-flight live fetch
   const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
   dataset = (nearby.length > 0 ? nearby : syntheticAround(center[0],center[1])).map(buildRecord);
-  activeId = null; clearNearby(); drawBoundary(null);
+  activeId = null; drawBoundary(null);
   render();
   // Fit viewport to show pin + any static data within radius
   const inView = dataset.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm);
@@ -1898,9 +1883,6 @@ async function relocateYou(lat, lng){
   } else {
     map.flyTo(center, 12, {duration:0.8});
   }
-  // If no static data in radius, fetch live OSM data immediately
-  const hasStatic = ncrData.some(d => haversine(center[0],center[1],d[1],d[2]) <= radiusKm);
-  if(!hasStatic) loadLiveAreaData(center[0], center[1]);
   // Auto-enrich pin location + surrounding ring of pincodes if area is sparse
   autoEnrichIfNew(center[0], center[1]);
   bulkEnrichNearby(center[0], center[1]);
@@ -1962,7 +1944,7 @@ setTimeout(()=>{
   }
 },4500);
 
-/* ---------- boundaries (real polygons from OSM/Nominatim) ---------- */
+/* ---------- boundaries (India Post PIN polygons) ---------- */
 function drawBoundary(geojson,label){
   if(boundaryLayer){ boundaryLayer.remove(); boundaryLayer = null; }
   if(!geojson) return;
@@ -1973,42 +1955,27 @@ function drawBoundary(geojson,label){
   if(label) toast("Boundary drawn: " + label);
 }
 
-const NOMINATIM = "https://nominatim.openstreetmap.org";
-
-// Search via server proxy (avoids CORS when opened as file://)
-// Falls back to direct Nominatim if not served over HTTP.
-async function nominatimSearch(q, indiaOnly=true){
-  let url, opts={};
-  if(IS_SERVER){
-    url = `/api/search?q=${encodeURIComponent(q)}`;
-  } else {
-    const extra = indiaOnly ? "&countrycodes=in" : "";
-    url = `${NOMINATIM}/search?format=jsonv2&limit=6&polygon_geojson=1&addressdetails=1${extra}&q=${encodeURIComponent(q)}`;
-    opts = {headers:{Accept:"application/json","User-Agent":"PaisaMap/3.2"}};
-  }
-  const res = await fetch(url, opts);
+// Place search goes through the server (/api/search); the browser never calls a
+// third-party geocoder directly.
+async function placeSearch(q){
+  if(!IS_SERVER) throw new Error("Search needs the PaisaMap server");
+  const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
   if(!res.ok) throw new Error("Search " + res.status);
   return res.json();
 }
 
-// fetch + draw a locality's admin boundary on demand (popup button)
+// draw a locality's India Post PIN boundary on demand (popup button)
 window.showBoundary = async function(id){
   const d = dataset.find(x=>x.id===id);
   if(!d) return;
-  toast("Fetching boundary from OpenStreetMap…",6000);
-  try{
-    const q = d.name.split("·")[0].trim() + ", India";
-    const res = await nominatimSearch(q);
-    const hit = res.find(r => r.geojson && (r.geojson.type==="Polygon" || r.geojson.type==="MultiPolygon"));
-    if(hit){
-      drawBoundary(hit.geojson, d.name);
-      map.flyToBounds(boundaryLayer.getBounds(),{maxZoom:14,duration:.6});
-    } else {
-      toast(`OSM has no boundary polygon mapped for "${d.name}".`);
-    }
-  }catch(e){
-    const hint = IS_SERVER ? "" : " — run python3 server.py for better search support";
-    toast("Boundary lookup failed" + hint, 5000);
+  const pc = d.pincode;
+  const bf = pc && boundariesByPincode[pc];
+  const geom = (bf && bf.geometry) || await fetchPinBoundary(pc);
+  if(geom){
+    drawBoundary({type:"Feature", geometry:geom, properties:{}}, d.name);
+    map.flyToBounds(boundaryLayer.getBounds(),{maxZoom:14,duration:.6});
+  } else {
+    toast(pc ? `No India Post boundary polygon for ${pc}.` : "No pincode for this point, so no boundary to draw.");
   }
 };
 
@@ -2069,11 +2036,11 @@ async function runSearch(){
     return;
   }
 
-  // 4. Nominatim (India-only) for unknown area names
+  // 4. Server place search (India-only) for unknown area names
   searchResults.style.display="block";
   searchResults.innerHTML='<button disabled>Searching…</button>';
   try{
-    const res=await nominatimSearch(q,true);
+    const res=await placeSearch(q);
     if(!res.length){
       searchResults.innerHTML='<button disabled>No places found in India. Try adding the city name (e.g. "Bandra Mumbai").</button>';
       return;
@@ -2100,7 +2067,7 @@ async function applyPlace(r){
   const nearby=ncrData.filter(d=>haversine(center[0],center[1],d[1],d[2])<=80);
   dataset=(nearby.length>0?nearby:syntheticAround(center[0],center[1])).map(buildRecord);
   activeId=null;
-  clearNearby();
+ 
   const poly=r.geojson&&(r.geojson.type==="Polygon"||r.geojson.type==="MultiPolygon")?r.geojson:null;
   drawBoundary(poly,poly?r.display_name.split(",")[0]:null);
   moveYou();
@@ -2126,9 +2093,15 @@ async function enrichPincodeFlow(pincode){
   toast(`Resolving pincode ${pincode}…`,8000);
   let lat,lng,name=pincode;
   try{
-    const hits=await nominatimSearch(pincode+" India");
-    if(hits.length){lat=hits[0].lat;lng=hits[0].lon;name=hits[0].display_name.split(",")[0];}
+    const b=await fetch(`/api/boundary?pincode=${pincode}`).then(r=>r.ok?r.json():null);
+    if(b&&b.lat!=null){lat=b.lat;lng=b.lng;name=b.office_name||pincode;}
   }catch(e){}
+  if(!lat||!lng){
+    try{
+      const hits=await placeSearch(pincode+" India");
+      if(hits.length){lat=hits[0].lat;lng=hits[0].lon;name=hits[0].display_name.split(",")[0];}
+    }catch(e){}
+  }
   if(!lat||!lng){toast("Could not resolve pincode — try entering the area name instead.",5000);return;}
   center=[+lat,+lng];
   moveYou();
@@ -2162,7 +2135,7 @@ async function enrichPincodeFlow(pincode){
 // ── Auto-enrich when "You Are Here" pin is dropped on an unknown pincode ────────
 async function autoEnrichIfNew(lat, lng){
   if(!IS_SERVER) return;
-  // Reverse-geocode via server proxy (avoids browser Nominatim rate-limit)
+  // Reverse-geocode on the server (local India Post polygon index)
   let pc, name;
   try{
     const rev = await fetch(`/api/reverse?lat=${lat}&lng=${lng}`).then(r=>r.json());
@@ -2254,13 +2227,13 @@ async function bulkEnrichNearby(lat, lng){
     points.push([lat+dLat, lng+dLng]);
   }
 
-  // Discover pincodes (staggered to respect Nominatim 1 req/s limit)
+  // Discover pincodes (staggered so a ring of lookups doesn't flood the server)
   const toEnrich = [];
   for(const [pLat,pLng] of points){
     if(_bulkGen !== myGen){ hideLoader(); return; }
     await new Promise(r=>setTimeout(r,1200));
     try{
-      // Route through server proxy — avoids browser Nominatim rate-limit
+      // Server-side reverse lookup (local India Post polygon index)
       const rev = await fetch(`/api/reverse?lat=${pLat}&lng=${pLng}`).then(r=>r.json());
       const pc   = (rev?.address?.postcode||"").replace(/\s/g,"");
       const name = rev?.address?.suburb||rev?.address?.neighbourhood||
@@ -2348,12 +2321,12 @@ async function prefetchHexNeighbors(lat, lng){
     const hLat = lat + dLat;
     const hLng = lng + dLng;
 
-    // Stagger to respect Nominatim 1 req/s
+    // Stagger so the hex ring doesn't flood the server
     await new Promise(r => setTimeout(r, 1400));
     if(_prefetchGen !== myGen) return;
 
     try{
-      // Route through server proxy — avoids browser Nominatim rate-limit
+      // Server-side reverse lookup (local India Post polygon index)
       const rev = await fetch(`/api/reverse?lat=${hLat}&lng=${hLng}`).then(r => r.json());
 
       const pc   = (rev?.address?.postcode || "").replace(/\s/g, "");
@@ -2390,56 +2363,6 @@ searchBox.addEventListener("keydown",e=>{if(e.key==="Enter")runSearch();});
 document.addEventListener("click",e=>{
   if(!e.target.closest(".search-wrap")&&!e.target.closest("#searchResults"))
     searchResults.style.display="none";
-});
-
-/* ---------- nearby hubs (Overpass API — OSM's "places nearby") ---------- */
-const OVERPASS = "https://overpass-api.de/api/interpreter";
-const nearbyBtn = document.getElementById("nearbyBtn");
-
-function clearNearby(){
-  nearbyGroup.clearLayers();
-  nearbyOn = false;
-  nearbyBtn.innerHTML = '<i class="ti ti-building-store"></i>';
-  nearbyBtn.title = "Nearby hubs";
-}
-
-nearbyBtn.addEventListener("click", async ()=>{
-  if(nearbyOn){ clearNearby(); return; }
-  const rKm = Math.min(radiusKm,10), r = rKm*1000;
-  toast(`Finding malls, supermarkets & banks within ${rKm} km…`,8000);
-  const q = `[out:json][timeout:25];(
-    nwr["shop"="mall"](around:${r},${center[0]},${center[1]});
-    nwr["shop"="supermarket"](around:${r},${center[0]},${center[1]});
-    nwr["amenity"="bank"](around:${r},${center[0]},${center[1]});
-  );out center 80;`;
-  try{
-    const res = await fetch(OVERPASS,{
-      method:"POST",
-      headers:{"Content-Type":"application/x-www-form-urlencoded"},
-      body:"data="+encodeURIComponent(q)
-    });
-    if(!res.ok) throw new Error("Overpass " + res.status);
-    const json = await res.json();
-    nearbyGroup.clearLayers();
-    let n = 0;
-    (json.elements||[]).forEach(el=>{
-      const la = el.lat ?? el.center?.lat, lo = el.lon ?? el.center?.lon;
-      if(la == null || lo == null) return;
-      const t = el.tags || {};
-      const kind = t.shop === "mall" ? "Mall" : t.shop === "supermarket" ? "Supermarket" : "Bank";
-      L.circleMarker([la,lo],{
-        radius:3.5, color:"#115000", weight:1, fillColor:"#216A0B", fillOpacity:.9
-      }).bindTooltip(esc(`${t.name || kind} · ${kind}`),{direction:"top",offset:[0,-4]})
-        .addTo(nearbyGroup);
-      n++;
-    });
-    nearbyOn = true;
-    nearbyBtn.innerHTML = '<i class="ti ti-x"></i>';
-    nearbyBtn.title = `Hide nearby hubs (${n} found)`;
-    toast(n ? `${n} spend hubs plotted (green dots).` : "OSM has no malls/supermarkets/banks tagged in this radius.");
-  }catch(e){
-    toast("Nearby lookup failed — network blocked here. Download the file and open it in a browser tab.",5000);
-  }
 });
 
 // One palette per metric family (low → high, 6 steps). Every ramp is now a
@@ -2575,74 +2498,6 @@ function updateLegend(){
 }
 
 let renderGen = 0;
-let liveData  = [];   // on-demand Overpass results
-let liveGen   = 0;
-
-/* ---------- live data: query Overpass when no static data in radius ---------- */
-async function loadLiveAreaData(lat, lng, cityKey){
-  const myGen = ++liveGen;
-  try{
-    // Count premium POIs within 2 km of pin
-    const q = `[out:json][timeout:20];(
-      nwr["shop"="mall"](around:2000,${lat},${lng});
-      nwr["shop"="supermarket"](around:2000,${lat},${lng});
-      nwr["amenity"="bank"](around:2000,${lat},${lng});
-      nwr["shop"="jewelry"](around:2000,${lat},${lng});
-      nwr["leisure"="fitness_centre"](around:2000,${lat},${lng});
-      nwr["amenity"="school"](around:2000,${lat},${lng});
-      nwr["amenity"="hospital"](around:2000,${lat},${lng});
-      nwr["amenity"="fuel"](around:2000,${lat},${lng});
-      nwr["amenity"="pharmacy"](around:2000,${lat},${lng});
-      nwr["amenity"="restaurant"](around:2000,${lat},${lng});
-    );out count;`;
-
-    const [ovRes, nomRes] = await Promise.all([
-      fetch(OVERPASS, {method:"POST", body:q, headers:{"Content-Type":"text/plain"}}),
-      fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&zoom=14`,
-            {headers:{"Accept-Language":"en","User-Agent":"PaisaMap/2.9"}})
-    ]);
-    if(myGen !== liveGen) return;
-
-    const [ovData, nomData] = await Promise.all([ovRes.json(), nomRes.json()]);
-    if(myGen !== liveGen) return;
-
-    // Estimate monthly household income from POI density (calibrated on 38 pincodes)
-    const count   = parseInt(ovData?.elements?.[0]?.tags?.total) || 0;
-    const density = count / (Math.PI * 4); // per km² for 2km radius
-    const baseInc = Math.round(Math.max(11000, Math.min(160000, 11000 + 900 * density)));
-
-    const adr = nomData?.address || {};
-    const locName = adr.suburb || adr.neighbourhood || adr.village
-                  || adr.town || adr.city_district || "Your Area";
-
-    // Centre point + 8 directional samples at radiusKm/3 spacing
-    const step = Math.max(2, Math.min(radiusKm / 3, 8));
-    const stepDeg = step / 111;
-    const rr = rng(Math.round(lat * 1000) + Math.round(lng * 1000));
-    const pts = [[locName, lat, lng, baseInc]];
-    ["N","NE","E","SE","S","SW","W","NW"].forEach((d, i) => {
-      const ang  = (i / 8) * 2 * Math.PI;
-      const dist = stepDeg * (0.8 + rr() * 0.4);
-      const dlat = dist * Math.cos(ang);
-      const dlng = dist / Math.cos(lat * Math.PI / 180) * Math.sin(ang);
-      const inc  = Math.round(Math.max(10000, Math.min(160000, baseInc * (0.5 + rr() * 1.0))));
-      pts.push([`${d} · ${locName}`, lat + dlat, lng + dlng, inc]);
-    });
-
-    liveData = pts.map(buildRecord);
-    render();
-    if(count >= 3){
-      toast(`Live data · ${locName}`, 3000);
-      // This city now has real fetched data for the session — flip its catalog
-      // tag from LIVE to DATA so the dropdown reflects what's actually on the map.
-      if(cityKey && CITIES[cityKey]) CITIES[cityKey].liveFetched = true;
-    } else {
-      toast(`Estimated coverage · ${locName} — no mapped data yet`, 4000);
-    }
-  } catch(e){
-    // OSM/Overpass unavailable for this area — synthetic data already showing, no toast needed
-  }
-}
 
 map.on("zoomend",()=>{
   if(representation === "cluster"){ render(); }  // bucket size depends on zoom scale
@@ -2656,8 +2511,7 @@ function withinRadius(){
   // PPI/income/spend view or existing Pro signals can regress.
   const src = BROAD_SIGNAL_IDS.has(metric) ? [...dataset, ...broadDataset] : dataset;
   const base = src.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm);
-  const live = liveData.filter(d => haversine(center[0],center[1],d.lat,d.lng) <= radiusKm);
-  return [...base, ...live];
+  return base;
 }
 
 function computePPI(rows){
@@ -2720,8 +2574,8 @@ function passesFilters(d){
   });
 }
 
-// A locality's real boundary polygon (from the static backfill or a live Nominatim
-// lookup) is only trustworthy if it's actually locality-scale — matched to Python's
+// A locality's real boundary polygon (from the static backfill or a legacy
+// geocoder-derived entry) is only trustworthy if it's actually locality-scale — matched to Python's
 // is_reasonable_size() in fetch_boundaries.py so the frontend rejects the same class of
 // oversized/wrong-admin-level polygon a fresh live fetch could still return.
 function polygonDiagKm(geom){
@@ -2829,7 +2683,7 @@ function render(){
       // official PIN-code-office polygon (properties._source === "govt") — that's an
       // authoritative real boundary, not a same-named-place guess, so it skips
       // isReasonableBoundary entirely; a genuinely large rural PIN code area is real,
-      // not a mismatch. The size check still applies to the remaining Nominatim-derived
+      // not a mismatch. The size check still applies to the 72 legacy geocoder-derived
       // entries, which is what it was built to catch (city/district-scale OSM polygons
       // mismatched onto a tight locality).
       const bf = d.pincode && boundariesByPincode[d.pincode];
@@ -2840,14 +2694,10 @@ function render(){
       }
 
       const circ = L.circle([d.lat,d.lng],{radius:coverM,...baseStyle}).addTo(polyLayer);
-      // Skip the live OSM lookup for synthetic clusters ("East cluster 4") and
-      // live-estimated points ("N · Your Area") — they return wrong large polygons.
-      // For real, uncached localities this call is queued/throttled (see
-      // fetchLocalityBoundary) so a 20-30 locality view doesn't burst-fire that many
-      // simultaneous requests at Nominatim and get the whole batch rate-limited.
-      const isEstimated = /cluster\s*\d/i.test(d.name) || d.name.includes(" · ");
-      if(!isEstimated){
-        fetchLocalityBoundary(d.name, d.lat, d.lng).then(geom=>{
+      // Not in the static file: ask for this PIN's own polygon (synthetic clusters
+      // have no pincode, so they keep their circle).
+      if(d.pincode){
+        fetchPinBoundary(d.pincode).then(geom=>{
           if(!geom || gen !== renderGen) return;
           if(!isReasonableBoundary(geom, nn)) return;
           polyLayer.removeLayer(circ);
@@ -3279,10 +3129,8 @@ function toast(msg, ms=3200){
 }
 
 /* ---------- controls ---------- */
-// `hasData` here only tracks *session* state (flipped true once a live OSM fetch has
-// actually populated a city — see loadLiveAreaData). Whether a city already has real
-// CSV coverage at page load is computed fresh in allCities() below from the live
-// ncrData, not hardcoded, since the enrichment cron grows coverage daily and a static
+// Whether a city has real CSV coverage is computed fresh in allCities() below from
+// the live ncrData, not hardcoded, since the enrichment cron grows coverage daily and a static
 // true/false here silently drifts out of date (e.g. Pune had 14 real localities within
 // 80km while still hardcoded false).
 const CITIES = {
@@ -3301,7 +3149,6 @@ const CITIES = {
 // of "LIVE" — a couple of stray CSV rows near a city center isn't meaningful coverage.
 const CITY_HASDATA_MIN = 5;
 function cityHasRealData(c){
-  if(c.liveFetched) return true;
   return ncrData.filter(d => haversine(c.center[0],c.center[1],d[1],d[2]) <= 80).length >= CITY_HASDATA_MIN;
 }
 
@@ -3321,22 +3168,17 @@ function syncCityInput(lat, lng){
 }
 async function jumpToCity(key){
   if(dataPromise) await dataPromise;
-  liveData = []; liveGen++;
   const c = CITIES[key];
   if(!c) return;
   center = [...c.center];
   const nearby = ncrData.filter(d => haversine(center[0],center[1],d[1],d[2]) <= 80);
   dataset = (nearby.length > 0 ? nearby : syntheticAround(center[0],center[1])).map(buildRecord);
-  activeId = null; clearNearby(); drawBoundary(null); moveYou();
+  activeId = null; drawBoundary(null); moveYou();
   map.flyTo(center, c.zoom, {duration:.8});
   render();
   const ci = document.getElementById("cityInput");
   if(ci) ci.value = c.label;
   searchBox.value = "";
-  if(nearby.length < CITY_HASDATA_MIN){
-    toast("Fetching live OSM data for " + c.label + "…", 10000);
-    loadLiveAreaData(center[0], center[1], key);
-  }
 }
 
 /* ── City search dropdown ── */
@@ -4163,7 +4005,7 @@ document.getElementById("resetBtn").addEventListener("click", async ()=>{
   activeId = null;
   signalFilters = [];
   moveYou();
-  clearNearby();
+ 
   drawBoundary(null);
   map.flyTo(center, 11, {duration:.6});
   render();
@@ -4276,19 +4118,15 @@ document.getElementById("resetBtn").addEventListener("click", async ()=>{
 
 async function applyLocation(la, lo){
   if(dataPromise) await dataPromise;
-  liveData = []; liveGen++;
   center = [la, lo];
   const nearby = ncrData.filter(d => haversine(la,lo,d[1],d[2]) <= 80);
   dataset = (nearby.length > 0 ? nearby : syntheticAround(la,lo)).map(buildRecord);
-  activeId = null; moveYou(); clearNearby(); drawBoundary(null);
+  activeId = null; moveYou(); drawBoundary(null);
   syncCityInput(la, lo);
   searchBox.value = "";
   map.flyTo(center, 12, {duration:1});
   render();
   try{ localStorage.setItem("pm_loc", JSON.stringify([la,lo])); }catch(e){}
-  // If outside static coverage, fetch live OSM data automatically
-  const hasStatic = ncrData.some(d => haversine(la,lo,d[1],d[2]) <= radiusKm);
-  if(!hasStatic) loadLiveAreaData(la, lo);
 }
 
 function locateUser(auto){
