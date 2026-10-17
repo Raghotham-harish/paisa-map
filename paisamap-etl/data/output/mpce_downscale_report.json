@@ -1,0 +1,106 @@
+{
+ "pincodes_in": 15443,
+ "pincodes_estimated": 15135,
+ "pincodes_no_inputs": 308,
+ "methods": {
+  "urban_rural_anchor": 11696,
+  "combined_anchor": 3439
+ },
+ "districts": 489,
+ "index_fit": {
+  "weights": {
+   "log1p_retail_per_km2": 0.1562500135124502,
+   "builtup_share": 1.0880674934909116
+  },
+  "districts": 485,
+  "states": 26,
+  "loo_r2_within_state": 0.27758551984397584,
+  "loo_spearman_within_state": 0.48846694815664077,
+  "ridge_lambda": 50.0
+ },
+ "max_benchmark_error": 4.440892098500626e-16,
+ "share_of_pincodes_varying_within_district": 0.9993392798149984,
+ "ratio_to_district_quantiles": {
+  "0.05": 0.673,
+  "0.25": 0.869,
+  "0.5": 0.958,
+  "0.75": 1.017,
+  "0.95": 1.54
+ },
+ "capped_share": 0.0014535844070036339,
+ "gates": [
+  {
+   "gate": "Golf Links > Saket",
+   "pass": false,
+   "hi": 12358,
+   "lo": 14362,
+   "same_district": true
+  },
+  {
+   "gate": "Saket > Narela",
+   "pass": true,
+   "hi": 14362,
+   "lo": 6175,
+   "same_district": false
+  },
+  {
+   "gate": "Golf Links > Dwarka",
+   "pass": false,
+   "hi": 12358,
+   "lo": 17921,
+   "same_district": false
+  },
+  {
+   "gate": "Golf Course Rd > Gurgaon City",
+   "pass": null,
+   "missing": [
+    "122022"
+   ]
+  },
+  {
+   "gate": "Nariman Point > Dahisar",
+   "pass": false,
+   "hi": 5911,
+   "lo": 10440,
+   "same_district": true
+  },
+  {
+   "gate": "Malabar Hill > Malad East",
+   "pass": true,
+   "hi": 11486,
+   "lo": 11441,
+   "same_district": true
+  },
+  {
+   "gate": "Juhu > Vashi",
+   "pass": true,
+   "hi": 12113,
+   "lo": 11095,
+   "same_district": false
+  },
+  {
+   "gate": "Indiranagar > Electronics City",
+   "pass": true,
+   "hi": 12345,
+   "lo": 10704,
+   "same_district": true
+  },
+  {
+   "gate": "Indiranagar > Yelahanka",
+   "pass": true,
+   "hi": 12345,
+   "lo": 9277,
+   "same_district": true
+  },
+  {
+   "gate": "Koramangala > Hebbal (H.A. Farm)",
+   "pass": true,
+   "hi": 15079,
+   "lo": 12712,
+   "same_district": true
+  }
+ ],
+ "gates_passed": 6,
+ "source": "PaisaMap estimate: HCES 2023-24 district MPCE (MoSPI) split by WorldPop 2020, GHSL built-up 2020 and Overture Places shop density",
+ "licence": "derived; inputs GODL-India (HCES, DoP PIN boundaries), CC BY 4.0 (WorldPop, GHSL), CDLA-P-2.0/Apache-2.0/CC0 (Overture)"
+}
