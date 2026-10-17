@@ -112,29 +112,38 @@ fi
 echo ""
 echo "Staging updated data files..."
 cd "$REPO"
-git add \
-    data/output/enrichment_log.csv \
-    data/output/ppi_map_data.csv \
-    data/boundaries.geojson \
-    paisamap-etl/data/output/ppi_ml_refined.csv \
-    paisamap-etl/data/output/ppi_map_data.csv \
-    paisamap-etl/data/output/ml_diagnostics.json \
-    paisamap-etl/data/output/refit_baseline.csv \
-    paisamap-etl/data/output/refit_last_run.json \
-    paisamap-etl/data/output/refit_history.jsonl \
-    paisamap-etl/data/output/batch_enrich_log.csv \
-    paisamap-etl/data/raw/pincode_coords.csv \
-    paisamap-etl/data/raw/pincode_names.csv \
-    paisamap-etl/data/raw/property_rates.csv \
-    paisamap-etl/data/raw/bank_deposits.csv \
-    paisamap-etl/data/raw/nightlights.csv \
-    paisamap-etl/data/raw/poi_density.csv \
-    paisamap-etl/data/raw/itr_filers.csv \
-    paisamap-etl/data/raw/vehicle_density.csv \
-    paisamap-etl/data/raw/financial_inclusion.csv \
-    paisamap-etl/data/raw/rto_enhanced.csv \
-    paisamap-etl/data/reference/pincode_district_map.csv \
-    2>/dev/null || true
+# One path at a time, and only paths that exist: `git add a b c` with ANY
+# missing path stages NOTHING ("pathspec did not match", exit 128). From 15 to
+# 17 Oct 2026 that silently stopped every nightly commit, because
+# refit_history.jsonl only appears after the first Sunday refit and the old
+# `2>/dev/null || true` hid the error. A real failure is now logged.
+STAGE_PATHS=(
+    data/output/enrichment_log.csv
+    data/output/ppi_map_data.csv
+    data/boundaries.geojson
+    paisamap-etl/data/output/ppi_ml_refined.csv
+    paisamap-etl/data/output/ppi_map_data.csv
+    paisamap-etl/data/output/ml_diagnostics.json
+    paisamap-etl/data/output/refit_baseline.csv
+    paisamap-etl/data/output/refit_last_run.json
+    paisamap-etl/data/output/refit_history.jsonl
+    paisamap-etl/data/output/batch_enrich_log.csv
+    paisamap-etl/data/raw/pincode_coords.csv
+    paisamap-etl/data/raw/pincode_names.csv
+    paisamap-etl/data/raw/property_rates.csv
+    paisamap-etl/data/raw/bank_deposits.csv
+    paisamap-etl/data/raw/nightlights.csv
+    paisamap-etl/data/raw/poi_density.csv
+    paisamap-etl/data/raw/itr_filers.csv
+    paisamap-etl/data/raw/vehicle_density.csv
+    paisamap-etl/data/raw/financial_inclusion.csv
+    paisamap-etl/data/raw/rto_enhanced.csv
+    paisamap-etl/data/reference/pincode_district_map.csv
+)
+for f in "${STAGE_PATHS[@]}"; do
+    [ -e "$f" ] || continue
+    git add -- "$f" || echo "  WARN: git add failed for $f"
+done
 
 # ── What this run actually did, so the commit message can't overstate it ─────
 # (13 Oct audit: a month of "daily enrich" commits added 0 pincodes; the only
