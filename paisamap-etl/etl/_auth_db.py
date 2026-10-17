@@ -345,7 +345,7 @@ def _get_tables():
         "orders", _metadata,
         Column("id", Integer, primary_key=True, autoincrement=True),
         Column("user_id", Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-        Column("kind", Text, nullable=False),  # 'credit_pack' | 'plan_upgrade' | 'report_purchase'
+        Column("kind", Text, nullable=False),  # 'credit_pack' | 'plan_upgrade' | 'report_purchase' | 'addon'
         Column("razorpay_order_id", Text, nullable=False, unique=True),
         Column("razorpay_payment_id", Text),   # filled on verification
         Column("razorpay_signature", Text),    # filled on verification (audit trail)
@@ -370,7 +370,9 @@ def _get_tables():
         Column("price_book_version", Text),
         Column("created_at", DateTime(timezone=True), nullable=False),
         Column("paid_at", DateTime(timezone=True)),
-        CheckConstraint("kind IN ('credit_pack','plan_upgrade','report_purchase')",
+        # 'addon' = one charge of a P5 extras subscription (addon_subscriptions);
+        # Postgres gets it from apply_addon_subscriptions.py.
+        CheckConstraint("kind IN ('credit_pack','plan_upgrade','report_purchase','addon')",
                          name="ck_orders_kind"),
         CheckConstraint("status IN ('created','paid','failed','refunded')",
                          name="ck_orders_status"),
@@ -567,6 +569,40 @@ def _get_tables():
         CheckConstraint("extra_seats >= 0 AND extra_companies >= 0", name="ck_wallet_addons_nonneg"),
     )
 
+    # P5 round 3: self-serve extra seats / companies. Each purchase is its OWN
+    # small monthly Razorpay subscription (owner decision 17 Oct 2026: Razorpay
+    # can't change the amount of a UPI-Autopay or eMandate subscription, so the
+    # extras can't ride on the plan's own charge). `quantity` of `kind` on top of
+    # the wallet's tier while it is paid up; see _addon_subs.entitled_extras.
+    # Extras set by hand for assisted customers stay in wallet_addons.
+    addon_subscriptions = Table(
+        "addon_subscriptions", _metadata,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("wallet_org_id", Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False),
+        Column("created_by_user_id", Integer, ForeignKey("users.id", ondelete="SET NULL")),
+        Column("kind", Text, nullable=False),                      # 'seat' | 'company'
+        Column("quantity", Integer, nullable=False),
+        Column("tier", Text, nullable=False),                      # the wallet's tier when bought
+        Column("unit_paise", Integer, nullable=False),             # ex-GST price of one, frozen
+        Column("amount_paise", Integer, nullable=False),           # one cycle's charge incl. GST
+        Column("razorpay_subscription_id", Text, nullable=False, unique=True),
+        Column("razorpay_plan_id", Text, nullable=False),
+        Column("status", Text, nullable=False, server_default="created"),
+        Column("paid_count", Integer, nullable=False, server_default="0"),
+        Column("current_start", DateTime(timezone=True)),
+        Column("current_end", DateTime(timezone=True)),
+        Column("cancel_at_period_end", Boolean, nullable=False, server_default="0"),
+        Column("cancelled_at", DateTime(timezone=True)),
+        Column("ends_at", DateTime(timezone=True)),
+        Column("last_event_at", DateTime(timezone=True)),
+        Column("meta", JSONType),                                  # {"tax", "buyer"}, frozen like subscriptions.meta
+        Column("created_at", DateTime(timezone=True), nullable=False),
+        Column("updated_at", DateTime(timezone=True), nullable=False),
+        CheckConstraint("kind IN ('seat','company')", name="ck_addon_subscriptions_kind"),
+        CheckConstraint("quantity >= 1", name="ck_addon_subscriptions_quantity"),
+        Index("ix_addon_subscriptions_wallet", "wallet_org_id"),
+    )
+
     # Billing-v2 budgets: a cap, in credits, on what one COMPANY may spend from
     # its wallet per period (kind='cap'), and an optional floor a wallet keeps
     # back for its own company (kind='reserve', org_id = wallet_org_id). The
@@ -700,6 +736,7 @@ def _get_tables():
         "orders": orders, "invoices": invoices,
         "api_keys": api_keys,
         "credit_budgets": credit_budgets, "wallet_addons": wallet_addons,
+        "addon_subscriptions": addon_subscriptions,
         "credit_member_budgets": credit_member_budgets,
         "credit_link_requests": credit_link_requests,
         "org_domains": org_domains,
@@ -733,6 +770,7 @@ def init_schema():
         tables["credit_link_requests"], tables["org_domains"],
         tables["subscriptions"], tables["razorpay_plans"], tables["assisted_sales"],
         tables["credit_lots"], tables["trials"], tables["wallet_addons"],
+        tables["addon_subscriptions"],
     ])
     _ensure_invoice_sequence(engine)
 

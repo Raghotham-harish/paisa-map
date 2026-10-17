@@ -17,6 +17,7 @@ import { MemberBudgetsManager } from "../components/MemberBudgetsManager";
 import { LinkRequestsInbox, WhoPaysPanel } from "../components/WhoPays";
 import { BillingDetails, BUYER_ERRORS, EMPTY_BUYER } from "../components/BillingDetails";
 import { LIVE_STATUSES, SubscriptionPanel, subscriptionPanelActive } from "../components/SubscriptionPanel";
+import { ExtrasPanel } from "../components/ExtrasPanel";
 
 const PLAN_ORDER: Array<"free" | "pro" | "team"> = ["free", "pro", "team"];
 
@@ -178,6 +179,16 @@ export default function Billing() {
       <p className="kicker" style={{ marginBottom: 10 }}>Plan</p>
       {subs && subsActive && (
         <SubscriptionPanel
+          data={subs}
+          orgId={activeOrgId}
+          buyer={buyer}
+          gstCharged={!!pricing?.gst?.charged}
+          email={user?.email}
+          onChanged={onSubsChanged}
+        />
+      )}
+      {subs && subsActive && (
+        <ExtrasPanel
           data={subs}
           orgId={activeOrgId}
           buyer={buyer}
